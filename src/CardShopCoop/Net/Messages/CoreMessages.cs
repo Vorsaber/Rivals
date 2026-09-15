@@ -176,6 +176,9 @@ namespace CardShopCoop.Net.Messages
         public Quaternion CameraRotation;
         public float Speed;
         public byte Hold;
+        // bit0 seated, bit1 playing the card game (game 1.0 battle at a play table);
+        // drives the customer-prefab puppet's IsSitting / IsPlaying animator bools
+        public byte Pose;
         public System.Collections.Generic.List<int> HoldTypes;
         public System.Collections.Generic.List<CardData> HoldCards;
         public MsgType Type

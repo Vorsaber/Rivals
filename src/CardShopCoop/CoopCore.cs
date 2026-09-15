@@ -293,6 +293,7 @@ namespace CardShopCoop
         private Quaternion _lastSentCamRot;
         private byte _lastSentHold;
         private int _lastSentHoldSig;
+        private byte _lastSentPose;
         private bool _hasSentState;
         private float _stateKeepalive;
 
@@ -2071,6 +2072,7 @@ namespace CardShopCoop
             Vector3 cameraPos = camera != null ? camera.position : pos;
             Quaternion cameraRot = camera != null ? camera.rotation : Quaternion.Euler(0f, yaw, 0f);
             int holdSig = HoldPayloadSignature();
+            byte pose = ComputePose();
 
             // Change-gate: only send when pose/camera/hold actually moved, plus a slow
             // keepalive so a standing-still player still refreshes the far side.
@@ -2080,7 +2082,8 @@ namespace CardShopCoop
                 || hold != _lastSentHold
                 || (cameraPos - _lastSentCamPos).sqrMagnitude > 0.0004f
                 || Quaternion.Angle(cameraRot, _lastSentCamRot) > 0.5f
-                || holdSig != _lastSentHoldSig;
+                || holdSig != _lastSentHoldSig
+                || pose != _lastSentPose;
             if (!changed && _stateKeepalive < 5f)
             {
                 _stateTimer = 0f; // consumed this interval
@@ -2103,6 +2106,7 @@ namespace CardShopCoop
             _lastSentCamRot = cameraRot;
             _lastSentHold = hold;
             _lastSentHoldSig = holdSig;
+            _lastSentPose = pose;
             _hasSentState = true;
             BroadcastTransient(new PlayerStateMessage
             {
@@ -2112,6 +2116,7 @@ namespace CardShopCoop
                 CameraRotation = cameraRot,
                 Speed = speed,
                 Hold = hold,
+                Pose = pose,
                 HoldTypes = hold == 3 ? null : new List<int>(_holdTypesBuf),
                 HoldCards = hold == 3 ? new List<CardData>(_holdCardsBuf) : null
             });
@@ -2490,6 +2495,22 @@ namespace CardShopCoop
         /// <summary>What the local player carries: 0 none / 1 box / 2 items / 3 cards / 4 binder.
         /// Items fill the type buffer, cards the CardData buffer - both render as the REAL
         /// things on the other side (modded ids resolve identically via registry parity).</summary>
+        /// <summary>Game 1.0: while the local player is in a card battle, vanilla parks them
+        /// at the table's sit location (PlayTableGame.SetPlayTable) and flips the controller
+        /// to PlayTableGameState. Position already travels; this carries the pose so the
+        /// far side's puppet sits and plays instead of standing on the chair.</summary>
+        private static byte ComputePose()
+        {
+            try
+            {
+                var pc = CSingleton<InteractionPlayerController>.Instance;
+                if (pc != null && pc.m_CurrentGameState == EGameState.PlayTableGameState)
+                    return 1 | 2;
+            }
+            catch { }
+            return 0;
+        }
+
         private byte ComputeHoldState()
         {
             _holdTypesBuf.Clear();
@@ -5354,7 +5375,7 @@ namespace CardShopCoop
         {
             _diagRecvStates++;
             _avatars.UpdateState(avatarId, state.Position, state.Yaw,
-                state.Hold, state.CameraPosition, state.CameraRotation, state.HoldTypes, state.HoldCards);
+                state.Hold, state.CameraPosition, state.CameraRotation, state.HoldTypes, state.HoldCards, state.Pose);
             string peerName = null;
             if (!PeerNames.TryGetValue(avatarId, out peerName) && avatarId >= 1000)
                 _rosterNames.TryGetValue(avatarId - 1000, out peerName);

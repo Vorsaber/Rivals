@@ -35,6 +35,8 @@ namespace CardShopCoop.Sync
             public Animator Anim;
             public bool HasMoveSpeed;
             public bool HasHoldingBox;
+            public bool HasSitting;        // animator exposes IsSitting
+            public bool HasPlaying;        // animator exposes IsPlaying
             public TMPro.TMP_Text NameTag;
             public TMPro.TMP_Text EmoteTag;
             public GameObject HoldProp;
@@ -83,6 +85,8 @@ namespace CardShopCoop.Sync
             public bool HasState;
             public bool HoldingBoxPose;    // last value pushed to the animator, to skip redundant SetBool
             public bool HoldingBoxPoseSet;
+            public byte Pose;              // last received PlayerStateMessage.Pose
+            public byte AppliedPose = 255; // last value pushed to the animator (255 = never)
             public bool HasModel;
             public bool Female;
             public int ModelIndex;
@@ -94,6 +98,8 @@ namespace CardShopCoop.Sync
         private const float MaxExtrapolation = 0.25f;  // never dead-reckon further than this past the newest snapshot
         private static readonly int MoveSpeedHash = Animator.StringToHash("MoveSpeed");
         private static readonly int IsHoldingBoxHash = Animator.StringToHash("IsHoldingBox");
+        private static readonly int IsSittingHash = Animator.StringToHash("IsSitting");
+        private static readonly int IsPlayingHash = Animator.StringToHash("IsPlaying");
         /// <summary>Scene-wide lookup is milliseconds in a full shop; cache it and let the
         /// Unity fake-null re-resolve after scene loads.</summary>
         private static RestockManager _restock;
@@ -773,7 +779,7 @@ namespace CardShopCoop.Sync
 
         public void UpdateState(int connId, Vector3 pos, float yaw, byte holdState,
             Vector3 cameraPosition = default(Vector3), Quaternion cameraRotation = default(Quaternion),
-            List<int> holdTypes = null, List<CardData> holdCards = null)
+            List<int> holdTypes = null, List<CardData> holdCards = null, byte pose = 0)
         {
             if (!_avatars.TryGetValue(connId, out var av))
             {
@@ -807,6 +813,7 @@ namespace CardShopCoop.Sync
             av.CameraRotation = cameraRotation == default(Quaternion) ? Quaternion.identity : cameraRotation;
             av.HasCamera = cameraRotation != default(Quaternion);
             av.HoldState = holdState;
+            av.Pose = pose;
             // THE HOLD PAYLOAD IS ALREADY IN LOCAL IDS: CoopCore.ReadHoldPayload built it
             // with Msg.ReadItemType, which is the one and only translation boundary for
             // these values. Do NOT translate again here - a second FromWire on an
@@ -1397,6 +1404,16 @@ namespace CardShopCoop.Sync
                             av.HoldingBoxPoseSet = true;
                         }
                     }
+                    // game 1.0 battle pose: the customer prefab's own sit/play bools, the same
+                    // ones NpcSync drives for a customer at a play table
+                    if (av.AppliedPose != av.Pose)
+                    {
+                        if (av.HasSitting)
+                            av.Anim.SetBool(IsSittingHash, (av.Pose & 1) != 0);
+                        if (av.HasPlaying)
+                            av.Anim.SetBool(IsPlayingHash, (av.Pose & 2) != 0);
+                        av.AppliedPose = av.Pose;
+                    }
                 }
                 // carried visuals: the REAL box (with its product on top) when carrying one
                 bool showBox = av.HoldState == 1;
@@ -1703,6 +1720,9 @@ namespace CardShopCoop.Sync
             av.EverPositioned = true;
             av.HasMoveSpeed = false;
             av.HasHoldingBox = false;
+            av.HasSitting = false;
+            av.HasPlaying = false;
+            av.AppliedPose = 255;
             av.HasRenderedPosition = false;
             av.AnimSpeed = 0f;
             av.AppliedAnimSpeed = float.NaN;
@@ -1716,6 +1736,10 @@ namespace CardShopCoop.Sync
                         av.HasMoveSpeed = true;
                     if (p.name == "IsHoldingBox" && p.type == AnimatorControllerParameterType.Bool)
                         av.HasHoldingBox = true;
+                    if (p.name == "IsSitting" && p.type == AnimatorControllerParameterType.Bool)
+                        av.HasSitting = true;
+                    if (p.name == "IsPlaying" && p.type == AnimatorControllerParameterType.Bool)
+                        av.HasPlaying = true;
                 }
                 if (!_loggedAnimParams)
                 {
