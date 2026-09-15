@@ -821,6 +821,15 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.ClientOnlyInGame, false, heal: () => _world.RequestResyncCoalesced());
+            _messageRouter.Register<BattleStateMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client || !InGameLevel())
+                    return;
+                if (message is BattleStateMessage battleState)
+                    _battle.ClientApplyState(battleState);
+                return;
+            },
+                MessagePolicy.ClientOnlyInGame, false);
             _messageRouter.Register<TableStateMessage>((context, message) =>
             {
                 if (Role != CoopRole.Client || !InGameLevel())

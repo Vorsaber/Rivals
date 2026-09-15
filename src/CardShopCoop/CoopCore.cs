@@ -183,6 +183,7 @@ namespace CardShopCoop
         private readonly GradingSync _grading = new GradingSync();
         private readonly TradeServe _trades = new TradeServe();
         private readonly PlayTableSync _tables = new PlayTableSync();
+        private readonly BattleSync _battle = new BattleSync();
         private readonly PlayerIntentBus _intents = new PlayerIntentBus();
         private readonly StaffSync _staff = new StaffSync();
         private readonly ShopStateSync _shopState = new ShopStateSync();
@@ -629,6 +630,7 @@ namespace CardShopCoop
             _trades.SendOp = Send(1);
             _trades.BroadcastState = Broadcast;
             _tables.BroadcastState = Broadcast;
+            _battle.BroadcastState = Broadcast;
             _tables.RegisterIntents(_intents);
             _intents.SendOp = Send(1);
             _register.SendOp = Send(1);
@@ -1796,6 +1798,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(_tournament, "tournament", 9, -1, Sync.TournamentSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_register, "register", 10, 4, Sync.RegisterSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_tv, "tv", 11, 1, Sync.TvSync.ApplyPatches),
+                new Sync.CoopModuleEntry(_battle, "battle", 12, -1, Sync.BattleSync.ApplyPatches),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("join-heal", null, null,
                     () => _priceFullPending = true), "join-heal"),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("live-hooks",
