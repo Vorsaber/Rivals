@@ -809,6 +809,9 @@ namespace CardShopCoop.Patches
                 case ECardExpansionType.CatJob:
                     landed = AnyCardBase(CPlayerData.m_GenCardMarketPriceListCatJob);
                     break;
+                case ECardExpansionType.Ascension:
+                    landed = AnyCardBase(CPlayerData.m_GenCardMarketPriceListAscension);
+                    break;
                 // An expansion we can't name has no table among MarketSync's seven either, so a
                 // local roll into it could never be corrected by the host's snapshot. Keep
                 // blocking: visible $0.00 beats prices that silently disagree with the host.

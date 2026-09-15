@@ -14,7 +14,7 @@ namespace CardShopCoop.Sync
     /// UnityEngine.Random at each day start, so from day 2 the joiner would price cards
     /// against a market that does not exist (host customers judge his tags against the
     /// HOST's numbers). The joiner's roll is blocked outright and the host's post-roll
-    /// table is broadcast: item % changes, all seven per-expansion card % changes, and
+    /// table is broadcast: item % changes, all eight per-expansion card % changes (Ascension since game 1.0), and
     /// the game-event price rows the phone apps read.
     ///
     /// Price HISTORY (the graph screens) is never shipped: the vanilla day-start append
@@ -163,6 +163,7 @@ namespace CardShopCoop.Sync
                 case ECardExpansionType.Megabot:
                 case ECardExpansionType.FantasyRPG:
                 case ECardExpansionType.CatJob:
+                case ECardExpansionType.Ascension:
                     return true;
                 default:
                     return false;
@@ -277,6 +278,7 @@ namespace CardShopCoop.Sync
             h = HashWire(h, msg.GenCardMarketPriceListMegabot);
             h = HashWire(h, msg.GenCardMarketPriceListFantasyRPG);
             h = HashWire(h, msg.GenCardMarketPriceListCatJob);
+            h = HashWire(h, msg.GenCardMarketPriceListAscension);
             return h;
         }
 
@@ -301,6 +303,7 @@ namespace CardShopCoop.Sync
             h = HashWireList(h, CPlayerData.m_GenCardMarketPriceListMegabot);
             h = HashWireList(h, CPlayerData.m_GenCardMarketPriceListFantasyRPG);
             h = HashWireList(h, CPlayerData.m_GenCardMarketPriceListCatJob);
+            h = HashWireList(h, CPlayerData.m_GenCardMarketPriceListAscension);
             return h;
         }
 
@@ -359,6 +362,7 @@ namespace CardShopCoop.Sync
             FillMarket(msg.GenCardMarketPriceListMegabot, CPlayerData.m_GenCardMarketPriceListMegabot);
             FillMarket(msg.GenCardMarketPriceListFantasyRPG, CPlayerData.m_GenCardMarketPriceListFantasyRPG);
             FillMarket(msg.GenCardMarketPriceListCatJob, CPlayerData.m_GenCardMarketPriceListCatJob);
+            FillMarket(msg.GenCardMarketPriceListAscension, CPlayerData.m_GenCardMarketPriceListAscension);
             // game-event rows are raw prices, not clamped percents - full floats
             FillFloats(msg.SetGameEventPriceList, CPlayerData.m_SetGameEventPriceList);
             FillFloats(msg.GeneratedGameEventPriceList, CPlayerData.m_GeneratedGameEventPriceList);
@@ -439,6 +443,7 @@ namespace CardShopCoop.Sync
             ApplySection("Megabot market", () => ReadMarketInto(message.GenCardMarketPriceListMegabot, CPlayerData.m_GenCardMarketPriceListMegabot));
             ApplySection("FantasyRPG market", () => ReadMarketInto(message.GenCardMarketPriceListFantasyRPG, CPlayerData.m_GenCardMarketPriceListFantasyRPG));
             ApplySection("CatJob market", () => ReadMarketInto(message.GenCardMarketPriceListCatJob, CPlayerData.m_GenCardMarketPriceListCatJob));
+            ApplySection("Ascension market", () => ReadMarketInto(message.GenCardMarketPriceListAscension, CPlayerData.m_GenCardMarketPriceListAscension));
             ApplySection("set game-event prices", () => ReadFloatsInto(message.SetGameEventPriceList, CPlayerData.m_SetGameEventPriceList));
             ApplySection("generated game-event prices", () => ReadFloatsInto(message.GeneratedGameEventPriceList, CPlayerData.m_GeneratedGameEventPriceList));
             ApplySection("game-event price changes", () => ReadFloatsInto(message.GameEventPricePercentChangeList, CPlayerData.m_GameEventPricePercentChangeList));

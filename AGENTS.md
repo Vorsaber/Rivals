@@ -31,7 +31,7 @@ DLL remains `CardShopCoop.dll`. The handshake also requires exact plugin-version
 so peers normally must run the identical CardShopCoop version.
 
 The mod is tested only against the newest game version available when documented here:
-**TCG Card Shop Simulator 0.70.3**.
+**TCG Card Shop Simulator 1.0**.
 
 `CHANGELOG.md` is maintained in the repository as the player-facing release record. Add a
 section for every release using a version heading and a short, plain-language summary in the
