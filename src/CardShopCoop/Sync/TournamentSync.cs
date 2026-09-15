@@ -379,17 +379,21 @@ namespace CardShopCoop.Sync
             for (int i = 0; i < n; i++)
             {
                 var c = sorted[i];
-                var ctd = c != null ? c.GetCustomerTournamentData() : null;
+                var ctd = c != null ? c.GetCustomerTournamentData() : PlayerBracketData();
                 if (ctd == null)
                 {
                     msg.Bracket.Add(new TournamentBracketEntry());
                     continue;
                 }
+                // game 1.0: the HOST can enter their own tournament. Vanilla keeps a null in
+                // the sorted list for that seat and renders it from CPlayerData's
+                // m_PlayerTournamentData with model index -1 (the player icon). Send exactly
+                // that, so the guest's board paints the host where vanilla would.
                 msg.Bracket.Add(new TournamentBracketEntry
                 {
                     SortedIndex = (byte)Mathf.Clamp(ctd.m_TournamentCustomerSortedIndex, 0, 255),
-                    ModelIndex = c.GetCustomerModelIndex(),
-                    Flags = (byte)((c.m_IsFemale ? 1 : 0)
+                    ModelIndex = c != null ? c.GetCustomerModelIndex() : -1,
+                    Flags = (byte)(((c != null && c.m_IsFemale) ? 1 : 0)
                                  | (ctd.m_IsTournamentWin ? 2 : 0)
                                  | (ctd.m_HasRegisteredTournamentResult ? 4 : 0)),
                     WinCount = ctd.m_TournamentWinCount,
@@ -399,6 +403,18 @@ namespace CardShopCoop.Sync
                 });
             }
             return msg;
+        }
+
+        /// <summary>The host's own competitor record when they joined the tournament (game
+        /// 1.0), else null. Only meaningful for a null seat in the sorted list - see
+        /// CustomerManager's AddTournamentCustomer(null, ...) and
+        /// TournamentPairingScreen.RefreshAllCustomerData.</summary>
+        private static CustomerTournamentData PlayerBracketData()
+        {
+            if (!CPlayerData.m_IsPlayerRegisteredForTournament)
+                return null;
+            var ptd = CPlayerData.m_PlayerTournamentData;
+            return (ptd != null && ptd.m_IsTournamentCustomer) ? ptd : null;
         }
 
         /// <summary>Change detector over everything BuildState sends. The host also folds
@@ -450,11 +466,11 @@ namespace CardShopCoop.Sync
                 {
                     for (int i = 0; i < sorted.Count; i++)
                     {
-                        var ctd = sorted[i] != null ? sorted[i].GetCustomerTournamentData() : null;
+                        var ctd = sorted[i] != null ? sorted[i].GetCustomerTournamentData() : PlayerBracketData();
                         if (ctd == null)
                             continue;
                         hash = hash * 31 + ctd.m_TournamentCustomerSortedIndex;
-                        hash = hash * 31 + (sorted[i] != null ? sorted[i].GetCustomerModelIndex() : 0);
+                        hash = hash * 31 + (sorted[i] != null ? sorted[i].GetCustomerModelIndex() : -1);
                         hash = hash * 31 + (((sorted[i] != null && sorted[i].m_IsFemale) ? 1 : 0)
                                           | (ctd.m_IsTournamentWin ? 2 : 0)
                                           | (ctd.m_HasRegisteredTournamentResult ? 4 : 0));
