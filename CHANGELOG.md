@@ -10,7 +10,9 @@ True co-op multiplayer for TCG Card Shop Simulator. Both players must run the
 
 TCG Card Shop Simulator 1.0 added the Ascension expansion with its own market table. CardShopCoop only knew the seven older vanilla tables, so on the guest every Ascension card showed $0.00 and never converged with the host's prices (the guest's local price roll for an unknown expansion is deliberately blocked so the two shops don't silently disagree). The host now broadcasts the Ascension table alongside the others, and the guest applies it the same way.
 
-Also verified against game 1.0: the mod builds cleanly against the 1.0 assemblies and every runtime patch target still resolves. Playable TCG battles and joining your own tournament are new 1.0 features that are not yet synced.
+The new 1.0 features that have no co-op sync yet are now host-only instead of silently broken: the guest gets a short on-screen notice when they try to sit down for a card battle, open the deck editor at the Workbench, or sign up for the tournament. The host can do all three as normal, and the guest can no longer accidentally kick a table the host is playing at. The guest does not see the battle board itself yet - only the host and the customer sitting at the table.
+
+Also verified against game 1.0: the mod builds cleanly against the 1.0 assemblies and every runtime patch target still resolves.
 
 **Both players must update.**
 

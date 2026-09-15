@@ -88,6 +88,7 @@ namespace CardShopCoop.Sync
 
         public static void ApplyPatches(Harmony h)
         {
+            HostOnlyFeatures.ApplyPatches(h); // game 1.0: battle / deck editor / tournament sign-up stay host-only
             var original = AccessTools.Method(typeof(InteractablePlayTable), "StartMoveObject");
             if (original == null)
             {
@@ -309,6 +310,13 @@ namespace CardShopCoop.Sync
             var table = sm.m_PlayTableList[message.Target];
             if (table == null || table.GetIsTournamentPlayTable() || table.GetCurrentPlayerCount() <= 0)
                 return;
+            // game 1.0: the host may be mid-battle at this table. StopTableGame under a live
+            // PlayTableGame strands the battle UI on a table that no longer knows about it.
+            if (HostOnlyFeatures.IsHostBattleTable(table))
+            {
+                CoopPlugin.Log.LogInfo($"PlayTableSync: refused kick for table {message.Target} - host is playing there");
+                return;
+            }
             if (StopTableGame == null)
             {
                 CoopPlugin.Log.LogError("PlayTableSync: InteractablePlayTable.StopTableGame was not found");
