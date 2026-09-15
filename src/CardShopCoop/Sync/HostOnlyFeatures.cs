@@ -9,27 +9,16 @@ namespace CardShopCoop.Sync
     /// itself is guest-playable through <see cref="GuestBattle"/>; the RMB prefix here only
     /// routes the guest's click there (and falls back to a notice if that is unavailable).
     ///
-    /// Why a gate rather than a sync: all three run on LOCAL state. A battle is driven by
-    /// <see cref="PlayCardGameManager"/> on the machine that sat down, its outcome writes
-    /// <see cref="InteractablePlayTable"/> seat flags and <see cref="CPlayerData"/> tournament
-    /// data, and the gift pack is spawned by the local ItemSpawnManager. Decks live in
-    /// <c>CPlayerData.m_DeckCompactCardDataList</c>, which nothing mirrors. On the guest every
-    /// one of those writes lands in the scratch slot and is thrown away - and worse, a guest
-    /// battle would flip a host-owned customer into PlayingAtTable on a table the host still
-    /// sees as free. So until each has a real sync, the HOST plays and the guest is told why,
-    /// in the game's own popup.
+    /// Why a gate rather than a sync: both run on LOCAL state. Decks live in
+    /// <c>CPlayerData.m_DeckCompactCardDataList</c>, which nothing mirrors, and tournament
+    /// sign-up writes <see cref="CPlayerData"/> tournament data the host's bracket reads. On
+    /// the guest every one of those writes lands in the scratch slot and is thrown away. So
+    /// until each has a real sync, the HOST does it and the guest is told why, in the game's
+    /// own popup.
     ///
-    /// The host side needs nothing new: the host's battle already runs in the real simulation.
-    /// <see cref="PlayTableGame.SetPlayTable"/> parks the host at the seat (the player
-    /// position sync moves the host's puppet there), marks the table occupied (the table
-    /// digest already carries that, so the guest cannot move it), and the customer's
-    /// PlayingAtTable state rides NpcSync like any other state. The one host-side hole is the
-    /// guest's table-kick intent, which would call StopTableGame under a live battle - see
-    /// <see cref="IsHostBattleTable"/>.
-    ///
-    /// Not covered yet (visible gaps, not breakage): the guest does not see the battle board
-    /// (it is PlayTableGame's own prop group, not part of the table), and gift packs are
-    /// only visible to the guest once the host picks them up.
+    /// Also here: <see cref="IsHostBattleTable"/>, the guard PlayTableSync uses to refuse a
+    /// guest's table-kick intent while anyone is in a battle at that table (StopTableGame
+    /// under a live PlayTableGame strands the battle UI).
     /// </summary>
     internal static class HostOnlyFeatures
     {

@@ -8,8 +8,9 @@ using UnityEngine;
 namespace CardShopCoop.Sync
 {
     /// <summary>
-    /// Spectator mirror of the HOST's card battle (game 1.0 playable TCG). The guest cannot
-    /// play (<see cref="HostOnlyFeatures"/>); this lets them watch.
+    /// Spectator mirror of the HOST's card battle (game 1.0 playable TCG), so a guest can
+    /// walk up and watch. (The guest's own battles are <see cref="GuestBattle"/>; those are
+    /// not mirrored back to the host yet.)
     ///
     /// RESEARCH NOTE (decompiled/PlayTableGame.cs, PlayCardSet.cs, PlayCardSetUI.cs): a
     /// battle is PlayTableGame's own prop group <c>m_Grp</c>, moved onto the table by
