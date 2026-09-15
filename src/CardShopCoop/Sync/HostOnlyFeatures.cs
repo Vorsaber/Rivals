@@ -4,9 +4,10 @@ using HarmonyLib;
 namespace CardShopCoop.Sync
 {
     /// <summary>
-    /// Host-only gate for the game-1.0 features that have no co-op sync yet: the playable
-    /// TCG (player vs. a waiting customer at a play table), the Workbench deck editor, and
-    /// signing the player up for their own tournament.
+    /// Host-only gate for the game-1.0 features that have no co-op sync yet: the Workbench
+    /// deck editor and signing the player up for their own tournament. The playable TCG
+    /// itself is guest-playable through <see cref="GuestBattle"/>; the RMB prefix here only
+    /// routes the guest's click there (and falls back to a notice if that is unavailable).
     ///
     /// Why a gate rather than a sync: all three run on LOCAL state. A battle is driven by
     /// <see cref="PlayCardGameManager"/> on the machine that sat down, its outcome writes
@@ -64,11 +65,12 @@ namespace CardShopCoop.Sync
         /// (InteractablePlayTable.OnRightMouseButtonUp -> PlayCardGameManager.SetPlayTable).
         /// Skipping the whole method also skips the base call, which for this class only
         /// forwards the click to the generic object handler - nothing a guest loses.</summary>
-        public static bool PlayTableRightClickPrefix()
+        public static bool PlayTableRightClickPrefix(InteractablePlayTable __instance)
         {
             if (CoopCore.Role != CoopRole.Client)
                 return true;
-            Notice(BattleNotice);
+            if (!GuestBattle.ClientRequestSit(__instance))
+                Notice(BattleNotice);
             return false;
         }
 

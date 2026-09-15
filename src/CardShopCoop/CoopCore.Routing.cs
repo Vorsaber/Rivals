@@ -821,6 +821,33 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.ClientOnlyInGame, false, heal: () => _world.RequestResyncCoalesced());
+            _messageRouter.Register<BattleSitMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Host || !InGameLevel())
+                    return;
+                if (message is BattleSitMessage sit)
+                    _guestBattle.HostApplySit(sit, context.ConnectionId);
+                return;
+            },
+                MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<BattleExitMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Host || !InGameLevel())
+                    return;
+                if (message is BattleExitMessage exit)
+                    _guestBattle.HostApplyExit(exit, context.ConnectionId);
+                return;
+            },
+                MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<BattleSitResultMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client || !InGameLevel())
+                    return;
+                if (message is BattleSitResultMessage result)
+                    _guestBattle.ClientApplySitResult(result);
+                return;
+            },
+                MessagePolicy.ClientOnlyInGame, false);
             _messageRouter.Register<BattleStateMessage>((context, message) =>
             {
                 if (Role != CoopRole.Client || !InGameLevel())

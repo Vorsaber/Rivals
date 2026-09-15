@@ -184,6 +184,7 @@ namespace CardShopCoop
         private readonly TradeServe _trades = new TradeServe();
         private readonly PlayTableSync _tables = new PlayTableSync();
         private readonly BattleSync _battle = new BattleSync();
+        private readonly GuestBattle _guestBattle = new GuestBattle();
         private readonly PlayerIntentBus _intents = new PlayerIntentBus();
         private readonly StaffSync _staff = new StaffSync();
         private readonly ShopStateSync _shopState = new ShopStateSync();
@@ -631,6 +632,8 @@ namespace CardShopCoop
             _trades.BroadcastState = Broadcast;
             _tables.BroadcastState = Broadcast;
             _battle.BroadcastState = Broadcast;
+            _guestBattle.SendToHost = Send(1);
+            _guestBattle.SendToClient = Send;
             _tables.RegisterIntents(_intents);
             _intents.SendOp = Send(1);
             _register.SendOp = Send(1);
@@ -1806,6 +1809,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(null, "cardboxes", patches: Sync.CardBoxOps.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "furnboxes", patches: Sync.FurnitureBoxOps.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "hand-protection", patches: Sync.HandProtection.ApplyPatches),
+                new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
             };
         }
 
@@ -1847,6 +1851,7 @@ namespace CardShopCoop
 
         private void ResetAllModules()
         {
+            _guestBattle.Reset();
             for (int i = 0; i < _allModules.Length; i++)
                 _allModules[i].ResetState();
         }
@@ -3831,6 +3836,11 @@ namespace CardShopCoop
                     try
                     {
                         _register.HostReleaseConn(left);
+                    }
+                    catch (System.Exception e) { Swallow.Log(e); }
+                    try
+                    {
+                        _guestBattle.HostReleaseConn(left);
                     }
                     catch (System.Exception e) { Swallow.Log(e); }
                     try

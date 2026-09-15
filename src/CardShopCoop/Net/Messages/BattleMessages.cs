@@ -49,4 +49,39 @@ namespace CardShopCoop.Net.Messages
         public byte Area;            // index into PlayCardSet.m_ElementAreaPosList
         public List<CardData> Stack = new List<CardData>();
     }
+
+    // ------------------------------------------------------- Guest-played battle (game 1.0)
+
+    /// <summary>Client -> host: the guest right-clicked a play table to sit down for a battle.
+    /// The host validates the seat exactly like InteractablePlayTable.OnRightMouseButtonUp
+    /// (one customer waiting, one seat free) and answers with BattleSitResultMessage.</summary>
+    [NetworkMessage(MsgType.BattleSit, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class BattleSitMessage : INetMessage
+    {
+        public byte TableIndex;
+        public MsgType Type { get { return MsgType.BattleSit; } }
+    }
+
+    /// <summary>Host -> one client: seat granted (with the side to sit on) or refused with a
+    /// vanilla ENotEnoughResourceText reason the guest shows locally.</summary>
+    [NetworkMessage(MsgType.BattleSitResult, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class BattleSitResultMessage : INetMessage
+    {
+        public byte TableIndex;
+        public bool Granted;
+        public bool SideA;
+        public int Reason;           // (int)ENotEnoughResourceText when !Granted, else 0
+        public MsgType Type { get { return MsgType.BattleSitResult; } }
+    }
+
+    /// <summary>Client -> host: the guest's battle ended (win / loss / draw / quit). The host
+    /// runs the table's own ExitPlayerCardGame so the customer stands up and leaves.</summary>
+    [NetworkMessage(MsgType.BattleExit, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class BattleExitMessage : INetMessage
+    {
+        public byte TableIndex;
+        public bool PlayerWin;
+        public bool Draw;
+        public MsgType Type { get { return MsgType.BattleExit; } }
+    }
 }
