@@ -56,7 +56,10 @@ namespace CardShopCoop.Sync
         private int _playingTable = -1;
 
         private static GuestBattle _active;
-        public GuestBattle() { _active = this; }
+        public GuestBattle()
+        {
+            _active = this;
+        }
 
         public static void ApplyPatches(Harmony h)
         {
@@ -133,7 +136,11 @@ namespace CardShopCoop.Sync
                 _pendingTable = -1;
                 if (!msg.Granted)
                 {
-                    try { NotEnoughResourceTextPopup.ShowText((ENotEnoughResourceText)msg.Reason); } catch { }
+                    try
+                    {
+                        NotEnoughResourceTextPopup.ShowText((ENotEnoughResourceText)msg.Reason);
+                    }
+                    catch { }
                     return;
                 }
                 var table = TableAt(msg.TableIndex);
@@ -209,15 +216,22 @@ namespace CardShopCoop.Sync
                     var occ = table.m_IsSeatOccupied;
                     bool a = occ != null && occ.Count > 0 && occ[0];
                     bool b = occ != null && occ.Count > 1 && occ[1];
-                    if (a && b) reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
-                    else if (!a && !b) reason = (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer;
-                    else sideA = !a; // take the free seat: seat 0 is side A
+                    if (a && b)
+                        reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
+                    else if (!a && !b)
+                        reason = (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer;
+                    else
+                        sideA = !a; // take the free seat: seat 0 is side A
                 }
                 if (reason == 0)
                 {
                     int seat = sideA ? 0 : 1;
                     BookSeat(table, seat, true);
-                    try { table.StartPlayerCardGame(); } catch (Exception e) { CoopPlugin.Log.LogWarning("GuestBattle start: " + e.Message); }
+                    try
+                    {
+                        table.StartPlayerCardGame();
+                    }
+                    catch (Exception e) { CoopPlugin.Log.LogWarning("GuestBattle start: " + e.Message); }
                     _guestSeats[connId] = (msg.TableIndex, seat);
                     CoopPlugin.Log.LogInfo($"GuestBattle: guest {connId} seated at table {msg.TableIndex} side {(sideA ? "A" : "B")}");
                 }
@@ -229,7 +243,10 @@ namespace CardShopCoop.Sync
             }
             SendToClient?.Invoke(connId, new BattleSitResultMessage
             {
-                TableIndex = msg.TableIndex, Granted = reason == 0, SideA = sideA, Reason = reason
+                TableIndex = msg.TableIndex,
+                Granted = reason == 0,
+                SideA = sideA,
+                Reason = reason
             });
         }
 
@@ -263,7 +280,10 @@ namespace CardShopCoop.Sync
             var table = TableAt(seat.table);
             if (table == null)
                 return;
-            try { table.ExitPlayerCardGame(isPlayerWin: false, isDraw: false); }
+            try
+            {
+                table.ExitPlayerCardGame(isPlayerWin: false, isDraw: false);
+            }
             catch (Exception e) { CoopPlugin.Log.LogWarning("GuestBattle release: " + e.Message); }
         }
 
@@ -282,13 +302,15 @@ namespace CardShopCoop.Sync
         {
             try
             {
-                if (FiPlayerOccupied != null) FiPlayerOccupied.SetValue(table, book);
+                if (FiPlayerOccupied != null)
+                    FiPlayerOccupied.SetValue(table, book);
                 Set(table.m_IsSeatOccupied, seat, book);
                 Set(table.m_IsSeatBooked, seat, book);
                 Set(table.m_IsQueueOccupied, seat, book);
                 Set(table.m_IsPlayerSeat, seat, book);
                 var sm = Sm();
-                if (sm != null) sm.UpdatePlayTableSaveData(table);
+                if (sm != null)
+                    sm.UpdatePlayTableSaveData(table);
             }
             catch (Exception e)
             {
@@ -298,7 +320,8 @@ namespace CardShopCoop.Sync
 
         private static void Set(List<bool> list, int i, bool v)
         {
-            if (list != null && i >= 0 && i < list.Count) list[i] = v;
+            if (list != null && i >= 0 && i < list.Count)
+                list[i] = v;
         }
     }
 }

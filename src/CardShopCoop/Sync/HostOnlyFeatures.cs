@@ -55,7 +55,10 @@ namespace CardShopCoop.Sync
         /// and cleared by StopTableGame.</summary>
         internal static bool IsHostBattleTable(InteractablePlayTable table)
         {
-            try { return table != null && table.GetHasStartPlayerPlayCard(); }
+            try
+            {
+                return table != null && table.GetHasStartPlayerPlayCard();
+            }
             catch { return false; }
         }
 

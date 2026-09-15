@@ -52,7 +52,9 @@ namespace CardShopCoop.Sync
 
         public override string Name => nameof(BattleSync);
 
-        public static void ApplyPatches(HarmonyLib.Harmony h) { /* no patches: a pure digest */ }
+        public static void ApplyPatches(HarmonyLib.Harmony h)
+        { /* no patches: a pure digest */
+        }
 
         private static PlayTableGame Game()
         {
@@ -136,7 +138,8 @@ namespace CardShopCoop.Sync
                 for (int i = 0; i < g.Count && i < 8; i++)
                 {
                     var cd = Read(g[i]);
-                    if (cd != null) e.Guardians.Add(cd);
+                    if (cd != null)
+                        e.Guardians.Add(cd);
                 }
             var areas = set.m_ElementAreaCardList;
             if (areas != null)
@@ -149,7 +152,8 @@ namespace CardShopCoop.Sync
                     for (int i = 0; i < stack.Count && i < 8; i++)
                     {
                         var cd = Read(stack[i]);
-                        if (cd != null) ae.Stack.Add(cd);
+                        if (cd != null)
+                            ae.Stack.Add(cd);
                     }
                     if (ae.Stack.Count > 0)
                         e.Areas.Add(ae);
@@ -170,7 +174,8 @@ namespace CardShopCoop.Sync
 
         private static string Sig(CardData c)
         {
-            if (c == null) return "-";
+            if (c == null)
+                return "-";
             return ((int)c.expansionType) + ":" + ((int)c.monsterType) + ":" + ((int)c.borderType)
                 + ":" + (c.isFoil ? 1 : 0) + (c.isDestiny ? 1 : 0) + (c.isChampionCard ? 1 : 0);
         }
@@ -189,13 +194,18 @@ namespace CardShopCoop.Sync
 
         private static int HashSide(int h, BattleSideEntry s)
         {
-            h = h * 31 + s.HP; h = h * 31 + s.ShieldHP; h = h * 31 + s.DeckCount;
-            h = h * 31 + s.DiscardCount; h = h * 31 + s.HandCount;
-            for (int i = 0; i < s.Guardians.Count; i++) h = h * 31 + Sig(s.Guardians[i]).GetHashCode();
+            h = h * 31 + s.HP;
+            h = h * 31 + s.ShieldHP;
+            h = h * 31 + s.DeckCount;
+            h = h * 31 + s.DiscardCount;
+            h = h * 31 + s.HandCount;
+            for (int i = 0; i < s.Guardians.Count; i++)
+                h = h * 31 + Sig(s.Guardians[i]).GetHashCode();
             for (int a = 0; a < s.Areas.Count; a++)
             {
                 h = h * 31 + s.Areas[a].Area;
-                for (int i = 0; i < s.Areas[a].Stack.Count; i++) h = h * 31 + Sig(s.Areas[a].Stack[i]).GetHashCode();
+                for (int i = 0; i < s.Areas[a].Stack.Count; i++)
+                    h = h * 31 + Sig(s.Areas[a].Stack[i]).GetHashCode();
             }
             return h;
         }
@@ -243,11 +253,15 @@ namespace CardShopCoop.Sync
                 var rot = table.transform.rotation;
                 if (!message.HostSideA)
                 {
-                    var eul = rot.eulerAngles; eul += new Vector3(0f, 180f, 0f); rot.eulerAngles = eul;
+                    var eul = rot.eulerAngles;
+                    eul += new Vector3(0f, 180f, 0f);
+                    rot.eulerAngles = eul;
                 }
                 game.transform.rotation = rot;
-                if (game.m_PlayCardSetPlayer != null) game.m_PlayCardSetPlayer.SetIsSideA(message.HostSideA);
-                if (game.m_PlayCardSetEnemy != null) game.m_PlayCardSetEnemy.SetIsSideA(message.HostSideA);
+                if (game.m_PlayCardSetPlayer != null)
+                    game.m_PlayCardSetPlayer.SetIsSideA(message.HostSideA);
+                if (game.m_PlayCardSetEnemy != null)
+                    game.m_PlayCardSetEnemy.SetIsSideA(message.HostSideA);
                 game.m_Grp.SetActive(true);
                 _clientActive = true;
                 _clientTable = message.TableIndex;
@@ -289,7 +303,12 @@ namespace CardShopCoop.Sync
                 var slots = areas[a] != null ? areas[a].transformList : null;
                 int scount = slots != null ? slots.Count : 0;
                 BattleAreaEntry ae = null;
-                for (int k = 0; k < e.Areas.Count; k++) if (e.Areas[k].Area == a) { ae = e.Areas[k]; break; }
+                for (int k = 0; k < e.Areas.Count; k++)
+                if (e.Areas[k].Area == a)
+                {
+                    ae = e.Areas[k];
+                    break;
+                }
                 for (int s = 0; s < scount; s++)
                     Place(key + ":a" + a + ":" + s, (ae != null && s < ae.Stack.Count) ? ae.Stack[s] : null, slots[s]);
             }
@@ -324,11 +343,13 @@ namespace CardShopCoop.Sync
             try
             {
                 var spawner = CSingleton<Card3dUISpawner>.Instance;
-                if (spawner == null) return null;
+                if (spawner == null)
+                    return null;
                 Card3dUIGroup cardUI = spawner.GetCardUI();
                 var obj = ShelfManager.SpawnInteractableObject(EObjectType.Card3d);
                 var c3 = obj != null ? obj.GetComponent<InteractableCard3d>() : null;
-                if (cardUI == null || c3 == null) return null;
+                if (cardUI == null || c3 == null)
+                    return null;
                 cardUI.m_IgnoreCulling = true;
                 cardUI.m_CardUI.SetFoilCullListVisibility(isActive: true);
                 cardUI.m_CardUI.ResetFarDistanceCull();
@@ -358,7 +379,11 @@ namespace CardShopCoop.Sync
 
         private static void Destroy(InteractableCard3d c3)
         {
-            try { if (c3 != null) c3.OnDestroyed(); }  // the game's own card3d cleanup (PlayCardSet.ResetCards)
+            try
+            {
+                if (c3 != null)
+                    c3.OnDestroyed();
+            }  // the game's own card3d cleanup (PlayCardSet.ResetCards)
             catch (Exception ex) { CoopPlugin.Log.LogWarning("BattleSync destroy: " + ex.Message); }
         }
 
@@ -380,11 +405,14 @@ namespace CardShopCoop.Sync
                 {
                     // host id -> ours already happened in the DTO deserialize; None = a pack
                     // this PC doesn't have, skipped by value (see AvatarManager's hold props)
-                    if (gifts[l] == EItemType.None) continue;
+                    if (gifts[l] == EItemType.None)
+                        continue;
                     var meshData = InventoryBase.GetItemMeshData(gifts[l]);
-                    if (meshData == null || meshData.mesh == null) continue;
+                    if (meshData == null || meshData.mesh == null)
+                        continue;
                     var item = ItemSpawnManager.GetItem(anchor);
-                    if (item == null) continue;
+                    if (item == null)
+                        continue;
                     item.SetMesh(meshData.mesh, meshData.material, gifts[l], meshData.meshSecondary, meshData.materialSecondary);
                     item.transform.localPosition = Vector3.up * 0.025f * (l + 1) + Vector3.right * 0.005f * (l + 1) + Vector3.back * -0.005f * (l + 1);
                     item.transform.localRotation = Quaternion.identity;
@@ -401,7 +429,11 @@ namespace CardShopCoop.Sync
         {
             for (int i = 0; i < _giftProps.Count; i++)
             {
-                try { if (_giftProps[i] != null) ItemSpawnManager.DisableItem(_giftProps[i]); }
+                try
+                {
+                    if (_giftProps[i] != null)
+                        ItemSpawnManager.DisableItem(_giftProps[i]);
+                }
                 catch { }
             }
             _giftProps.Clear();
@@ -417,7 +449,11 @@ namespace CardShopCoop.Sync
             _giftSig = "";
             if (_clientActive && game != null && game.m_Grp != null)
             {
-                try { game.m_Grp.SetActive(false); } catch { }
+                try
+                {
+                    game.m_Grp.SetActive(false);
+                }
+                catch { }
             }
             _clientActive = false;
             _clientTable = -1;

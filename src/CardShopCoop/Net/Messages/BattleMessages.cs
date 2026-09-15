@@ -59,7 +59,13 @@ namespace CardShopCoop.Net.Messages
     public sealed class BattleSitMessage : INetMessage
     {
         public byte TableIndex;
-        public MsgType Type { get { return MsgType.BattleSit; } }
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.BattleSit;
+            }
+        }
     }
 
     /// <summary>Host -> one client: seat granted (with the side to sit on) or refused with a
@@ -71,7 +77,13 @@ namespace CardShopCoop.Net.Messages
         public bool Granted;
         public bool SideA;
         public int Reason;           // (int)ENotEnoughResourceText when !Granted, else 0
-        public MsgType Type { get { return MsgType.BattleSitResult; } }
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.BattleSitResult;
+            }
+        }
     }
 
     /// <summary>Client -> host: the guest's battle ended (win / loss / draw / quit). The host
@@ -82,6 +94,12 @@ namespace CardShopCoop.Net.Messages
         public byte TableIndex;
         public bool PlayerWin;
         public bool Draw;
-        public MsgType Type { get { return MsgType.BattleExit; } }
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.BattleExit;
+            }
+        }
     }
 }
