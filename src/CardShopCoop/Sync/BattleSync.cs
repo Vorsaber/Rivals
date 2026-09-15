@@ -305,10 +305,12 @@ namespace CardShopCoop.Sync
                 int scount = slots != null ? slots.Count : 0;
                 BattleAreaEntry ae = null;
                 for (int k = 0; k < e.Areas.Count; k++)
-                if (e.Areas[k].Area == a)
                 {
-                    ae = e.Areas[k];
-                    break;
+                    if (e.Areas[k].Area == a)
+                    {
+                        ae = e.Areas[k];
+                        break;
+                    }
                 }
                 for (int s = 0; s < scount; s++)
                     Place(key + ":a" + a + ":" + s, (ae != null && s < ae.Stack.Count) ? ae.Stack[s] : null, slots[s]);
