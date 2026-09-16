@@ -42,6 +42,10 @@ Most of the 1.2.0 update is [Meepen](https://github.com/meepen)'s work. Thanks f
 
 ## Install
 
+For game 1.0, use CardShopCoop 1.3.0 or newer on both PCs. Deck editing, card battles,
+and tournament participation as a player are currently host-only. Guests can continue
+working in the shop and viewing tournament results. The rulebook remains available to everyone.
+
 1. Install [BepInEx 5](https://github.com/BepInEx/BepInEx) (5.4.23 x64) into the game
    folder — most modded installs already have it.
 2. Drop `CardShopCoop.dll` into `BepInEx/plugins/` on **both** PCs.
@@ -66,6 +70,7 @@ Most of the 1.2.0 update is [Meepen](https://github.com/meepen)'s work. Thanks f
   (ILSpy; the output is not part of this repo).
 - `tools/Launcher/` — the auto-updating launcher.
 - `tests/ShelfBoxPull/` — regression checks for shelf-to-box inventory transfers.
+- `tests/GameUpdate/` — managed game-update regression checks; requires the installed game's assemblies.
 - `.github/workflows/lint.yml` — checks C# formatting on pushes and pull requests.
 - `CHANGELOG.md` — release changes. Release ZIPs are kept locally in the ignored
   `dist/release/` folder.

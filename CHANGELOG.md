@@ -5,6 +5,20 @@ True co-op multiplayer for TCG Card Shop Simulator. Both players must run the
 
 ---
 
+## 1.3.0 (unreleased)
+
+Compatibility update for TCG Card Shop Simulator 1.0.
+
+- Ascension card prices now stay aligned with the host when joining, loading, and resyncing.
+- The tournament pairing board now shows the host's player entry and results correctly.
+- Deck editing, card battles, and joining tournaments as a player are host-only for now.
+  Guests see an explanation when attempting these new activities. This prevents local deck
+  changes from removing or duplicating cards in the shared collection. Guests can still run
+  the shop, use the workbench's existing functions, and read the rulebook.
+- This update builds on Meepen's co-op fixes in 1.2.0. Thanks for the continued contributions!
+
+**Both players must update.**
+
 ## 1.2.0
 **Boxes and furniture now stay in sync through pickups, throws, placement, and joining, cards no longer vanish when a guest sets them out to sell or is holding them, and registers, workers, and served customers no longer get stuck or vanish during co-op.**
 

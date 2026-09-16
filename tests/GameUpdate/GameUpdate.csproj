@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <LangVersion>9</LangVersion>
+    <ManagedPath>$(GamePath)/Card Shop Simulator_Data/Managed</ManagedPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/CardShopCoop/CardShopCoop.csproj" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <!-- Unity's delay-signed JSON assembly needs the Mono host. Use its signed
+         upstream counterpart for this standalone .NET Framework test runner. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+    <Reference Include="Assembly-CSharp" HintPath="$(ManagedPath)/Assembly-CSharp.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(ManagedPath)/UnityEngine.CoreModule.dll" Private="false" />
+  </ItemGroup>
+</Project>

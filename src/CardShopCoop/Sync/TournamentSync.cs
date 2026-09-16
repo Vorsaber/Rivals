@@ -379,17 +379,16 @@ namespace CardShopCoop.Sync
             for (int i = 0; i < n; i++)
             {
                 var c = sorted[i];
-                var ctd = c != null ? c.GetCustomerTournamentData() : null;
+                var ctd = c != null ? c.GetCustomerTournamentData() : CPlayerData.m_PlayerTournamentData;
                 if (ctd == null)
                 {
-                    msg.Bracket.Add(new TournamentBracketEntry());
                     continue;
                 }
                 msg.Bracket.Add(new TournamentBracketEntry
                 {
                     SortedIndex = (byte)Mathf.Clamp(ctd.m_TournamentCustomerSortedIndex, 0, 255),
-                    ModelIndex = c.GetCustomerModelIndex(),
-                    Flags = (byte)((c.m_IsFemale ? 1 : 0)
+                    ModelIndex = c != null ? c.GetCustomerModelIndex() : -1,
+                    Flags = (byte)(((c != null && c.m_IsFemale) ? 1 : 0)
                                  | (ctd.m_IsTournamentWin ? 2 : 0)
                                  | (ctd.m_HasRegisteredTournamentResult ? 4 : 0)),
                     WinCount = ctd.m_TournamentWinCount,
@@ -450,11 +449,11 @@ namespace CardShopCoop.Sync
                 {
                     for (int i = 0; i < sorted.Count; i++)
                     {
-                        var ctd = sorted[i] != null ? sorted[i].GetCustomerTournamentData() : null;
+                        var ctd = sorted[i] != null ? sorted[i].GetCustomerTournamentData() : CPlayerData.m_PlayerTournamentData;
                         if (ctd == null)
                             continue;
                         hash = hash * 31 + ctd.m_TournamentCustomerSortedIndex;
-                        hash = hash * 31 + (sorted[i] != null ? sorted[i].GetCustomerModelIndex() : 0);
+                        hash = hash * 31 + (sorted[i] != null ? sorted[i].GetCustomerModelIndex() : -1);
                         hash = hash * 31 + (((sorted[i] != null && sorted[i].m_IsFemale) ? 1 : 0)
                                           | (ctd.m_IsTournamentWin ? 2 : 0)
                                           | (ctd.m_HasRegisteredTournamentResult ? 4 : 0));

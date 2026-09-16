@@ -66,6 +66,7 @@ namespace CardShopCoop.Net.Messages
         public List<MarketCardEntry> GenCardMarketPriceListMegabot = new List<MarketCardEntry>();
         public List<MarketCardEntry> GenCardMarketPriceListFantasyRPG = new List<MarketCardEntry>();
         public List<MarketCardEntry> GenCardMarketPriceListCatJob = new List<MarketCardEntry>();
+        public List<MarketCardEntry> GenCardMarketPriceListAscension = new List<MarketCardEntry>();
         // Card market multiplier table (GetMarketPrice reads it for GRADED cards). Generated
         // locally with Unity Random on the client by RestockManager.Init, so it must be
         // overwritten by the host's copy or graded binder prices diverge.

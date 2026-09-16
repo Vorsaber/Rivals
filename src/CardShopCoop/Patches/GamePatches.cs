@@ -71,6 +71,18 @@ namespace CardShopCoop.Patches
         private static readonly MethodInfo MiScannerTotals = AccessTools.Method(typeof(ScannerRestockScreen), "UpdateTotalCostAndBoxCount");
         public static void ApplyAll(Harmony h)
         {
+            // Game 1.0's deck and battle flows mutate local-only state. Stop guests
+            // before the workbench or table is reserved, leaving normal shop use intact.
+            Try(h, typeof(WorkbenchUIScreen), "OnPressEditDeckButton",
+                prefix: new HarmonyMethod(typeof(GamePatches), nameof(HostDeckPrefix)));
+            Try(h, typeof(PlayCardGameManager), "OpenDeckListScreen",
+                prefix: new HarmonyMethod(typeof(GamePatches), nameof(HostDeckPrefix)));
+            Try(h, typeof(InteractablePlayTable), "OnRightMouseButtonUp",
+                prefix: new HarmonyMethod(typeof(GamePatches), nameof(HostBattlePrefix)));
+            Try(h, typeof(HostTournamentScreen), "OnPressPlayerSignUpTournament",
+                prefix: new HarmonyMethod(typeof(GamePatches), nameof(HostBattlePrefix)));
+            Try(h, typeof(HostTournamentScreen), "OnPressPlayerSignOutTournament",
+                prefix: new HarmonyMethod(typeof(GamePatches), nameof(HostBattlePrefix)));
             // The CMF camera reads Mouse X/Y directly from its own CameraMouseInput
             // component. InteractionPlayerController.EnterUIMode disables the game's
             // secondary camera controller, but cannot stop this independent input path.
@@ -809,7 +821,10 @@ namespace CardShopCoop.Patches
                 case ECardExpansionType.CatJob:
                     landed = AnyCardBase(CPlayerData.m_GenCardMarketPriceListCatJob);
                     break;
-                // An expansion we can't name has no table among MarketSync's seven either, so a
+                case ECardExpansionType.Ascension:
+                    landed = AnyCardBase(CPlayerData.m_GenCardMarketPriceListAscension);
+                    break;
+                // An expansion we can't name has no table in MarketSync either, so a
                 // local roll into it could never be corrected by the host's snapshot. Keep
                 // blocking: visible $0.00 beats prices that silently disagree with the host.
                 default:
@@ -1188,6 +1203,22 @@ namespace CardShopCoop.Patches
             // used to slip through and pollute the guest's slot. The host's save is the
             // single source of truth. (No ref param: we only ever block, never reroute.)
             return CoopCore.Role != CoopRole.Client && !CoopCore.GuestBorrowedWorld;
+        }
+
+        public static bool HostDeckPrefix() => HostActivityPrefix("Deck editing is host-only in this co-op version");
+
+        public static bool HostBattlePrefix() => HostActivityPrefix("Card battles and tournament participation are host-only in this co-op version");
+
+        private static bool HostActivityPrefix(string message)
+        {
+            if (CoopCore.Role != CoopRole.Client)
+                return true;
+            if (CoopCore.Instance != null)
+            {
+                CoopCore.Instance.RegisterLine = message;
+                CoopCore.Instance.RegisterLineTimer = 4f;
+            }
+            return false;
         }
 
         public static bool ClientBlockPrefix()

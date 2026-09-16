@@ -30,8 +30,9 @@ unchanged. The current plugin identity is `com.zwhit.cardshopcoop`, while the sh
 DLL remains `CardShopCoop.dll`. The handshake also requires exact plugin-version equality,
 so peers normally must run the identical CardShopCoop version.
 
-The mod is tested only against the newest game version available when documented here:
-**TCG Card Shop Simulator 0.70.3**.
+The current compatibility target is **TCG Card Shop Simulator 1.0**, Steam build 25315983.
+Compilation, managed regression checks, and plugin startup have been checked against this
+build. These checks do not establish two-player gameplay compatibility.
 
 `CHANGELOG.md` is maintained in the repository as the player-facing release record. Add a
 section for every release using a version heading and a short, plain-language summary in the
