@@ -643,6 +643,9 @@ namespace CardShopCoop
             _decks.SendToHost = Send(1);
             _decks.SendToClient = Send;
             _decks.PeerName = PeerNameFor;
+            _tournament.SendToHost = Send(1);
+            _tournament.SendToClient = Send;
+            _tournament.PeerName = PeerNameFor;
             _guestBattle.SendToHost = Send(1);
             _guestBattle.SendToClient = Send;
             _tables.RegisterIntents(_intents);
@@ -3859,6 +3862,11 @@ namespace CardShopCoop
                     try
                     {
                         _decks.HostReleaseConn(left);
+                    }
+                    catch (System.Exception e) { Swallow.Log(e); }
+                    try
+                    {
+                        _tournament.HostReleaseConn(left);
                     }
                     catch (System.Exception e) { Swallow.Log(e); }
                     try

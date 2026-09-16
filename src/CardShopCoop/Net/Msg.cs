@@ -106,6 +106,8 @@ namespace CardShopCoop.Net
         DeckEditRequest = 108, // client -> host: take (Want) or release the deck-editor lock
         DeckEditResult = 109,  // host -> one client: lock granted, or refused with the holder's name
         DeckStateUp = 110,     // client -> host: the lock holder's deck list (applied, then re-mirrored)
+        TournamentEntry = 111, // client -> host: sign the guest up for (Want) / out of the shop's tournament
+        TournamentEntryResult = 112, // host -> one client: entry taken, or refused with the game's reason
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

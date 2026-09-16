@@ -34,6 +34,21 @@ namespace CardShopCoop.Sync
 
         /// <summary>Set by CoopCore: host -> clients state broadcast.</summary>
         public Action<INetMessage> BroadcastState;
+        public Action<INetMessage> SendToHost;              // client side
+        public Action<int, INetMessage> SendToClient;       // host side
+        public Func<int, string> PeerName;                  // host side: conn -> display name
+
+        // game 1.0: the shop has ONE player entry in its own tournament
+        // (CPlayerData.m_IsPlayerRegisteredForTournament). Either the host or one guest holds
+        // it. The host runs the vanilla sign-up either way, so the customer sim, bracket and
+        // result registration all see "the player" exactly as vanilla; the guest just gets
+        // the mirrored record and the seat at the assigned table.
+        private const int NoEntry = -1;
+        private const int HostEntry = -2;
+        private int _entryConn = NoEntry;              // host
+        private static string s_entryHolder = "";      // both: name of the holder, "" none
+        private static bool s_entryMine;               // client: the entry is this guest's
+        private static TournamentSync s_instance;
 
         /// <summary>True while ClientApplyState writes CPlayerData.m_TournamentData, so
         /// no patch mistakes the authoritative copy for a local scheduling action.</summary>
@@ -72,6 +87,14 @@ namespace CardShopCoop.Sync
             _gate.Reset(-6.1f);
             _clientHash = 0;
             _cm = null;
+            _entryConn = NoEntry;
+            s_entryHolder = "";
+            s_entryMine = false;
+        }
+
+        public TournamentSync()
+        {
+            s_instance = this;
         }
 
         public override void ForceResend()
@@ -95,6 +118,122 @@ namespace CardShopCoop.Sync
                 prefix: new HarmonyMethod(typeof(TournamentSync), nameof(ScheduleBlockPrefix)));
             Try(h, typeof(HostTournamentScreen), "OnPressPrizeSetup",
                 prefix: new HarmonyMethod(typeof(TournamentSync), nameof(ScheduleBlockPrefix)));
+            // the one player entry: guest asks the host; host is refused while a guest holds it
+            Try(h, typeof(HostTournamentScreen), "OnPressPlayerSignUpTournament",
+                prefix: new HarmonyMethod(typeof(TournamentSync), nameof(SignUpPrefix)),
+                postfix: new HarmonyMethod(typeof(TournamentSync), nameof(SignUpPostfix)));
+            Try(h, typeof(HostTournamentScreen), "OnPressPlayerSignOutTournament",
+                prefix: new HarmonyMethod(typeof(TournamentSync), nameof(SignOutPrefix)),
+                postfix: new HarmonyMethod(typeof(TournamentSync), nameof(SignUpPostfix)));
+            // host may not take the guest's tournament seat
+            Try(h, typeof(InteractablePlayTable), "OnRightMouseButtonUp",
+                prefix: new HarmonyMethod(typeof(TournamentSync), nameof(HostTableClickPrefix)));
+        }
+
+        public static bool SignUpPrefix()
+        {
+            var self = s_instance;
+            if (self == null)
+                return true;
+            if (CoopCore.Role == CoopRole.Host)
+            {
+                if (self._entryConn != NoEntry && self._entryConn != HostEntry)
+                {
+                    HostOnlyFeatures.Notice("Co-op: " + s_entryHolder + " is entered in this tournament");
+                    return false;
+                }
+                return true;
+            }
+            if (CoopCore.Role == CoopRole.Client)
+            {
+                self.SendToHost?.Invoke(new TournamentEntryMessage { Want = true });
+                return false;
+            }
+            return true;
+        }
+
+        public static bool SignOutPrefix()
+        {
+            var self = s_instance;
+            if (self == null)
+                return true;
+            if (CoopCore.Role == CoopRole.Host)
+            {
+                if (self._entryConn != NoEntry && self._entryConn != HostEntry)
+                {
+                    HostOnlyFeatures.Notice("Co-op: " + s_entryHolder + " is entered in this tournament");
+                    return false;
+                }
+                return true;
+            }
+            if (CoopCore.Role == CoopRole.Client)
+            {
+                if (s_entryMine)
+                    self.SendToHost?.Invoke(new TournamentEntryMessage { Want = false });
+                else
+                    HostOnlyFeatures.Notice("Co-op: " + (string.IsNullOrEmpty(s_entryHolder) ? "the host" : s_entryHolder) + " is entered in this tournament");
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>Host: after its own sign-up / sign-out ran, record who holds the entry.</summary>
+        public static void SignUpPostfix()
+        {
+            var self = s_instance;
+            if (self == null || CoopCore.Role != CoopRole.Host)
+                return;
+            if (self._entryConn != NoEntry && self._entryConn != HostEntry)
+                return;
+            self.HostSetEntry(CPlayerData.m_IsPlayerRegisteredForTournament ? HostEntry : NoEntry);
+        }
+
+        public static bool HostTableClickPrefix(InteractablePlayTable __instance)
+        {
+            var self = s_instance;
+            if (self == null || CoopCore.Role != CoopRole.Host)
+                return true;
+            try
+            {
+                var td = CPlayerData.m_TournamentData;
+                if (td == null || !td.m_IsTournamentDay || td.m_IsTournamentDayOver)
+                    return true;
+                if (self._entryConn == NoEntry || self._entryConn == HostEntry)
+                    return true;
+                // a guest holds the entry: vanilla would seat the host as "the player"
+                HostOnlyFeatures.Notice("Co-op: " + s_entryHolder + " is playing in this tournament");
+                return false;
+            }
+            catch { return true; }
+        }
+
+        /// <summary>Host: does this connection hold the shop's tournament entry? (GuestBattle's
+        /// seat check for tournament tables.)</summary>
+        public static bool GuestHoldsEntry(int conn)
+        {
+            var self = s_instance;
+            return self != null && self._entryConn == conn && conn != NoEntry && conn != HostEntry;
+        }
+
+        /// <summary>Client: this guest holds the entry (mirrored from the host).</summary>
+        public static bool ClientHoldsEntry()
+        {
+            return s_entryMine;
+        }
+
+        private void HostSetEntry(int conn)
+        {
+            _entryConn = conn;
+            s_entryHolder = conn == NoEntry ? "" : NameOf(conn);
+            _gate.Force();
+        }
+
+        private string NameOf(int conn)
+        {
+            if (conn == HostEntry)
+                return CoopCore.Instance != null ? (CoopCore.Instance.EffectivePlayerName ?? "the host") : "the host";
+            var name = PeerName?.Invoke(conn);
+            return string.IsNullOrEmpty(name) ? "a guest" : name;
         }
 
         public static bool ScheduleBlockPrefix()
@@ -148,8 +287,97 @@ namespace CardShopCoop.Sync
             });
         }
 
-        // No HostApplyOp / SendOp: the joiner never sends tournament ops - scheduling
-        // is blocked client-side with a toast rather than forwarded.
+        // Scheduling is blocked client-side with a toast rather than forwarded; the only
+        // op a guest sends is the player entry below.
+
+        /// <summary>Host: a guest wants in (or out) of the shop's tournament. Runs the vanilla
+        /// sign-up body (HostTournamentScreen.OnPressPlayerSignUpTournament minus the button
+        /// toggles) against the HOST's data, so from here on the customer sim treats the
+        /// guest exactly as it would the host.</summary>
+        public void HostApplyEntry(TournamentEntryMessage msg, int conn)
+        {
+            Guarded("entry", () =>
+            {
+                var td = CPlayerData.m_TournamentData;
+                int reason = 0;
+                if (td == null)
+                    reason = (int)ENotEnoughResourceText.NoSlotToJoinTournament;
+                else if (msg.Want)
+                {
+                    if (td.m_IsTournamentDay)
+                        reason = (int)ENotEnoughResourceText.NoSlotToJoinTournament;
+                    else if (CPlayerData.m_IsPlayerRegisteredForTournament && _entryConn != conn)
+                        reason = (int)ENotEnoughResourceText.PlayerAlreadyJoinedTournament;
+                    else if (CPlayerData.m_IsPlayerRegisteredForTournament)
+                    { /* already theirs */
+                    }
+                    else if (td.m_TournamentSignedUpCustomerCount < td.m_TournamentMaxPlayerCount)
+                    {
+                        td.m_TournamentSignedUpCustomerCount++;
+                        CPlayerData.m_IsPlayerRegisteredForTournament = true;
+                        HostSetEntry(conn);
+                        RefreshHostScreen();
+                        CoopPlugin.Log.LogInfo($"TournamentSync: {NameOf(conn)} entered the tournament");
+                    }
+                    else
+                        reason = (int)ENotEnoughResourceText.NoSlotToJoinTournament;
+                }
+                else
+                {
+                    if (_entryConn != conn)
+                    { /* not theirs to drop */
+                    }
+                    else if (td.m_IsTournamentDay)
+                        reason = (int)ENotEnoughResourceText.CannotWithdrawTournament;
+                    else if (CPlayerData.m_IsPlayerRegisteredForTournament)
+                    {
+                        td.m_TournamentSignedUpCustomerCount--;
+                        CPlayerData.m_IsPlayerRegisteredForTournament = false;
+                        HostSetEntry(NoEntry);
+                        RefreshHostScreen();
+                        CoopPlugin.Log.LogInfo($"TournamentSync: {NameOf(conn)} withdrew from the tournament");
+                    }
+                }
+                SendToClient?.Invoke(conn, new TournamentEntryResultMessage
+                {
+                    Ok = reason == 0,
+                    Registered = reason == 0 && _entryConn == conn,
+                    Reason = reason
+                });
+            });
+        }
+
+        /// <summary>Host: a guest left. Their entry stays (the customer sim already counts it);
+        /// the host inherits it and can play or withdraw.</summary>
+        public void HostReleaseConn(int conn)
+        {
+            if (_entryConn != conn)
+                return;
+            CoopPlugin.Log.LogInfo($"TournamentSync: {NameOf(conn)} left holding the tournament entry - the host inherits it");
+            HostSetEntry(CPlayerData.m_IsPlayerRegisteredForTournament ? HostEntry : NoEntry);
+        }
+
+        /// <summary>Repaint the phone tournament screen's entry buttons and count if it is open
+        /// on this PC (vanilla only does that inside its own button handlers).</summary>
+        private static void RefreshHostScreen()
+        {
+            try
+            {
+                var screen = UnityEngine.Object.FindObjectOfType<HostTournamentScreen>();
+                if (screen == null)
+                    return;
+                bool reg = CPlayerData.m_IsPlayerRegisteredForTournament;
+                if (screen.m_PlayerSignUpButton != null)
+                    screen.m_PlayerSignUpButton.SetActive(!reg);
+                if (screen.m_PlayerSignOutButton != null)
+                    screen.m_PlayerSignOutButton.SetActive(reg);
+                MiEvaluateSignedUpCountText?.Invoke(screen, null);
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("TournamentSync.RefreshHostScreen: " + e.Message); }
+        }
+
+        private static readonly MethodInfo MiEvaluateSignedUpCountText =
+            AccessTools.Method(typeof(HostTournamentScreen), "EvaluateSignedUpCountText");
 
         // ---------------- client ----------------
 
@@ -184,6 +412,25 @@ namespace CardShopCoop.Sync
             td.m_TournamentMaxRound = message.MaxRound;
             td.m_TournamentFee = message.Fee;
             td.m_TournamentTotalValue = message.TotalValue;
+
+            // the shop's player entry, mirrored so the guest's own table checks and
+            // WinLose screen behave like vanilla when the entry is theirs
+            byte pf = message.PlayerFlags;
+            CPlayerData.m_IsPlayerRegisteredForTournament = (pf & 1) != 0;
+            var ptd = CPlayerData.m_PlayerTournamentData;
+            if (ptd == null)
+                CPlayerData.m_PlayerTournamentData = ptd = new CustomerTournamentData();
+            ptd.m_IsTournamentCustomer = (pf & 2) != 0;
+            ptd.m_HasFinishCurrentTournamentRound = (pf & 4) != 0;
+            ptd.m_HasRegisteredTournamentResult = (pf & 8) != 0;
+            ptd.m_IsTournamentWin = (pf & 16) != 0;
+            ptd.m_TournamentCustomerPlayTableIndex = message.PlayerTable;
+            ptd.m_TournamentCustomerIndex = message.PlayerCustomerIndex;
+            ptd.m_TournamentCustomerSortedIndex = message.PlayerSortedIndex;
+            s_entryHolder = message.EntryHolder ?? "";
+            string me = CoopCore.Instance != null ? CoopCore.Instance.EffectivePlayerName : null;
+            s_entryMine = CPlayerData.m_IsPlayerRegisteredForTournament
+                && !string.IsNullOrEmpty(me) && s_entryHolder == me;
 
             // prize catalog: mutate the vanilla 4-slot list in place so screens that
             // index m_PrizeDataList[i] never see it shorter than they expect
@@ -254,6 +501,29 @@ namespace CardShopCoop.Sync
             _clientHash = hash;
 
             RefreshBoards(td, digest, wasDay != td.m_IsTournamentDay || wasOver != td.m_IsTournamentDayOver);
+        }
+
+        public void ClientApplyEntryResult(TournamentEntryResultMessage msg)
+        {
+            Guarded("entry-result", () =>
+            {
+                if (!msg.Ok)
+                {
+                    try
+                    {
+                        NotEnoughResourceTextPopup.ShowText((ENotEnoughResourceText)msg.Reason);
+                    }
+                    catch { HostOnlyFeatures.Notice("Co-op: the host refused the tournament entry"); }
+                    return;
+                }
+                // repaint now; the mirror confirms within a tick
+                CPlayerData.m_IsPlayerRegisteredForTournament = msg.Registered;
+                s_entryMine = msg.Registered;
+                if (msg.Registered)
+                    s_entryHolder = CoopCore.Instance != null ? CoopCore.Instance.EffectivePlayerName : s_entryHolder;
+                RefreshHostScreen();
+                CoopPlugin.Log.LogInfo(msg.Registered ? "TournamentSync: entered the host's tournament" : "TournamentSync: withdrew from the host's tournament");
+            });
         }
 
         /// <summary>Client: the pairing board and shelf screen mesh are normally driven
@@ -345,7 +615,17 @@ namespace CardShopCoop.Sync
                 MaxRound = td.m_TournamentMaxRound,
                 Fee = td.m_TournamentFee,
                 TotalValue = td.m_TournamentTotalValue,
+                EntryHolder = s_entryHolder ?? "",
             };
+            var ptd = CPlayerData.m_PlayerTournamentData;
+            msg.PlayerFlags = (byte)((CPlayerData.m_IsPlayerRegisteredForTournament ? 1 : 0)
+                | ((ptd != null && ptd.m_IsTournamentCustomer) ? 2 : 0)
+                | ((ptd != null && ptd.m_HasFinishCurrentTournamentRound) ? 4 : 0)
+                | ((ptd != null && ptd.m_HasRegisteredTournamentResult) ? 8 : 0)
+                | ((ptd != null && ptd.m_IsTournamentWin) ? 16 : 0));
+            msg.PlayerTable = ptd != null ? ptd.m_TournamentCustomerPlayTableIndex : 0;
+            msg.PlayerCustomerIndex = ptd != null ? ptd.m_TournamentCustomerIndex : 0;
+            msg.PlayerSortedIndex = ptd != null ? ptd.m_TournamentCustomerSortedIndex : 0;
 
             var lists = td.m_PrizeDataList;
             int lc = lists != null ? Mathf.Min(lists.Count, 8) : 0;
@@ -432,6 +712,16 @@ namespace CardShopCoop.Sync
             hash = hash * 31 + td.m_TournamentMaxRound;
             hash = hash * 31 + (int)(td.m_TournamentFee * 100f);
             hash = hash * 31 + (int)(td.m_TournamentTotalValue * 100f);
+            var ptd = CPlayerData.m_PlayerTournamentData;
+            hash = hash * 31 + ((CPlayerData.m_IsPlayerRegisteredForTournament ? 1 : 0)
+                | ((ptd != null && ptd.m_IsTournamentCustomer) ? 2 : 0)
+                | ((ptd != null && ptd.m_HasFinishCurrentTournamentRound) ? 4 : 0)
+                | ((ptd != null && ptd.m_HasRegisteredTournamentResult) ? 8 : 0)
+                | ((ptd != null && ptd.m_IsTournamentWin) ? 16 : 0));
+            hash = hash * 31 + (ptd != null ? ptd.m_TournamentCustomerPlayTableIndex : 0);
+            hash = hash * 31 + (ptd != null ? ptd.m_TournamentCustomerIndex : 0);
+            hash = hash * 31 + (ptd != null ? ptd.m_TournamentCustomerSortedIndex : 0);
+            hash = hash * 31 + (s_entryHolder ?? "").GetHashCode();
             var lists = td.m_PrizeDataList;
             if (lists != null)
             {

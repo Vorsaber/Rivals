@@ -4,16 +4,11 @@ using HarmonyLib;
 namespace CardShopCoop.Sync
 {
     /// <summary>
-    /// Host-only gate for the game-1.0 feature that has no co-op sync yet: signing the
-    /// player up for their own tournament. The playable TCG
-    /// itself is guest-playable through <see cref="GuestBattle"/>; the RMB prefix here only
-    /// routes the guest's click there (and falls back to a notice if that is unavailable).
-    ///
-    /// Why a gate rather than a sync: it runs on LOCAL state. Tournament sign-up writes
-    /// <see cref="CPlayerData"/> tournament data the host's bracket reads; on the guest that
-    /// write lands in the scratch slot and is thrown away. So until it has a real sync, the
-    /// HOST does it and the guest is told why, in the game's own popup. (The deck editor used
-    /// to be gated here too; it is now guest-usable through <see cref="DeckSync"/>'s editor lock.)
+    /// Guest-side routing for the game-1.0 play table: the RMB prefix sends the guest's click
+    /// to <see cref="GuestBattle"/> (and falls back to a notice if that is unavailable).
+    /// The deck editor and tournament entry used to be host-only gates here; they now live
+    /// in <see cref="DeckSync"/> (editor lock) and <see cref="TournamentSync"/> (the shop's
+    /// one player entry). <see cref="Notice"/> stays here as the shared free-text popup.
     ///
     /// Also here: <see cref="IsHostBattleTable"/>, the guard PlayTableSync uses to refuse a
     /// guest's table-kick intent while anyone is in a battle at that table (StopTableGame
@@ -22,7 +17,6 @@ namespace CardShopCoop.Sync
     internal static class HostOnlyFeatures
     {
         private const string BattleNotice = "Co-op: only the host can play the card game for now";
-        private const string TournamentNotice = "Co-op: only the host can join the tournament for now";
         private static string s_lastNotice;
         private static float s_lastNoticeAt = -10f;
 
@@ -30,8 +24,6 @@ namespace CardShopCoop.Sync
         {
             Try(h, typeof(InteractablePlayTable), "OnRightMouseButtonUp",
                 new HarmonyMethod(typeof(HostOnlyFeatures), nameof(PlayTableRightClickPrefix)));
-            Try(h, typeof(HostTournamentScreen), "OnPressPlayerSignUpTournament",
-                new HarmonyMethod(typeof(HostOnlyFeatures), nameof(PlayerSignUpPrefix)));
         }
 
         /// <summary>True when the HOST is in a battle at this table, so nothing may stop the
@@ -59,14 +51,6 @@ namespace CardShopCoop.Sync
                 return true;
             if (!GuestBattle.ClientRequestSit(__instance))
                 Notice(BattleNotice);
-            return false;
-        }
-
-        public static bool PlayerSignUpPrefix()
-        {
-            if (CoopCore.Role != CoopRole.Client)
-                return true;
-            Notice(TournamentNotice);
             return false;
         }
 

@@ -148,8 +148,11 @@ namespace CardShopCoop.Sync
                 int index = IndexOf(table);
                 if (index < 0 || index > 255)
                     return false;
-                // vanilla's own pre-checks that need no host knowledge
-                if (table.GetIsTournamentPlayTable())
+                // vanilla's own pre-checks that need no host knowledge (the tournament-day
+                // rules run on the host against the mirrored entry; only the obvious
+                // "not entered" case is answered here)
+                var td = CPlayerData.m_TournamentData;
+                if (td != null && td.m_IsTournamentDay && !td.m_IsTournamentDayOver && !TournamentSync.ClientHoldsEntry())
                 {
                     NotEnoughResourceTextPopup.ShowText(ENotEnoughResourceText.TournamentInProgress);
                     return true;
@@ -268,10 +271,19 @@ namespace CardShopCoop.Sync
             bool sideA = true;
             try
             {
+                var td = CPlayerData.m_TournamentData;
+                bool tournamentDay = td != null && td.m_IsTournamentDay && !td.m_IsTournamentDayOver;
+                var ptd = CPlayerData.m_PlayerTournamentData;
                 if (table == null)
                     reason = (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer;
-                else if (table.GetIsTournamentPlayTable())
+                // tournament day: vanilla's own rules for "the player", which is this guest
+                // only when they hold the shop's entry (TournamentSync)
+                else if (tournamentDay && !TournamentSync.GuestHoldsEntry(connId))
                     reason = (int)ENotEnoughResourceText.TournamentInProgress;
+                else if (tournamentDay && ptd != null && ptd.m_HasRegisteredTournamentResult)
+                    reason = (int)ENotEnoughResourceText.WaitNextRoundTournament;
+                else if (tournamentDay && (ptd == null || ptd.m_TournamentCustomerPlayTableIndex != table.GetTournamentPlayTableNumber()))
+                    reason = (int)ENotEnoughResourceText.PlayAtWrongTableNumber;
                 else if (_guestSeats.TryGetValue(connId, out var held)
                          && TableAt(held.table) != null && TableAt(held.table).GetHasStartPlayerPlayCard())
                     reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;

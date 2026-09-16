@@ -204,6 +204,12 @@ namespace CardShopCoop.Net.Messages
         public float TotalValue;
         public List<TournamentPrizeSlot> PrizeSlots = new List<TournamentPrizeSlot>();
         public List<TournamentBracketEntry> Bracket = new List<TournamentBracketEntry>();
+        // game 1.0: the shop's ONE player entry (host or a guest). Append-only wire.
+        public byte PlayerFlags;    // bit0 registered, bit1 is tournament customer, bit2 finished round, bit3 result registered, bit4 won
+        public int PlayerTable;     // m_TournamentCustomerPlayTableIndex
+        public int PlayerCustomerIndex;
+        public int PlayerSortedIndex;
+        public string EntryHolder = ""; // player name holding the entry ("" = none)
 
         public MsgType Type
         {
@@ -212,8 +218,37 @@ namespace CardShopCoop.Net.Messages
                 return MsgType.TournamentState;
             }
         }
+    }
 
+    /// <summary>Client -> host: take (<c>Want</c>) or give up the shop's one tournament entry.</summary>
+    [NetworkMessage(MsgType.TournamentEntry, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class TournamentEntryMessage : INetMessage
+    {
+        public bool Want;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.TournamentEntry;
+            }
+        }
+    }
 
+    /// <summary>Host -> one client: the entry is theirs (or released), or refused with the
+    /// game's own <c>ENotEnoughResourceText</c> reason.</summary>
+    [NetworkMessage(MsgType.TournamentEntryResult, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class TournamentEntryResultMessage : INetMessage
+    {
+        public bool Ok;
+        public bool Registered;
+        public int Reason;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.TournamentEntryResult;
+            }
+        }
     }
 
     /// <summary>One prize-catalog slot (a set of prize entries).</summary>
