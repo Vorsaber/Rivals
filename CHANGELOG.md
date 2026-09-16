@@ -16,6 +16,8 @@ TCG Card Shop Simulator 1.0 added the Ascension expansion with its own market ta
 
 **Fixed: no money or level HUD for the guest on a brand-new save.** The game hides the whole HUD at tutorial step 0 and only shows it again when the shop is named - a screen the guest never sees, because the host names the shop. The guest's HUD now appears the moment the host confirms the name. (The OPEN sign and the phone unlock as the host works through the first tutorial steps, same as they would for the host.)
 
+**Difficulty that follows the player count.** A host-side profile (Off / Relaxed / Normal / Busy / Chaos / Custom, F1 config `Difficulty`) scales how many customers the shop draws, how fast they arrive and how much they carry - and grows the crowd for every extra player in the session (35% per player by default), since two pairs of hands clear a queue twice as fast. Switch profiles live from the cheat menu. Explicit `Population` settings still override it.
+
 **A test-rig cheat menu (F4, host only).** Money, shop level, every license, the tutorial, a full set of any expansion, a ready-made 50-card deck, any delivery box, any boxed furniture - each through the game's own path, so the guest sees the result like a real purchase. Turn it off with Cheats > Enabled in the F1 config. The guest has the same menu; their buttons are requests the host runs (furniture lands in front of the guest), and the host can refuse them with Cheats > AllowGuestRequests.
 
 **Crowd size is now a setting.** Two host-side options in the F1 config (Population > MaxCustomers, SpawnRateMultiplier) do what the Higher Population mod did, through the game's own spawn pacing, so the guest sees the same crowd. Higher Population itself no longer loads on game 1.0 - remove it.

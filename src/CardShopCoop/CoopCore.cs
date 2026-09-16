@@ -191,6 +191,7 @@ namespace CardShopCoop
         private readonly BattleSync _battle = new BattleSync();
         private readonly GuestBattle _guestBattle = new GuestBattle();
         private readonly PvpBattle _pvp = new PvpBattle();
+        private readonly Difficulty _difficulty = new Difficulty();
         private readonly DeckSync _decks = new DeckSync();
         private readonly PlayerIntentBus _intents = new PlayerIntentBus();
         private readonly StaffSync _staff = new StaffSync();
@@ -693,6 +694,7 @@ namespace CardShopCoop
             _tv.SendOp = Send(1);
             _tv.BroadcastState = Broadcast;
             _tv.PeerCount = () => _net == null ? 0 : _net.ConnectionCount;
+            _difficulty.PeerCount = () => _net == null ? 0 : _net.ConnectionCount;
 
             FurnitureBoxOps.SendOp = Send(1);
             FurnitureBoxOps.IsLocallyCarried = box =>
@@ -1830,6 +1832,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(_battle, "battle", 12, 5, Sync.BattleSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_decks, "decks", 13, 6, Sync.DeckSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_pvp, "pvp", 14, 7, Sync.PvpBattle.ApplyPatches),
+                new Sync.CoopModuleEntry(_difficulty, "difficulty", 15, -1, Sync.Difficulty.ApplyPatches),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("join-heal", null, null,
                     () => _priceFullPending = true), "join-heal"),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("live-hooks",

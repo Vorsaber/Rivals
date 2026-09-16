@@ -35,6 +35,11 @@ namespace CardShopCoop
         public static ConfigEntry<int> Port;
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
+        public static ConfigEntry<Sync.DifficultyProfile> DifficultyProfile;
+        public static ConfigEntry<float> DifficultyPerPlayer;
+        public static ConfigEntry<float> DifficultyCustomCap;
+        public static ConfigEntry<float> DifficultyCustomRate;
+        public static ConfigEntry<float> DifficultyCustomWallet;
         public static ConfigEntry<string> LastJoinIP;
         public static ConfigEntry<string> PlayerName;
         public static ConfigEntry<float> SendRateHz;
@@ -82,7 +87,17 @@ namespace CardShopCoop
             MaxCustomers = Config.Bind("Population", "MaxCustomers", 0,
                 "Host only. Cap on customers in the shop at once. 0 = the game's own cap (3-30 by shop level and rooms). Applied through the game's normal spawn pacing; guests see the same crowd.");
             SpawnRateMultiplier = Config.Bind("Population", "SpawnRateMultiplier", 1f,
-                "Host only. Multiplies how often a new customer arrives (2 = twice as often, 0.5 = half). 1 = vanilla.");
+                "Host only. Multiplies how often a new customer arrives (2 = twice as often, 0.5 = half). 1 = vanilla. Overrides the Difficulty profile.");
+            DifficultyProfile = Config.Bind("Difficulty", "Profile", Sync.DifficultyProfile.Normal,
+                "Host only. Crowd profile, scaled by how many people are playing. Off = the game's own numbers regardless of player count. Relaxed: fewer, richer customers. Normal: vanilla at one player. Busy / Chaos: more customers arriving faster. Custom: the Custom* multipliers below. Changeable live from the cheat menu.");
+            DifficultyPerPlayer = Config.Bind("Difficulty", "PerPlayerScale", 0.35f,
+                "Host only. How much the crowd grows per EXTRA player: 0.35 = a second player adds 35% more customers arriving 35% faster, a third adds another 35%. 0 = no scaling.");
+            DifficultyCustomCap = Config.Bind("Difficulty", "CustomCustomers", 1f,
+                "Custom profile: multiplier on the customer cap (before the per-player scale).");
+            DifficultyCustomRate = Config.Bind("Difficulty", "CustomArrivalRate", 1f,
+                "Custom profile: multiplier on how often customers arrive (before the per-player scale).");
+            DifficultyCustomWallet = Config.Bind("Difficulty", "CustomWallet", 1f,
+                "Custom profile: multiplier on how much money customers carry.");
             SendRateHz = Config.Bind("Network", "SendRateHz", 15f,
                 "How many position updates per second to send (8-20 is sensible).");
             if (Mathf.Approximately(SendRateHz.Value, 12f))

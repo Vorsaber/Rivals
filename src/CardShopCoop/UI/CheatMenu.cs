@@ -49,6 +49,7 @@ namespace CardShopCoop.UI
             StarterDeck,
             Deliver,         // A = restock index, B = count
             Furniture,       // A = EObjectType
+            Difficulty,      // A = DifficultyProfile
         }
 
         // set by CoopCore: the guest's requests go up, the host's answers come back
@@ -181,6 +182,10 @@ namespace CardShopCoop.UI
                     break;
                 case Op.Furniture:
                     SpawnFurniture((EObjectType)a);
+                    break;
+                case Op.Difficulty:
+                    Sync.Difficulty.SetProfile((Sync.DifficultyProfile)a);
+                    Say("difficulty: " + Sync.Difficulty.Describe());
                     break;
                 default:
                     Say("unknown cheat " + op);
@@ -352,6 +357,13 @@ namespace CardShopCoop.UI
                 Do(Op.Deco, 1);
             if (GUILayout.Button("Own every ceiling"))
                 Do(Op.Deco, 2);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(4);
+            GUILayout.Label("Difficulty: " + Sync.Difficulty.Describe());
+            GUILayout.BeginHorizontal();
+            foreach (Sync.DifficultyProfile p in Enum.GetValues(typeof(Sync.DifficultyProfile)))
+                if (GUILayout.Button(p.ToString()))
+                    Do(Op.Difficulty, (int)p);
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
             GUILayout.Label("Play table fee (a new shop has no review rating, so customers read a market fee as 10x market and refuse to sit)");
