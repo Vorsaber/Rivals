@@ -12,6 +12,8 @@ TCG Card Shop Simulator 1.0 added the Ascension expansion with its own market ta
 
 **The Tetramon card game works in co-op.** Both players can sit down against a waiting customer and play - the host as always, and now the guest too: right-click the table, the host books the seat, the battle runs on the guest's own screen with the shop's decks, and when it ends the customer stands up and leaves for everyone. Won gift packs land in the winner's hands. Whoever is playing, the other player can walk up and watch: the board, both guardians, every evolution stack, HP and deck counts are mirrored live, and the player actually sits at the table instead of standing on the chair. Someone joining mid-battle sees it straight away. The shop's decks stay identical on both PCs when the host edits one at the Workbench. You cannot sit at a tournament table as the guest yet.
 
+**Crowd size is now a setting.** Two host-side options in the F1 config (Population > MaxCustomers, SpawnRateMultiplier) do what the Higher Population mod did, through the game's own spawn pacing, so the guest sees the same crowd. Higher Population itself no longer loads on game 1.0 - remove it.
+
 The Workbench deck editor and tournament sign-up stay host-only for now, with a short on-screen notice for the guest instead of a silent failure. When the host joins their own tournament, the guest's pairing board shows them where vanilla would. The guest can no longer accidentally kick a table someone is playing at.
 
 Also verified against game 1.0: the mod builds cleanly against the 1.0 assemblies and every runtime patch target still resolves.

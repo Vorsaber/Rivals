@@ -33,6 +33,8 @@ namespace CardShopCoop
         public static ManualLogSource Log;
 
         public static ConfigEntry<int> Port;
+        public static ConfigEntry<int> MaxCustomers;
+        public static ConfigEntry<float> SpawnRateMultiplier;
         public static ConfigEntry<string> LastJoinIP;
         public static ConfigEntry<string> PlayerName;
         public static ConfigEntry<float> SendRateHz;
@@ -74,6 +76,10 @@ namespace CardShopCoop
                 "IP address of the host PC (remembered after a successful join).");
             PlayerName = Config.Bind("Player", "Name", System.Environment.UserName,
                 "Name shown above your head on the other player's screen.");
+            MaxCustomers = Config.Bind("Population", "MaxCustomers", 0,
+                "Host only. Cap on customers in the shop at once. 0 = the game's own cap (3-30 by shop level and rooms). Applied through the game's normal spawn pacing; guests see the same crowd.");
+            SpawnRateMultiplier = Config.Bind("Population", "SpawnRateMultiplier", 1f,
+                "Host only. Multiplies how often a new customer arrives (2 = twice as often, 0.5 = half). 1 = vanilla.");
             SendRateHz = Config.Bind("Network", "SendRateHz", 15f,
                 "How many position updates per second to send (8-20 is sensible).");
             if (Mathf.Approximately(SendRateHz.Value, 12f))
