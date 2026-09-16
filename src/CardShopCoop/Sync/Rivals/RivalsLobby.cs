@@ -47,7 +47,9 @@ namespace CardShopCoop.Sync.Rivals
         public static float CrowdMultiplier = 1f;
         public static int MyPriceRank = -1;
 
-        private Transport _net;
+        private ICoopTransport _net;
+        private bool _viaSteam;
+        public static bool ViaSteam => Instance != null && Instance._viaSteam;
         private readonly Dictionary<int, RivalsShop> _shops = new Dictionary<int, RivalsShop>(); // server: conn -> shop
         private readonly HashSet<int> _welcomed = new HashSet<int>();
         private int _myId = -1;
@@ -61,6 +63,84 @@ namespace CardShopCoop.Sync.Rivals
 
         // ================================================================ connect / host
 
+        /// <summary>Steam: host a friends-only league lobby; invite from the overlay.</summary>
+        public static void HostLobbySteam()
+        {
+            var me = Instance;
+            var steam = CoopCore.Instance != null ? CoopCore.Instance.Steam : null;
+            if (me == null || steam == null)
+            {
+                Status = "no Steam on this install - use LAN";
+                return;
+            }
+            me.Leave();
+            try
+            {
+                LobbyName = CoopPlugin.RivalsLobbyName != null && !string.IsNullOrWhiteSpace(CoopPlugin.RivalsLobbyName.Value)
+                    ? CoopPlugin.RivalsLobbyName.Value.Trim() : (MyShopName() + "'s league");
+                me._net = steam.CreateRivalsTransport(true, new RivalsPingMessage());
+                me._viaSteam = true;
+                steam.OnRivalsLobbyLive = id =>
+                {
+                    Role = LobbyRole.Server;
+                    Status = $"hosting league '{LobbyName}' on Steam - invite friends from the overlay";
+                    me._shops.Clear();
+                    me._welcomed.Clear();
+                    me._myId = 0;
+                    CoopPlugin.Log.LogInfo("Rivals: " + Status + " (lobby " + id + ")");
+                };
+                Role = LobbyRole.Server; // provisional until the lobby is live
+                Status = "creating the Steam league lobby...";
+                steam.HostRivals(LobbyName);
+            }
+            catch (Exception e)
+            {
+                Status = "could not host on Steam: " + e.Message;
+                CoopPlugin.Log.LogWarning("Rivals: " + Status);
+                me.Leave();
+            }
+        }
+
+        /// <summary>Steam: join a league lobby (from an accepted overlay invite).</summary>
+        public static void JoinSteam(ulong lobbyId)
+        {
+            var me = Instance;
+            var steam = CoopCore.Instance != null ? CoopCore.Instance.Steam : null;
+            if (me == null || steam == null)
+                return;
+            if (CoopCore.Role == CoopRole.Client)
+            {
+                Status = "you are a co-op guest - your host's shop represents the team";
+                return;
+            }
+            me.Leave();
+            try
+            {
+                me._net = steam.CreateRivalsTransport(false, new RivalsPingMessage());
+                me._viaSteam = true;
+                Role = LobbyRole.Client;
+                Status = "joining the Steam league lobby...";
+                steam.OnRivalsConnectedToHost = () =>
+                {
+                    Status = "connected via Steam - waiting for welcome";
+                    me._net?.Send(1, new RivalsHelloMessage { Name = MyShopName(), Version = CoopPlugin.Version });
+                };
+                steam.JoinRivals(lobbyId);
+            }
+            catch (Exception e)
+            {
+                Status = "could not join on Steam: " + e.Message;
+                CoopPlugin.Log.LogWarning("Rivals: " + Status);
+                me.Leave();
+            }
+        }
+
+        public static void OpenSteamInvite()
+        {
+            var steam = CoopCore.Instance != null ? CoopCore.Instance.Steam : null;
+            steam?.OpenRivalsInviteDialog();
+        }
+
         public static void HostLobby()
         {
             var me = Instance;
@@ -70,8 +150,10 @@ namespace CardShopCoop.Sync.Rivals
             try
             {
                 int port = CoopPlugin.RivalsPort != null ? CoopPlugin.RivalsPort.Value : 27887;
-                me._net = new Transport { KeepaliveMessage = new RivalsPingMessage() };
-                me._net.StartHost(port);
+                var tcp = new Transport { KeepaliveMessage = new RivalsPingMessage() };
+                tcp.StartHost(port);
+                me._net = tcp;
+                me._viaSteam = false;
                 Role = LobbyRole.Server;
                 LobbyName = CoopPlugin.RivalsLobbyName != null && !string.IsNullOrWhiteSpace(CoopPlugin.RivalsLobbyName.Value)
                     ? CoopPlugin.RivalsLobbyName.Value.Trim() : (MyShopName() + "'s league");
@@ -111,8 +193,10 @@ namespace CardShopCoop.Sync.Rivals
                     Status = "enter the lobby address";
                     return;
                 }
-                me._net = new Transport { KeepaliveMessage = new RivalsPingMessage() };
-                me._net.StartClient(host, port);
+                var tcp = new Transport { KeepaliveMessage = new RivalsPingMessage() };
+                tcp.StartClient(host, port);
+                me._net = tcp;
+                me._viaSteam = false;
                 Role = LobbyRole.Client;
                 Status = $"connecting to {host}:{port}...";
                 me._net.Send(1, new RivalsHelloMessage { Name = MyShopName(), Version = CoopPlugin.Version });
@@ -141,7 +225,16 @@ namespace CardShopCoop.Sync.Rivals
                 _net?.Stop();
             }
             catch { }
+            if (_viaSteam)
+            {
+                try
+                {
+                    CoopCore.Instance?.Steam?.LeaveRivals();
+                }
+                catch { }
+            }
             _net = null;
+            _viaSteam = false;
             Role = LobbyRole.None;
             _shops.Clear();
             _welcomed.Clear();
@@ -166,6 +259,7 @@ namespace CardShopCoop.Sync.Rivals
                 return;
             try
             {
+                _net.PumpMainThread(); // Steam does its I/O here; TCP ignores it
                 while (_net.Connects.TryDequeue(out int c))
                 {
                     if (Role == LobbyRole.Server)

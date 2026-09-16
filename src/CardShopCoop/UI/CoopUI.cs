@@ -427,12 +427,17 @@ namespace CardShopCoop.UI
                 if (GUILayout.Button("Join", CoopTheme.ButtonPrimary, GUILayout.Width(70f)))
                     Sync.Rivals.RivalsLobby.JoinLobby(_rivalsAddress);
                 GUILayout.EndHorizontal();
-                if (GUILayout.Button("Host a league lobby  (port " + (CoopPlugin.RivalsPort != null ? CoopPlugin.RivalsPort.Value : 27887) + ")", CoopTheme.ButtonSecondary))
+                if (GUILayout.Button("Host a league lobby  (LAN, port " + (CoopPlugin.RivalsPort != null ? CoopPlugin.RivalsPort.Value : 27887) + ")", CoopTheme.ButtonSecondary))
                     Sync.Rivals.RivalsLobby.HostLobby();
-                GUILayout.Label("<size=10>Whoever hosts the lobby gives the others their LAN address (Copy IP address on the Session tab). The lobby is independent of any co-op session.</size>", CoopTheme.LabelDim);
+                if (core.Steam != null && GUILayout.Button("Host a league lobby  (Steam - invite friends)", CoopTheme.ButtonPrimary))
+                    Sync.Rivals.RivalsLobby.HostLobbySteam();
+                GUILayout.Label("<size=10>LAN: the lobby host gives the others their address (Copy IP address on the Session tab). Steam: accept the friend's invite from the overlay - it lands here. The league is independent of any co-op session.</size>", CoopTheme.LabelDim);
             }
             else
             {
+                if (Sync.Rivals.RivalsLobby.ViaSteam && R == Sync.Rivals.RivalsLobby.LobbyRole.Server
+                    && GUILayout.Button("Invite friend to the league  (Steam overlay)", CoopTheme.ButtonPrimary))
+                    Sync.Rivals.RivalsLobby.OpenSteamInvite();
                 if (GUILayout.Button(R == Sync.Rivals.RivalsLobby.LobbyRole.Server ? "Close the lobby" : "Leave the league", CoopTheme.ButtonDanger))
                     Sync.Rivals.RivalsLobby.LeaveLobby();
             }

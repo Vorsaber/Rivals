@@ -7,7 +7,7 @@ True co-op multiplayer for TCG Card Shop Simulator. Both players must run the
 
 ## experimental (unreleased)
 
-**Rivals league (competitive mode, phase 1).** A RIVALS tab on the co-op window. Every shop plays on its own save; one player hosts a league lobby (a second, thin connection - port 27887) and the other shops join it. The board shows every shop's level, money, day, sales, customers, average markup and tournament status, ranked by value. The price race moves the crowd: the cheapest shop draws up to 30% more customers, the priciest 30% fewer (`Rivals > PriceEffect` on the lobby host). A co-op session is a team: its host joins for everyone and relays the board to the guests. League chat. Visiting other shops, ante PvP and trading are phase 2.
+**Rivals league (competitive mode, phase 1).** A RIVALS tab on the co-op window. Every shop plays on its own save; one player hosts a league lobby (a second, thin connection - port 27887) and the other shops join it. The board shows every shop's level, money, day, sales, customers, average markup and tournament status, ranked by value. The price race moves the crowd: the cheapest shop draws up to 30% more customers, the priciest 30% fewer (`Rivals > PriceEffect` on the lobby host). A co-op session is a team: its host joins for everyone and relays the board to the guests. Steam friends work too: *Host a league lobby (Steam)* makes a friends-only league; invite from the overlay and the invite lands on the Rivals tab (the mod tells league invites from shop invites apart). League chat. Visiting other shops, ante PvP and trading are phase 2.
 
 ## 1.3.0
 **Ascension cards now have real prices for the guest on game version 1.0.**

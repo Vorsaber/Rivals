@@ -18,7 +18,7 @@ namespace CardShopCoop.Net
     /// </summary>
     public class SteamTransport : ICoopTransport
     {
-        private const int Channel = 71; // stay clear of channel 0 (other mods)
+        private readonly int Channel; // 71 co-op, 72 Rivals league; stay clear of channel 0 (other mods)
 
         public ConcurrentQueue<InMsg> Incoming { get; } = new ConcurrentQueue<InMsg>();
         public ConcurrentQueue<int> Disconnects { get; } = new ConcurrentQueue<int>();
@@ -59,9 +59,10 @@ namespace CardShopCoop.Net
         /// <summary>Lobby whose members are allowed to open sessions with us (host side).</summary>
         public CSteamID LobbyId = CSteamID.Nil;
 
-        public SteamTransport(bool isHost)
+        public SteamTransport(bool isHost, int channel = 71)
         {
             _isHost = isHost;
+            Channel = channel;
             SteamNetworking.AllowP2PPacketRelay(true);
             _cbSessionReq = Callback<P2PSessionRequest_t>.Create(OnSessionRequest);
             _cbSessionFail = Callback<P2PSessionConnectFail_t>.Create(OnSessionFail);
@@ -374,6 +375,16 @@ namespace CardShopCoop.Net
         private CallResult<LobbyMatchList_t> _lobbyList;
 
         public CSteamID LobbyId = CSteamID.Nil;
+        /// <summary>Lobby data "coopmod": "communitymultiplayer" (co-op shop) or "rivalsleague".
+        /// Two SteamLobby instances live side by side (co-op + Rivals); every Steam callback
+        /// reaches both, so each filters by what IT is doing.</summary>
+        public string Kind = "communitymultiplayer";
+        /// <summary>Only ONE instance listens for accepted invites and routes them by kind.</summary>
+        public bool ListensForInvites = true;
+        public Action<CSteamID> OnRivalsInviteAccepted; // an invite to a rivalsleague lobby
+        private Callback<LobbyDataUpdate_t> _cbDataUpdate;
+        private CSteamID _inviteProbe = CSteamID.Nil;
+        private bool _creating;
         private bool _joining;
         private bool _pendingPublic;
         private string _pendingName = "";
@@ -405,13 +416,16 @@ namespace CardShopCoop.Net
         {
             _cbCreated = Callback<LobbyCreated_t>.Create(e =>
             {
+                if (!_creating)
+                    return; // the other SteamLobby instance's lobby
+                _creating = false;
                 if (e.m_eResult != EResult.k_EResultOK)
                 {
                     OnError?.Invoke("Steam lobby creation failed: " + e.m_eResult);
                     return;
                 }
                 LobbyId = new CSteamID(e.m_ulSteamIDLobby);
-                SteamMatchmaking.SetLobbyData(LobbyId, "coopmod", "communitymultiplayer");
+                SteamMatchmaking.SetLobbyData(LobbyId, "coopmod", Kind);
                 SteamMatchmaking.SetLobbyData(LobbyId, "coopver", CoopPlugin.Version);
                 string ownerName = CoopCore.Instance == null
                     ? CoopPlugin.PlayerName.Value
@@ -456,10 +470,38 @@ namespace CardShopCoop.Net
                 var owner = SteamMatchmaking.GetLobbyOwner(LobbyId);
                 OnEnteredLobby?.Invoke(owner);
             });
-            _cbJoinRequested = Callback<GameLobbyJoinRequested_t>.Create(e =>
+            if (ListensForInvites)
             {
-                OnInviteAccepted?.Invoke(e.m_steamIDLobby);
-            });
+                // An accepted invite (or +connect_lobby) names a lobby we are NOT in yet; its
+                // data is not readable until requested. Ask, then route by "coopmod".
+                _cbJoinRequested = Callback<GameLobbyJoinRequested_t>.Create(e =>
+                {
+                    _inviteProbe = e.m_steamIDLobby;
+                    if (!SteamMatchmaking.RequestLobbyData(e.m_steamIDLobby))
+                        RouteInvite(e.m_steamIDLobby); // no answer coming: assume co-op
+                });
+                _cbDataUpdate = Callback<LobbyDataUpdate_t>.Create(e =>
+                {
+                    if (_inviteProbe == CSteamID.Nil || e.m_ulSteamIDLobby != _inviteProbe.m_SteamID)
+                        return;
+                    RouteInvite(_inviteProbe);
+                });
+            }
+        }
+
+        private void RouteInvite(CSteamID lobby)
+        {
+            _inviteProbe = CSteamID.Nil;
+            string kind = "";
+            try
+            {
+                kind = SteamMatchmaking.GetLobbyData(lobby, "coopmod") ?? "";
+            }
+            catch (System.Exception e) { Swallow.Log(e); }
+            if (kind == "rivalsleague")
+                OnRivalsInviteAccepted?.Invoke(lobby);
+            else
+                OnInviteAccepted?.Invoke(lobby);
         }
 
         public bool SteamAvailable()
@@ -477,6 +519,9 @@ namespace CardShopCoop.Net
             _pendingName = lobbyName ?? "";
             _pendingHasPw = hasPassword;
             int max = CoopPlugin.MaxPlayers != null ? UnityEngine.Mathf.Clamp(CoopPlugin.MaxPlayers.Value, 2, 8) : 4;
+            if (Kind == "rivalsleague")
+                max = 16; // shops, not players
+            _creating = true;
             SteamMatchmaking.CreateLobby(
                 isPublic ? ELobbyType.k_ELobbyTypePublic : ELobbyType.k_ELobbyTypeFriendsOnly, max);
         }
@@ -487,7 +532,7 @@ namespace CardShopCoop.Net
             if (ListRefreshing)
                 return;
             ListRefreshing = true;
-            SteamMatchmaking.AddRequestLobbyListStringFilter("coopmod", "communitymultiplayer", ELobbyComparison.k_ELobbyComparisonEqual);
+            SteamMatchmaking.AddRequestLobbyListStringFilter("coopmod", Kind, ELobbyComparison.k_ELobbyComparisonEqual);
             SteamMatchmaking.AddRequestLobbyListResultCountFilter(100);
             SteamMatchmaking.AddRequestLobbyListDistanceFilter(ELobbyDistanceFilter.k_ELobbyDistanceFilterWorldwide);
             var call = SteamMatchmaking.RequestLobbyList();
@@ -546,6 +591,9 @@ namespace CardShopCoop.Net
     {
         private readonly SteamLobby _lobby = new SteamLobby();
         private SteamTransport _tx;
+        // Rivals league: its own lobby (kind "rivalsleague") and P2P channel (72)
+        private readonly SteamLobby _rivals = new SteamLobby { Kind = "rivalsleague", ListensForInvites = false };
+        private SteamTransport _rtx;
 
         /// <summary>Reused across calls: CoopUI's browser polls Lobbies every OnGUI frame
         /// (which runs 2+ times a frame), and a fresh list each time is pure garbage.</summary>
@@ -638,10 +686,46 @@ namespace CardShopCoop.Net
         {
             get; set;
         }
-
+        public Action<ulong> OnRivalsLobbyLive
+        {
+            get; set;
+        }
+        public Action OnRivalsConnectedToHost
+        {
+            get; set;
+        }
+        public Action<ulong> OnRivalsInviteAccepted
+        {
+            get; set;
+        }
+        public ulong RivalsLobbyId
+        {
+            get
+            {
+                return _rivals.LobbyId.m_SteamID;
+            }
+        }
         public void Init()
         {
+            _rivals.Init();
+            _rivals.OnError = e => OnError?.Invoke(e);
+            _rivals.OnLobbyCreated = id =>
+            {
+                if (_rtx != null)
+                    _rtx.LobbyId = id;
+                OnRivalsLobbyLive?.Invoke(id.m_SteamID);
+            };
+            _rivals.OnEnteredLobby = owner =>
+            {
+                if (_rtx == null)
+                    return;
+                _rtx.LobbyId = _rivals.LobbyId;
+                _rtx.ConnectToHost(owner);
+                OnRivalsConnectedToHost?.Invoke();
+            };
+            _rivals.OnListUpdated = () => { };
             _lobby.Init();
+            _lobby.OnRivalsInviteAccepted = id => OnRivalsInviteAccepted?.Invoke(id.m_SteamID);
             _lobby.OnError = e => OnError?.Invoke(e);
             _lobby.OnLobbyCreated = id =>
             {
@@ -744,6 +828,28 @@ namespace CardShopCoop.Net
         public void OpenInviteDialog()
         {
             _lobby.OpenInviteDialog();
+        }
+        public ICoopTransport CreateRivalsTransport(bool isHost, INetMessage keepalive)
+        {
+            _rtx = new SteamTransport(isHost, 72) { KeepaliveMessage = keepalive };
+            return _rtx;
+        }
+        public void HostRivals(string lobbyName)
+        {
+            _rivals.Host(false, lobbyName, false); // friends-only: invite from the overlay
+        }
+        public void JoinRivals(ulong lobbyId)
+        {
+            _rivals.Join(new CSteamID(lobbyId));
+        }
+        public void LeaveRivals()
+        {
+            _rivals.Leave();
+            _rtx = null;
+        }
+        public void OpenRivalsInviteDialog()
+        {
+            _rivals.OpenInviteDialog();
         }
         public void RefreshList()
         {

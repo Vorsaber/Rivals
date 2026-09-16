@@ -902,6 +902,11 @@ namespace CardShopCoop
                     CoopPlugin.Log.LogInfo("steam: invite accepted -> lobby " + lobby);
                     JoinSteam(lobby);
                 };
+                _steam.OnRivalsInviteAccepted = lobby =>
+                {
+                    CoopPlugin.Log.LogInfo("steam: league invite accepted -> lobby " + lobby);
+                    Sync.Rivals.RivalsLobby.JoinSteam(lobby);
+                };
             }
 
             CEventManager.AddListener<CEventPlayer_OnOpenCardPack>(OnLocalPackOpened);

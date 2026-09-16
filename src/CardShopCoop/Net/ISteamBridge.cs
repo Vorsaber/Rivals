@@ -140,6 +140,30 @@ namespace CardShopCoop.Net
         {
             get; set;
         }
+
+        // ---- Rivals league: a second lobby (kind "rivalsleague") + P2P channel, so a
+        // co-op host can sit in its shop lobby AND the league at once. Same shapes as above.
+        ICoopTransport CreateRivalsTransport(bool isHost, INetMessage keepalive);
+        void HostRivals(string lobbyName);
+        void JoinRivals(ulong lobbyId);
+        void LeaveRivals();
+        void OpenRivalsInviteDialog();
+        ulong RivalsLobbyId
+        {
+            get;
+        }
+        Action<ulong> OnRivalsLobbyLive
+        {
+            get; set;
+        }
+        Action OnRivalsConnectedToHost
+        {
+            get; set;
+        }
+        Action<ulong> OnRivalsInviteAccepted
+        {
+            get; set;
+        }
     }
 
     /// <summary>
