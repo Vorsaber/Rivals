@@ -930,6 +930,20 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<SocialMessage>((context, message) =>
+            {
+                if (message is SocialMessage social)
+                    _social.Apply(social, context.ConnectionId);
+                return;
+            },
+                MessagePolicy.Any, false, heal: null);
+            _messageRouter.Register<ActivityStatusMessage>((context, message) =>
+            {
+                if (message is ActivityStatusMessage status)
+                    _social.ApplyStatus(status, context.ConnectionId);
+                return;
+            },
+                MessagePolicy.Any, false, heal: null);
             _messageRouter.Register<SleepVoteMessage>((context, message) =>
             {
                 if (Role != CoopRole.Host || !InGameLevel())

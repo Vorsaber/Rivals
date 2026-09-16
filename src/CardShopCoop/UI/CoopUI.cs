@@ -1117,11 +1117,58 @@ namespace CardShopCoop.UI
                 int count = net?.ConnectionCount ?? 0;
                 GUILayout.Label(count == 0 ? "Waiting for a player..." : PlayersLine(core), CoopTheme.Label);
             }
-            if (GUILayout.Button("Wave  (" + CoopPlugin.EmoteKey.Value + ")", CoopTheme.ButtonSecondary))
-                core.SendEmote();
+            DrawSocial(core);
             if (GUILayout.Button("Stop hosting", CoopTheme.ButtonDanger))
                 core.Disconnect();
             GUILayout.EndVertical();
+        }
+
+        private string _chatInput = "";
+
+        /// <summary>Who's doing what, the host's tuning readout (on a guest), the chat
+        /// scrollback and input, and the wave / ping buttons. Shared by both role panels.</summary>
+        private void DrawSocial(CoopCore core)
+        {
+            // roster with status + counters
+            foreach (var kv in Sync.Social.Others)
+            {
+                var ps = kv.Value;
+                string counters = $"<size=10>packs {ps.Packs} · battles {ps.Battles} · sales {ps.Sales}</size>";
+                GUILayout.Label($"{ps.Name} - {ps.Status}   {counters}", CoopTheme.Label);
+            }
+            GUILayout.Label($"you - {Sync.Social.LocalStatus()}   <size=10>packs {Sync.Social.Packs} · battles {Sync.Social.Battles}</size>", CoopTheme.LabelDim);
+            if (CoopCore.Role == CoopRole.Client && !string.IsNullOrEmpty(Sync.Social.HostInfo))
+                GUILayout.Label("<size=10>host " + Sync.Social.HostInfo + "</size>", CoopTheme.LabelDim);
+            GUILayout.Space(4f);
+            // chat
+            var lines = Sync.Social.Lines;
+            int from = Mathf.Max(0, lines.Count - 8);
+            for (int i = from; i < lines.Count; i++)
+            {
+                var l = lines[i];
+                GUILayout.Label((l.IsPing ? "! " : "") + l.From + ": " + l.Text, l.IsPing ? CoopTheme.LabelWarn : CoopTheme.Label);
+            }
+            GUILayout.BeginHorizontal();
+            GUI.SetNextControlName("coop_chatwin");
+            _chatInput = GUILayout.TextField(_chatInput ?? "", 200);
+            bool enter = Event.current.type == EventType.KeyDown
+                && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter)
+                && GUI.GetNameOfFocusedControl() == "coop_chatwin";
+            if (GUILayout.Button("Send", CoopTheme.ButtonSecondary, GUILayout.Width(60f)) || enter)
+            {
+                if (!string.IsNullOrWhiteSpace(_chatInput))
+                    Sync.Social.SendChat(_chatInput);
+                _chatInput = "";
+                if (enter)
+                    Event.current.Use();
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Wave  (" + CoopPlugin.EmoteKey.Value + ")", CoopTheme.ButtonSecondary))
+                core.SendEmote();
+            if (GUILayout.Button("Need you here  (" + (CoopPlugin.PingKey != null ? CoopPlugin.PingKey.Value : KeyCode.H) + ")", CoopTheme.ButtonSecondary))
+                Sync.Social.SendPing();
+            GUILayout.EndHorizontal();
         }
 
         /// <summary>The invite-code block in the LAN host panel: the status + copy row, the
@@ -1247,8 +1294,7 @@ namespace CardShopCoop.UI
             GUILayout.BeginVertical(CoopTheme.SectionBox, GUILayout.ExpandHeight(true));
             GUILayout.Label("IN SESSION", CoopTheme.SectionHeader);
             GUILayout.Label(PlayersLine(core), CoopTheme.Label);
-            if (GUILayout.Button("Wave  (" + CoopPlugin.EmoteKey.Value + ")", CoopTheme.ButtonSecondary))
-                core.SendEmote();
+            DrawSocial(core);
             if (GUILayout.Button("Leave session", CoopTheme.ButtonDanger))
                 core.Disconnect();
             GUILayout.EndVertical();

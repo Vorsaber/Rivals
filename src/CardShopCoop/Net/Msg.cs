@@ -117,6 +117,8 @@ namespace CardShopCoop.Net
         CheatResult = 119,   // host -> one client: what the cheat did, for the guest's status line
         SleepVote = 120,     // client -> host: ready (or not) to end the day
         SleepStatus = 121,   // host -> clients: a line about the end-of-day wait
+        Social = 122,        // both ways: chat line / "come here" ping (host relays)
+        Activity2 = 123,     // both ways: what a player is doing + session counters (host relays)
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

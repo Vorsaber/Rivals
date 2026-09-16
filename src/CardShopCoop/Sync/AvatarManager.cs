@@ -133,6 +133,19 @@ namespace CardShopCoop.Sync
             return true;
         }
 
+        /// <summary>Show a tag above whichever puppet carries this name (a ping's "over here!").</summary>
+        public void ShowTagByName(string name, string text, float seconds)
+        {
+            if (string.IsNullOrEmpty(name))
+                return;
+            foreach (var kv in _avatars)
+                if (kv.Value != null && kv.Value.Name == name && kv.Value.EmoteTag != null)
+                {
+                    kv.Value.EmoteTag.text = text;
+                    kv.Value.EmoteTimer = seconds;
+                }
+        }
+
         public void SetName(int connId, string name)
         {
             if (string.IsNullOrEmpty(name))

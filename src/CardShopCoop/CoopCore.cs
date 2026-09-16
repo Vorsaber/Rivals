@@ -207,6 +207,7 @@ namespace CardShopCoop
         private readonly GuestBattle _guestBattle = new GuestBattle();
         private readonly PvpBattle _pvp = new PvpBattle();
         private readonly SleepVote _sleep = new SleepVote();
+        private readonly Social _social = new Social();
         private readonly DeckSync _decks = new DeckSync();
         private readonly PlayerIntentBus _intents = new PlayerIntentBus();
         private readonly StaffSync _staff = new StaffSync();
@@ -666,6 +667,17 @@ namespace CardShopCoop
             _pvp.SendToHost = Send(1);
             _pvp.SendToClient = Send;
             _pvp.PeerName = PeerNameFor;
+            _social.SendToHost = Send(1);
+            _social.Broadcast = Broadcast;
+            _social.PeerName = PeerNameFor;
+            _social.RelayFrom = (sender, msg) =>
+            {
+                if (Role != CoopRole.Host || _net == null)
+                    return;
+                foreach (int cid in _net.ConnIds())
+                    if (cid != sender)
+                        _net.Send(cid, msg);
+            };
             _sleep.SendToHost = Send(1);
             _sleep.Broadcast = Broadcast;
             _sleep.PeerName = PeerNameFor;
@@ -1130,6 +1142,13 @@ namespace CardShopCoop
                 // so a modded pack needs translating like any other item id or the peer's
                 // avatar holds up whichever product wears that number locally.
                 Broadcast(new ActivityMessage { Activity = 1, Pack = (EItemType)evt.m_PackIndex });
+            Social.NotePackOpened();
+        }
+
+        /// <summary>Tag above the puppet with this display name, if it is in the shop.</summary>
+        internal void ShowTagFor(string name, string text, float seconds)
+        {
+            _avatars.ShowTagByName(name, text, seconds);
         }
 
         private void OnDestroy()
@@ -1863,6 +1882,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(null, "furnboxes", patches: Sync.FurnitureBoxOps.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "hand-protection", patches: Sync.HandProtection.ApplyPatches),
                 new Sync.CoopModuleEntry(_sleep, "sleep-vote", patches: Sync.SleepVote.ApplyPatches),
+                new Sync.CoopModuleEntry(_social, "social", 16, 8, Sync.Social.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "population-tuning", patches: Sync.PopulationTuning.ApplyPatches),
             };
@@ -3934,6 +3954,7 @@ namespace CardShopCoop
                     try
                     {
                         _sleep.HostReleaseConn(left);
+                        Social.Forget(PeerNameFor(left));
                     }
                     catch (System.Exception e) { Swallow.Log(e); }
                     try

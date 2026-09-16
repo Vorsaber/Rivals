@@ -45,6 +45,8 @@ namespace CardShopCoop
         public static ConfigEntry<bool> CheatsEnabled;
         public static ConfigEntry<bool> CheatsForGuests;
         public static ConfigEntry<KeyCode> EmoteKey;
+        public static ConfigEntry<KeyCode> ChatKey;
+        public static ConfigEntry<KeyCode> PingKey;
         public static ConfigEntry<int> ClientWorldSlot;
         public static ConfigEntry<bool> AutoSyncCardDatabase;
         public static ConfigEntry<float> ServeReach;
@@ -103,6 +105,10 @@ namespace CardShopCoop
                 "Toggles the co-op window. (F3 is reserved for future co-op options.)");
             if (UiToggleKey.Value == KeyCode.F11)
                 UiToggleKey.Value = KeyCode.F2; // migrate configs saved by early builds
+            ChatKey = Config.Bind("Keys", "ChatKey", KeyCode.T,
+                "Opens the chat line (Enter sends, Esc cancels). Chat also lives on the co-op window.");
+            PingKey = Config.Bind("Keys", "PingKey", KeyCode.H,
+                "Tells the other players you need them, naming the nearest thing to you (register, workbench, play table N, warehouse door).");
             EmoteKey = Config.Bind("Keys", "EmoteKey", KeyCode.G,
                 "Sends a wave emote that pops above your avatar.");
             ClientWorldSlot = Config.Bind("Network", "ClientWorldSlot", 7,
@@ -226,6 +232,7 @@ namespace CardShopCoop
         {
             go.AddComponent<CoopCore>();
             go.AddComponent<UI.CheatMenu>();
+            go.AddComponent<UI.ChatOverlay>();
         }
     }
 }
