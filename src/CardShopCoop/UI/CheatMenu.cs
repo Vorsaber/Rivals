@@ -47,7 +47,22 @@ namespace CardShopCoop.UI
             SyncUIMode();
         }
 
-        private static bool InGame() => CSingleton<ShelfManager>.Instance != null && InteractionPlayerController.m_Instance != null;
+        /// <summary>Same test the co-op window uses (CGameManager.m_IsGameLevel): the shop scene
+        /// is up. InteractionPlayerController.m_Instance is NOT reliable here - it stayed null on a
+        /// loaded save (2026-09-16, "Load a save first" while standing in the shop).</summary>
+        private static bool InGame()
+        {
+            var gm = CSingleton<CGameManager>.Instance;
+            return gm != null && gm.m_IsGameLevel;
+        }
+
+        private static InteractionPlayerController Player()
+        {
+            var ipc = InteractionPlayerController.m_Instance;
+            if (ipc == null)
+                ipc = CSingleton<InteractionPlayerController>.Instance;
+            return ipc;
+        }
 
         private void SyncUIMode()
         {
@@ -60,7 +75,7 @@ namespace CardShopCoop.UI
                         _uiModeController.EnterUIMode();
                     return;
                 }
-                var ipc = InteractionPlayerController.m_Instance;
+                var ipc = Player();
                 if (ipc == null || ipc.IsInUIMode())
                     return; // a game screen owns UI mode; don't fight it
                 ipc.EnterUIMode();
@@ -418,7 +433,7 @@ namespace CardShopCoop.UI
 
         private void SpawnFurniture(EObjectType type)
         {
-            var ipc = InteractionPlayerController.m_Instance;
+            var ipc = Player();
             var t = ipc != null && ipc.m_PlayerCollider != null ? ipc.m_PlayerCollider.transform : null;
             if (t == null)
             {
