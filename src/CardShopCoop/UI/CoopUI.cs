@@ -87,7 +87,7 @@ namespace CardShopCoop.UI
         private string _joinPwField = "";
         private ulong _pwPromptLobby; // 0 = no password prompt open
         private const int PageSize = 6;
-        private const float MaxWindowHeight = 900f;
+        private const float MaxWindowHeight = 720f;
         // Keep the complete window clear of the screen edges so a resize cannot push the
         // footer off-screen. The window's own height is set from this, not from its children.
         private const float WindowScreenMargin = 16f;
@@ -366,7 +366,7 @@ namespace CardShopCoop.UI
             // Clamp; on any real resolution the screen term comfortably dominates.
             float max = Mathf.Max(1f, Mathf.Min(MaxWindowHeight, Screen.height - WindowScreenMargin));
             float min = Mathf.Min(320f, max);
-            return Mathf.Clamp(Screen.height * 0.85f, min, max);
+            return Mathf.Clamp(Screen.height * 0.72f, min, max);
         }
 
         private void DrawTabs(CoopCore core)
