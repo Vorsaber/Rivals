@@ -34,6 +34,11 @@ namespace CardShopCoop
 
         public static ConfigEntry<int> Port;
         public static ConfigEntry<int> MaxPlayers;
+        public static ConfigEntry<int> RivalsPort;
+        public static ConfigEntry<string> RivalsLobbyName;
+        public static ConfigEntry<string> RivalsShopName;
+        public static ConfigEntry<string> RivalsLastAddress;
+        public static ConfigEntry<float> RivalsPriceEffect;
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
         public static ConfigEntry<string> LastJoinIP;
@@ -81,6 +86,16 @@ namespace CardShopCoop
 
             Port = Config.Bind("Network", "Port", 27886,
                 "TCP port used for hosting. Both PCs' firewalls must allow the game on this port.");
+            RivalsPort = Config.Bind("Rivals", "Port", 27887,
+                "TCP port of the Rivals lobby (competitive mode). The lobby host's firewall must allow it. Separate from the co-op port.");
+            RivalsLobbyName = Config.Bind("Rivals", "LobbyName", "",
+                "Name of the league when YOU host the lobby. Empty = '<shop>'s league'.");
+            RivalsShopName = Config.Bind("Rivals", "ShopName", "",
+                "How your shop appears on the Rivals board. Empty = the shop's in-game name.");
+            RivalsLastAddress = Config.Bind("Rivals", "LastAddress", "",
+                "Written automatically: the lobby address you last joined.");
+            RivalsPriceEffect = Config.Bind("Rivals", "PriceEffect", 0.3f,
+                "Lobby host: how much the price race moves the crowd. 0.3 = the cheapest shop draws 30% more customers, the priciest 30% fewer, linear between. 0 = off.");
             MaxPlayers = Config.Bind("Network", "MaxPlayers", 4,
                 new ConfigDescription("Host: players in the shop including you (2-8). Sets the Steam lobby size and refuses LAN joins past it. Everything is relayed through the host, so above 4 expect the host's upload to be the limit.", new AcceptableValueRange<int>(2, 8)));
             LastJoinIP = Config.Bind("Network", "LastJoinIP", "192.168.1.100",
@@ -239,6 +254,7 @@ namespace CardShopCoop
             go.AddComponent<CoopCore>();
             go.AddComponent<UI.CheatMenu>();
             go.AddComponent<UI.ChatOverlay>();
+            go.AddComponent<Sync.Rivals.RivalsLobby>();
         }
     }
 }

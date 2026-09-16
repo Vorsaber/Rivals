@@ -930,6 +930,15 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<RivalsBoardMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client)
+                    return;
+                if (message is RivalsBoardMessage board)
+                    Sync.Rivals.RivalsLobby.ApplyRelayedBoard(board);
+                return;
+            },
+                MessagePolicy.ClientOnly, false, heal: null);
             _messageRouter.Register<SocialMessage>((context, message) =>
             {
                 if (message is SocialMessage social)

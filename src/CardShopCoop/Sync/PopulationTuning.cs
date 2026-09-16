@@ -57,6 +57,13 @@ namespace CardShopCoop.Sync
                     __instance.m_CustomerCountMax = Mathf.Clamp(cap, 3, 300);
                 if (rate > 0f && !Mathf.Approximately(rate, 1f))
                     __instance.m_TimePerCustomer = Mathf.Max(0.5f, __instance.m_TimePerCustomer / Mathf.Clamp(rate, 0.1f, 10f));
+                // Rivals: the price race moves the crowd (cheapest shop draws more, priciest fewer)
+                float rivals = Rivals.RivalsLobby.CrowdMultiplier;
+                if (rivals > 0f && !Mathf.Approximately(rivals, 1f))
+                {
+                    __instance.m_CustomerCountMax = Mathf.Clamp(Mathf.RoundToInt(__instance.m_CustomerCountMax * rivals), 3, 300);
+                    __instance.m_TimePerCustomer = Mathf.Max(0.5f, __instance.m_TimePerCustomer / rivals);
+                }
             }
             catch (Exception e)
             {

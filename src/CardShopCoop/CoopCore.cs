@@ -1150,6 +1150,13 @@ namespace CardShopCoop
             Social.NotePackOpened();
         }
 
+        /// <summary>Team host: the Rivals board goes down to the guests over the co-op session.</summary>
+        internal void RelayRivalsBoard(RivalsBoardMessage board)
+        {
+            if (Role == CoopRole.Host && _net != null && _net.ConnectionCount > 0)
+                Broadcast(board);
+        }
+
         /// <summary>Tag above the puppet with this display name, if it is in the shop.</summary>
         internal void ShowTagFor(string name, string text, float seconds)
         {

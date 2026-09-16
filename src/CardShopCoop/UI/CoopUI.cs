@@ -35,7 +35,11 @@ namespace CardShopCoop.UI
             Session,
             Character,
             Settings,
+            Rivals,
         }
+        private Vector2 _rivalsScroll;
+        private string _rivalsAddress;
+        private string _rivalsChat = "";
         private CoopTab _tab = CoopTab.Session;
         private Vector2 _sessionScroll;
         private Vector2 _characterScroll;
@@ -219,7 +223,8 @@ namespace CardShopCoop.UI
             // appears when the content actually overflows.
             GUILayout.BeginVertical(CoopTheme.ContentPanel, GUILayout.ExpandHeight(true));
             Vector2 scroll = _tab == CoopTab.Character ? _characterScroll
-                : _tab == CoopTab.Settings ? _settingsScroll : _sessionScroll;
+                : _tab == CoopTab.Settings ? _settingsScroll
+                : _tab == CoopTab.Rivals ? _rivalsScroll : _sessionScroll;
             scroll = GUILayout.BeginScrollView(scroll, CoopTheme.ScrollView, GUILayout.ExpandHeight(true));
             // Everything in the scroll view shares this minimum-height wrapper, seeded from the
             // viewport measured on the previous Repaint. A short tab therefore fills the space
@@ -240,6 +245,8 @@ namespace CardShopCoop.UI
                 DrawCharacterSelector(core);
             else if (_tab == CoopTab.Settings)
                 DrawSettings(core);
+            else if (_tab == CoopTab.Rivals)
+                DrawRivals(core);
             else
                 DrawSession(core, net);
             GUILayout.EndVertical();
@@ -257,6 +264,8 @@ namespace CardShopCoop.UI
                 _characterScroll = scroll;
             else if (_tab == CoopTab.Settings)
                 _settingsScroll = scroll;
+            else if (_tab == CoopTab.Rivals)
+                _rivalsScroll = scroll;
             else
                 _sessionScroll = scroll;
             GUILayout.EndVertical();
@@ -384,9 +393,98 @@ namespace CardShopCoop.UI
             if (GUILayout.Button("SETTINGS", _tab == CoopTab.Settings ? CoopTheme.TabSelected : CoopTheme.Tab,
                 GUILayout.Width(96f)))
                 _tab = CoopTab.Settings;
+            GUI.enabled = _tab != CoopTab.Rivals;
+            if (GUILayout.Button("RIVALS", _tab == CoopTab.Rivals ? CoopTheme.TabSelected : CoopTheme.Tab,
+                GUILayout.Width(80f)))
+                _tab = CoopTab.Rivals;
             GUI.enabled = true;
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
+        }
+
+        /// <summary>The RIVALS tab: competitive mode. Host or join a league lobby (a second,
+        /// thin connection between shops), see the board, talk. A co-op GUEST cannot join a
+        /// lobby itself - its host's shop is the team's entry and relays the board down.</summary>
+        private void DrawRivals(CoopCore core)
+        {
+            var R = Sync.Rivals.RivalsLobby.Role;
+            GUILayout.BeginVertical(CoopTheme.SectionBox);
+            GUILayout.Label("RIVALS LEAGUE", CoopTheme.SectionHeader);
+            GUILayout.Label("Every shop plays on its own save. Prices are compared across the league: the cheapest shop draws more customers, the priciest fewer. Teams are co-op sessions - the host joins for the whole team.", CoopTheme.LabelDim);
+            GUILayout.Label(Sync.Rivals.RivalsLobby.Status, CoopTheme.Label);
+            if (CoopCore.Role == CoopRole.Client)
+            {
+                GUILayout.Label("You are a co-op guest: your host's shop represents the team here.", CoopTheme.LabelDim);
+            }
+            else if (R == Sync.Rivals.RivalsLobby.LobbyRole.None)
+            {
+                if (_rivalsAddress == null)
+                    _rivalsAddress = CoopPlugin.RivalsLastAddress != null ? CoopPlugin.RivalsLastAddress.Value : "";
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("lobby address", CoopTheme.Label, GUILayout.Width(100f));
+                GUI.SetNextControlName("coop_rivals_addr");
+                _rivalsAddress = GUILayout.TextField(_rivalsAddress ?? "");
+                if (GUILayout.Button("Join", CoopTheme.ButtonPrimary, GUILayout.Width(70f)))
+                    Sync.Rivals.RivalsLobby.JoinLobby(_rivalsAddress);
+                GUILayout.EndHorizontal();
+                if (GUILayout.Button("Host a league lobby  (port " + (CoopPlugin.RivalsPort != null ? CoopPlugin.RivalsPort.Value : 27887) + ")", CoopTheme.ButtonSecondary))
+                    Sync.Rivals.RivalsLobby.HostLobby();
+                GUILayout.Label("<size=10>Whoever hosts the lobby gives the others their LAN address (Copy IP address on the Session tab). The lobby is independent of any co-op session.</size>", CoopTheme.LabelDim);
+            }
+            else
+            {
+                if (GUILayout.Button(R == Sync.Rivals.RivalsLobby.LobbyRole.Server ? "Close the lobby" : "Leave the league", CoopTheme.ButtonDanger))
+                    Sync.Rivals.RivalsLobby.LeaveLobby();
+            }
+            GUILayout.EndVertical();
+
+            // the board
+            var board = Sync.Rivals.RivalsLobby.Board;
+            GUILayout.BeginVertical(CoopTheme.SectionBox);
+            GUILayout.Label("BOARD" + (string.IsNullOrEmpty(board.LobbyName) ? "" : " - " + board.LobbyName), CoopTheme.SectionHeader);
+            if (board.Shops.Count == 0)
+                GUILayout.Label("No shops on the board yet.", CoopTheme.LabelDim);
+            var shops = new List<Net.Messages.RivalsShop>(board.Shops);
+            shops.Sort((a, b) => b.ShopValue.CompareTo(a.ShopValue));
+            for (int i = 0; i < shops.Count; i++)
+            {
+                var s = shops[i];
+                string team = s.Members.Count > 1 ? " (" + string.Join(", ", s.Members) + ")" : "";
+                string price = s.PriceRank < 0 ? "no prices set" : (s.PriceRank == 0 ? "CHEAPEST" : "price #" + (s.PriceRank + 1)) + $" x{s.AvgMarkup:0.00}";
+                string crowd = Mathf.Approximately(s.CrowdMultiplier, 1f) ? "" : $"  customers x{s.CrowdMultiplier:0.00}";
+                string tourney = s.TournamentToday ? "  TOURNAMENT TODAY" : (s.TournamentScheduled ? "  tournament scheduled" : "");
+                GUILayout.Label($"{i + 1}. {s.Name}{team} - lvl {s.Level}, {GameInstance.GetPriceString(s.Money)}, day {s.Day}", CoopTheme.Label);
+                GUILayout.Label($"<size=10>    sales today {s.SalesToday}, customers {s.CustomersToday}  |  {price}{crowd}{tourney}</size>", CoopTheme.LabelDim);
+            }
+            if (Sync.Rivals.RivalsLobby.MyPriceRank >= 0)
+                GUILayout.Label($"<size=10>your price rank: {Sync.Rivals.RivalsLobby.MyPriceRank + 1} of {shops.Count}  ->  customers x{Sync.Rivals.RivalsLobby.CrowdMultiplier:0.00}</size>", CoopTheme.LabelDim);
+            GUILayout.EndVertical();
+
+            // league chat
+            if (R != Sync.Rivals.RivalsLobby.LobbyRole.None)
+            {
+                GUILayout.BeginVertical(CoopTheme.SectionBox);
+                GUILayout.Label("LEAGUE CHAT", CoopTheme.SectionHeader);
+                var lines = Sync.Rivals.RivalsLobby.Chat;
+                for (int i = Mathf.Max(0, lines.Count - 8); i < lines.Count; i++)
+                    GUILayout.Label(lines[i].From + ": " + lines[i].Text, CoopTheme.Label);
+                GUILayout.BeginHorizontal();
+                GUI.SetNextControlName("coop_rivals_chat");
+                _rivalsChat = GUILayout.TextField(_rivalsChat ?? "", 200);
+                bool enter = Event.current.type == EventType.KeyDown
+                    && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter)
+                    && GUI.GetNameOfFocusedControl() == "coop_rivals_chat";
+                if (GUILayout.Button("Send", CoopTheme.ButtonSecondary, GUILayout.Width(60f)) || enter)
+                {
+                    if (!string.IsNullOrWhiteSpace(_rivalsChat))
+                        Sync.Rivals.RivalsLobby.SendChat(_rivalsChat);
+                    _rivalsChat = "";
+                    if (enter)
+                        Event.current.Use();
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.EndVertical();
+            }
         }
 
         /// <summary>The SETTINGS tab: appearance, live logging switches, and the artificial

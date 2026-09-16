@@ -119,6 +119,13 @@ namespace CardShopCoop.Net
         SleepStatus = 121,   // host -> clients: a line about the end-of-day wait
         Social = 122,        // both ways: chat line / "come here" ping (host relays)
         Activity2 = 123,     // both ways: what a player is doing + session counters (host relays)
+        // Rivals lobby (competitive mode) - a separate connection, same codec
+        RivalsHello = 130,
+        RivalsWelcome = 131,
+        RivalsShopState = 132,
+        RivalsBoard = 133,   // also relayed host -> guests over the co-op session
+        RivalsChat = 134,
+        RivalsPing = 135,
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.
