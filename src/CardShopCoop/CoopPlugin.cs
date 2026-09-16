@@ -43,6 +43,7 @@ namespace CardShopCoop
         public static ConfigEntry<KeyCode> UiToggleKey;
         public static ConfigEntry<KeyCode> CheatMenuKey;
         public static ConfigEntry<bool> CheatsEnabled;
+        public static ConfigEntry<bool> CheatsForGuests;
         public static ConfigEntry<KeyCode> EmoteKey;
         public static ConfigEntry<int> ClientWorldSlot;
         public static ConfigEntry<bool> AutoSyncCardDatabase;
@@ -91,7 +92,9 @@ namespace CardShopCoop
             AllowNsfw = Config.Bind("Player", "AllowNsfw", false,
                 "Allow nude/NSFW character appearances. When off, new characters get a random clothed preset, the Nude wardrobe option is hidden, and fully nude players are shown in the game's random clothed customer look. When on, you may choose Nude and you will see other players who chose it.");
             CheatsEnabled = Config.Bind("Cheats", "Enabled", true,
-                "Show the test-rig cheat menu (money, level, licenses, cards, deliveries, furniture). Host / single player only.");
+                "Show the test-rig cheat menu (money, level, licenses, cards, deliveries, furniture). On a guest every button is a request the host runs.");
+            CheatsForGuests = Config.Bind("Cheats", "AllowGuestRequests", true,
+                "Host: run cheat-menu requests sent by guests. Off = guests' buttons are refused.");
             CheatMenuKey = Config.Bind("Keys", "CheatMenuKey", KeyCode.F4,
                 "Toggles the test-rig cheat menu.");
             UiToggleKey = Config.Bind("Keys", "UiToggleKey", KeyCode.F2,

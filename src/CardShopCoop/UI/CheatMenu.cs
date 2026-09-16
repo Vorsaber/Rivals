@@ -1,16 +1,19 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using CardShopCoop.Net;
+using CardShopCoop.Net.Messages;
 
 namespace CardShopCoop.UI
 {
     /// <summary>
     /// Test-rig cheat menu (default key F4, config Keys.CheatMenuKey; Cheats.Enabled to
-    /// hide it). HOST / single player only: every action goes through the game's own
-    /// path - the same events, spawners and card writers a purchase or a pack opening
-    /// would use - so what it gives the host reaches the guest through the existing syncs
-    /// (wallet events, AddCard forward, box presence protocol, furniture spawn postfix).
-    /// On a guest the window only says so; nothing here is ever executed on a client.
+    /// hide it). Every action runs on the HOST through the game's own path - the same
+    /// events, spawners and card writers a purchase or a pack opening would use - so what it
+    /// gives the shop reaches the guest through the existing syncs (wallet events, AddCard
+    /// forward, box presence protocol, furniture spawn postfix). On a guest every button is a
+    /// CheatRequest the host runs (Cheats.AllowGuestRequests to refuse); nothing here is ever
+    /// executed on a client, whose writes would die with the scratch save.
     ///
     /// Not a gameplay feature. It exists because a fresh 1.0 save has no money, no
     /// licenses, no cards and no play table, and every co-op test needs all four.
@@ -25,6 +28,165 @@ namespace CardShopCoop.UI
         private float _statusAt;
         private int _tab;
         private static readonly string[] Tabs = { "Shop", "Cards", "Boxes", "Furniture" };
+
+        /// <summary>Every button is one of these, so a guest's press can travel to the host
+        /// as a <see cref="CheatRequestMessage"/> and run there through the same code.</summary>
+        internal enum Op
+        {
+            None = 0,
+            AddMoney,        // A = amount
+            LevelAdd,        // A = delta
+            LevelSet,        // A = level
+            Licenses,
+            Rooms,           // A = max, B = 1 warehouse
+            Warehouse,
+            Deco,            // A = category
+            TableFees,       // A = 0 free, 1 market
+            FreeTables,
+            Tutorial,
+            GiveSet,         // A = expansion, B = amount
+            GiveBase,        // A = expansion, B = amount
+            StarterDeck,
+            Deliver,         // A = restock index, B = count
+            Furniture,       // A = EObjectType
+        }
+
+        // set by CoopCore: the guest's requests go up, the host's answers come back
+        public static Action<INetMessage> SendToHost;
+        public static Action<int, INetMessage> SendToClient;
+        public static Func<int, string> PeerName;
+        public static Func<int, (bool ok, Vector3 pos, Vector3 fwd)> PeerPose;
+        private static CheatMenu s_instance;
+
+        // while a guest's request runs on the host, "in front of you" means in front of them
+        private static bool s_hasRemotePose;
+        private static Vector3 s_remotePos;
+        private static Vector3 s_remoteFwd;
+
+        private void Awake()
+        {
+            s_instance = this;
+        }
+
+        /// <summary>Run an action here (host / solo) or ship it to the host (guest).</summary>
+        private void Do(Op op, int a = 0, int b = 0)
+        {
+            if (CoopCore.Role == CoopRole.Client)
+            {
+                if (SendToHost == null)
+                {
+                    Say("not connected");
+                    return;
+                }
+                SendToHost(new CheatRequestMessage { Op = (int)op, A = a, B = b });
+                Say("asked the host: " + op);
+                return;
+            }
+            Run(op, a, b);
+        }
+
+        /// <summary>Host: a guest pressed a button. Same code path as a local press.</summary>
+        public static void HostApplyRequest(CheatRequestMessage msg, int conn)
+        {
+            var me = s_instance;
+            if (me == null)
+                return;
+            string text;
+            try
+            {
+                if (CoopPlugin.CheatsEnabled == null || !CoopPlugin.CheatsEnabled.Value)
+                    text = "the host has cheats turned off";
+                else if (CoopPlugin.CheatsForGuests != null && !CoopPlugin.CheatsForGuests.Value)
+                    text = "the host has guest cheats turned off (Cheats > AllowGuestRequests)";
+                else if (!InGame())
+                    text = "the host has no save loaded";
+                else
+                {
+                    s_hasRemotePose = false;
+                    if (PeerPose != null)
+                    {
+                        var pose = PeerPose(conn);
+                        s_hasRemotePose = pose.ok;
+                        s_remotePos = pose.pos;
+                        s_remoteFwd = pose.fwd;
+                    }
+                    try
+                    {
+                        me.Run((Op)msg.Op, msg.A, msg.B);
+                    }
+                    finally { s_hasRemotePose = false; }
+                    text = me._status;
+                    string who = PeerName?.Invoke(conn);
+                    CoopPlugin.Log.LogInfo($"CheatMenu: {(string.IsNullOrEmpty(who) ? "a guest" : who)} asked for {(Op)msg.Op} {msg.A} {msg.B} -> {text}");
+                }
+            }
+            catch (Exception e)
+            {
+                text = "failed: " + e.Message;
+                CoopPlugin.Log.LogWarning("CheatMenu request: " + e);
+            }
+            SendToClient?.Invoke(conn, new CheatResultMessage { Text = text ?? "" });
+        }
+
+        public static void ClientApplyResult(CheatResultMessage msg)
+        {
+            s_instance?.Say("host: " + (msg.Text ?? ""));
+        }
+
+        private void Run(Op op, int a, int b)
+        {
+            switch (op)
+            {
+                case Op.AddMoney:
+                    AddMoney(a);
+                    break;
+                case Op.LevelAdd:
+                    SetLevel(CPlayerData.m_ShopLevel + a);
+                    break;
+                case Op.LevelSet:
+                    SetLevel(a);
+                    break;
+                case Op.Licenses:
+                    UnlockLicenses();
+                    break;
+                case Op.Rooms:
+                    UnlockRooms(a, warehouse: b == 1);
+                    break;
+                case Op.Warehouse:
+                    UnlockWarehouse();
+                    break;
+                case Op.Deco:
+                    UnlockDeco(a);
+                    break;
+                case Op.TableFees:
+                    SetTableFees(a == 0 ? 0f : -1f);
+                    break;
+                case Op.FreeTables:
+                    Say($"{Sync.GuestBattle.HostFreeAllTables()} table(s) stood down");
+                    break;
+                case Op.Tutorial:
+                    FinishTutorial();
+                    break;
+                case Op.GiveSet:
+                    GiveSet((ECardExpansionType)a, Math.Max(1, b));
+                    break;
+                case Op.GiveBase:
+                    GiveBase((ECardExpansionType)a, Math.Max(1, b));
+                    break;
+                case Op.StarterDeck:
+                    GiveStarterDeck();
+                    break;
+                case Op.Deliver:
+                    DeliverIndex(a, Math.Max(1, b));
+                    break;
+                case Op.Furniture:
+                    SpawnFurniture((EObjectType)a);
+                    break;
+                default:
+                    Say("unknown cheat " + op);
+                    break;
+            }
+        }
 
         // UI-mode ownership, same discipline as the co-op window: only undo what we entered
         private bool _uiModeHeld;
@@ -99,11 +261,7 @@ namespace CardShopCoop.UI
         private void DrawWindow(int id)
         {
             if (CoopCore.Role == CoopRole.Client)
-            {
-                GUILayout.Label("Host only. Everything here changes the shop; on a guest it would be thrown away with the scratch save. Ask the host to use theirs.");
-                GUI.DragWindow();
-                return;
-            }
+                GUILayout.Label("Guest: every button here is a REQUEST to the host, who runs it on the real shop. The host can turn these off (Cheats > AllowGuestRequests).");
             if (!InGame())
             {
                 GUILayout.Label("Load a save first.");
@@ -150,95 +308,68 @@ namespace CardShopCoop.UI
             GUILayout.Label("Money");
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("+ $10,000"))
-                AddMoney(10000f);
+                Do(Op.AddMoney, 10000);
             if (GUILayout.Button("+ $100,000"))
-                AddMoney(100000f);
+                Do(Op.AddMoney, 100000);
             if (GUILayout.Button("+ $1,000,000"))
-                AddMoney(1000000f);
+                Do(Op.AddMoney, 1000000);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(4);
             GUILayout.Label("Shop level");
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("+1"))
-                SetLevel(CPlayerData.m_ShopLevel + 1);
+                Do(Op.LevelAdd, 1);
             if (GUILayout.Button("+5"))
-                SetLevel(CPlayerData.m_ShopLevel + 5);
+                Do(Op.LevelAdd, 5);
             if (GUILayout.Button("Set 10"))
-                SetLevel(10);
+                Do(Op.LevelSet, 10);
             if (GUILayout.Button("Set 20"))
-                SetLevel(20);
+                Do(Op.LevelSet, 20);
             if (GUILayout.Button("Set 40"))
-                SetLevel(40);
+                Do(Op.LevelSet, 40);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(4);
             if (GUILayout.Button("Unlock every item license"))
-            {
-                int n = 0;
-                var lic = CPlayerData.m_IsItemLicenseUnlocked;
-                // the save list is padded well past the restock catalog; stay inside the
-                // catalog so the co-op license forward has a real product to name
-                int count = lic != null ? lic.Count : 0;
-                try
-                {
-                    count = Math.Min(count, CSingleton<InventoryBase>.Instance.m_StockItemData_SO.m_RestockDataList.Count);
-                }
-                catch { }
-                for (int i = 0; i < count; i++)
-                    if (!lic[i])
-                    {
-                        CPlayerData.SetUnlockItemLicense(i);
-                        n++;
-                    }
-                Say($"unlocked {n} licenses (reopen the phone shop to see them)");
-            }
+                Do(Op.Licenses);
             GUILayout.Space(4);
             GUILayout.Label("Shop expansion (mirrored to guests by the shop-state sync)");
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Next shop room"))
-                UnlockRooms(1, warehouse: false);
+                Do(Op.Rooms, 1, 0);
             if (GUILayout.Button("All shop rooms"))
-                UnlockRooms(int.MaxValue, warehouse: false);
+                Do(Op.Rooms, int.MaxValue, 0);
             if (GUILayout.Button("Unlock warehouse"))
-            {
-                var urm = RoomManager();
-                if (urm == null)
-                    Say("no UnlockRoomManager in the scene");
-                else if (CPlayerData.m_IsWarehouseRoomUnlocked)
-                    Say("warehouse already unlocked");
-                else
-                {
-                    urm.SetUnlockWarehouseRoom(true);
-                    Say("warehouse unlocked");
-                }
-            }
+                Do(Op.Warehouse);
             if (GUILayout.Button("All warehouse rooms"))
-                UnlockRooms(int.MaxValue, warehouse: true);
+                Do(Op.Rooms, int.MaxValue, 1);
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Own every wallpaper"))
-                UnlockDeco(0);
+                Do(Op.Deco, 0);
             if (GUILayout.Button("Own every floor"))
-                UnlockDeco(1);
+                Do(Op.Deco, 1);
             if (GUILayout.Button("Own every ceiling"))
-                UnlockDeco(2);
+                Do(Op.Deco, 2);
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
             GUILayout.Label("Play table fee (a new shop has no review rating, so customers read a market fee as 10x market and refuse to sit)");
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Fee = $0 (everyone plays)"))
-                SetTableFees(0f);
+                Do(Op.TableFees, 0);
             if (GUILayout.Button("Fee = market"))
-                SetTableFees(-1f);
+                Do(Op.TableFees, 1);
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
             if (GUILayout.Button("Free all play tables (evict, forget guest seats)"))
-            {
-                int n = Sync.GuestBattle.HostFreeAllTables();
-                Say($"{n} table(s) stood down");
-            }
+                Do(Op.FreeTables);
             if (GUILayout.Button("Finish the tutorial"))
+                Do(Op.Tutorial);
+        }
+
+        private void FinishTutorial()
+        {
             {
                 CPlayerData.m_HasFinishedTutorial = true;
                 CPlayerData.m_TutorialIndex = 99;
@@ -275,6 +406,41 @@ namespace CardShopCoop.UI
                 }
                 GameUIScreen.SetGameUIVisible(isVisible: true);
                 Say("tutorial marked finished");
+            }
+        }
+
+        private void UnlockLicenses()
+        {
+            int n = 0;
+            var lic = CPlayerData.m_IsItemLicenseUnlocked;
+            // the save list is padded well past the restock catalog; stay inside the
+            // catalog so the co-op license forward has a real product to name
+            int count = lic != null ? lic.Count : 0;
+            try
+            {
+                count = Math.Min(count, CSingleton<InventoryBase>.Instance.m_StockItemData_SO.m_RestockDataList.Count);
+            }
+            catch { }
+            for (int i = 0; i < count; i++)
+                if (!lic[i])
+                {
+                    CPlayerData.SetUnlockItemLicense(i);
+                    n++;
+                }
+            Say($"unlocked {n} licenses (reopen the phone shop to see them)");
+        }
+
+        private void UnlockWarehouse()
+        {
+            var urm = RoomManager();
+            if (urm == null)
+                Say("no UnlockRoomManager in the scene");
+            else if (CPlayerData.m_IsWarehouseRoomUnlocked)
+                Say("warehouse already unlocked");
+            else
+            {
+                urm.SetUnlockWarehouseRoom(true);
+                Say("warehouse unlocked");
             }
         }
 
@@ -325,15 +491,15 @@ namespace CardShopCoop.UI
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(exp.ToString(), GUILayout.Width(110));
                 if (GUILayout.Button("full set x1"))
-                    GiveSet(exp, 1);
+                    Do(Op.GiveSet, (int)exp, 1);
                 if (GUILayout.Button("base cards x1"))
-                    GiveBase(exp, 1);
+                    Do(Op.GiveBase, (int)exp, 1);
                 GUILayout.EndHorizontal();
             }
             GUILayout.Space(8);
             GUILayout.Label("Starter deck: 50 different Tetramon base cards, added to the collection and saved as a new deck, then selected.");
             if (GUILayout.Button("Give and select a 50-card starter deck"))
-                GiveStarterDeck();
+                Do(Op.StarterDeck);
         }
 
         private void GiveSet(ECardExpansionType exp, int amount)
@@ -456,9 +622,9 @@ namespace CardShopCoop.UI
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(name, GUILayout.Width(280));
                 if (GUILayout.Button("+1", GUILayout.Width(40)))
-                    Deliver(i, name, 1);
+                    Do(Op.Deliver, i, 1);
                 if (GUILayout.Button("+5", GUILayout.Width(40)))
-                    Deliver(i, name, 5);
+                    Do(Op.Deliver, i, 5);
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndScrollView();
@@ -479,10 +645,17 @@ namespace CardShopCoop.UI
             catch { return rd.itemType.ToString(); }
         }
 
-        private void Deliver(int restockIndex, string name, int count)
+        private void DeliverIndex(int restockIndex, int count)
         {
+            var inv = CSingleton<InventoryBase>.Instance;
+            var list = inv != null && inv.m_StockItemData_SO != null ? inv.m_StockItemData_SO.m_RestockDataList : null;
+            if (list == null || restockIndex < 0 || restockIndex >= list.Count || list[restockIndex] == null)
+            {
+                Say("no such restock item");
+                return;
+            }
             RestockManager.SpawnPackageBoxItemMultipleFrame(restockIndex, count);
-            Say($"delivering {count} x {name}");
+            Say($"delivering {count} x {ItemName(list[restockIndex])}");
         }
 
         // ------------------------------------------------------------------ Furniture
@@ -522,7 +695,7 @@ namespace CardShopCoop.UI
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(s_objNames[i], GUILayout.Width(300));
                 if (GUILayout.Button("spawn", GUILayout.Width(60)))
-                    SpawnFurniture(s_objValues[i]);
+                    Do(Op.Furniture, (int)s_objValues[i]);
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndScrollView();
@@ -530,19 +703,31 @@ namespace CardShopCoop.UI
 
         private void SpawnFurniture(EObjectType type)
         {
-            var ipc = Player();
-            var t = ipc != null && ipc.m_PlayerCollider != null ? ipc.m_PlayerCollider.transform : null;
-            if (t == null)
+            Vector3 origin, fwd;
+            if (s_hasRemotePose)
             {
-                Say("no player");
-                return;
+                origin = s_remotePos;
+                fwd = s_remoteFwd;
             }
-            var fwd = t.forward;
+            else
+            {
+                var ipc = Player();
+                var t = ipc != null && ipc.m_PlayerCollider != null ? ipc.m_PlayerCollider.transform : null;
+                if (t == null)
+                {
+                    Say("no player");
+                    return;
+                }
+                origin = t.position;
+                fwd = t.forward;
+            }
             fwd.y = 0f;
+            if (fwd.sqrMagnitude < 0.001f)
+                fwd = Vector3.forward;
             fwd.Normalize();
-            var pos = t.position + fwd * 1.5f + Vector3.up * 0.5f;
+            var pos = origin + fwd * 1.5f + Vector3.up * 0.5f;
             ShelfManager.SpawnInteractableObjectInPackageBox(type, pos, Quaternion.LookRotation(-fwd, Vector3.up));
-            Say($"boxed {type} dropped in front of you");
+            Say($"boxed {type} dropped in front of {(s_hasRemotePose ? "the guest" : "you")}");
         }
 
         private static UnlockRoomManager s_rooms;

@@ -91,4 +91,34 @@ namespace CardShopCoop.Net.Messages
             }
         }
     }
+
+    /// <summary>Client -> host: a cheat-menu button pressed on a guest. The host runs the
+    /// same action it would for its own press and answers with <see cref="CheatResultMessage"/>.</summary>
+    [NetworkMessage(MsgType.CheatRequest, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class CheatRequestMessage : INetMessage
+    {
+        public int Op;
+        public int A;
+        public int B;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.CheatRequest;
+            }
+        }
+    }
+
+    [NetworkMessage(MsgType.CheatResult, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class CheatResultMessage : INetMessage
+    {
+        public string Text = "";
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.CheatResult;
+            }
+        }
+    }
 }

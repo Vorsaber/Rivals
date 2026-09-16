@@ -113,6 +113,8 @@ namespace CardShopCoop.Net
         PvpAction = 115,    // both ways: one human action, replayed on the other PC's enemy set
         PvpEnd = 116,       // both ways: this side left the table
         TournamentPlan = 117, // client -> host: the guest scheduled / cancelled / re-prized the tournament
+        CheatRequest = 118,  // client -> host: a guest pressed a cheat-menu button (host runs it)
+        CheatResult = 119,   // host -> one client: what the cheat did, for the guest's status line
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

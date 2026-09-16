@@ -930,6 +930,24 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<CheatRequestMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Host || !InGameLevel())
+                    return;
+                if (message is CheatRequestMessage req)
+                    UI.CheatMenu.HostApplyRequest(req, context.ConnectionId);
+                return;
+            },
+                MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<CheatResultMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client)
+                    return;
+                if (message is CheatResultMessage res)
+                    UI.CheatMenu.ClientApplyResult(res);
+                return;
+            },
+                MessagePolicy.ClientOnly, false);
             _messageRouter.Register<TournamentPlanMessage>((context, message) =>
             {
                 if (Role != CoopRole.Host || !InGameLevel())

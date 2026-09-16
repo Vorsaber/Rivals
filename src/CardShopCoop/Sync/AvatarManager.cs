@@ -120,6 +120,19 @@ namespace CardShopCoop.Sync
         private string _previewSignature;
         private const string ApparelTintPrefix = "CardShopCoop.ApparelTint.";
 
+        /// <summary>Where a guest's puppet stands on this PC (host side), for things that
+        /// should land in front of THEM rather than the host. False when unknown.</summary>
+        public bool TryGetPose(int connId, out Vector3 pos, out Vector3 forward)
+        {
+            pos = Vector3.zero;
+            forward = Vector3.forward;
+            if (!_avatars.TryGetValue(connId, out var av) || av.Go == null)
+                return false;
+            pos = av.Go.transform.position;
+            forward = av.Go.transform.forward;
+            return true;
+        }
+
         public void SetName(int connId, string name)
         {
             if (string.IsNullOrEmpty(name))

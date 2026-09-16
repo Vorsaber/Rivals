@@ -650,6 +650,14 @@ namespace CardShopCoop
             _pvp.SendToHost = Send(1);
             _pvp.SendToClient = Send;
             _pvp.PeerName = PeerNameFor;
+            UI.CheatMenu.SendToHost = Send(1);
+            UI.CheatMenu.SendToClient = Send;
+            UI.CheatMenu.PeerName = PeerNameFor;
+            UI.CheatMenu.PeerPose = conn =>
+            {
+                bool ok = _avatars.TryGetPose(conn, out var p, out var f);
+                return (ok, p, f);
+            };
             _guestBattle.SendToHost = Send(1);
             _guestBattle.SendToClient = Send;
             _tables.RegisterIntents(_intents);
