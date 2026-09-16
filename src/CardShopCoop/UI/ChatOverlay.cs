@@ -93,15 +93,19 @@ namespace CardShopCoop.UI
             bool showLines = _open || now - Social.LastLineAt < ShowFor;
             if (!showLines)
                 return;
+            // a fixed-size box, not one that grows with the lines: 12 lines idle, 20 while typing,
+            // newest at the bottom (Dan, 2026-09-16: "shows only 3 lines, make 3x taller")
             float w = Mathf.Min(620f, Screen.width * 0.5f);
             float lineH = 22f;
-            int maxLines = _open ? 12 : 8;
+            int maxLines = _open ? 20 : 12;
             int count = Mathf.Min(maxLines, Social.Lines.Count);
-            float h = Mathf.Max(count, _open ? 4 : 1) * lineH + (_open ? 34f : 0f) + 12f;
+            float h = maxLines * lineH + (_open ? 34f : 0f) + 12f;
+            h = Mathf.Min(h, Screen.height * 0.6f);
             var rect = new Rect(16f, Screen.height - h - 60f, w, h);
             GUI.Box(rect, GUIContent.none);
             GUILayout.BeginArea(new Rect(rect.x + 6f, rect.y + 6f, rect.width - 12f, rect.height - 12f));
             var style = new GUIStyle(GUI.skin.label) { richText = true, wordWrap = true, fontSize = 14 };
+            GUILayout.FlexibleSpace();
             for (int i = Social.Lines.Count - count; i < Social.Lines.Count; i++)
             {
                 var l = Social.Lines[i];
