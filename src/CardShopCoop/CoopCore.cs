@@ -3761,7 +3761,9 @@ namespace CardShopCoop
                 return;
             _companionsWired = true;
             Util.Companions.Difficulty.SetProviders(
-                () => 1 + (_net == null ? 0 : _net.ConnectionCount),
+                () => Role == CoopRole.Client
+                    ? 2 + _relayIds.Count                      // me + host + the other guests
+                    : 1 + (_net == null ? 0 : _net.ConnectionCount),
                 () => Role != CoopRole.Client);
         }
 

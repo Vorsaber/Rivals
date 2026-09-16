@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyDescriptionAttribute(("Crowd difficulty profiles for TCG Card Shop Simulator, weighted by player count w" +
     "hen CardShopCoop is installed."))]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+25cbbc3b16bea047b57505931f2680eeb87d395e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+443d4514a5ad0a10b0fcea5ec6b9baad2fcbcbba")]
 [assembly: System.Reflection.AssemblyProductAttribute("TcgDifficulty")]
 [assembly: System.Reflection.AssemblyTitleAttribute("TCG Difficulty")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

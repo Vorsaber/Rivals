@@ -39,6 +39,12 @@ namespace TcgDifficulty
         private static readonly FieldInfo FiMaxMoney = AccessTools.Field(typeof(CustomerManager), "m_CustomerMaxMoney");
         private static int s_players = 1;
 
+        // staff costs: the worker data assets are scaled IN PLACE (every screen and the daily
+        // salary bill read the fields directly), with the originals kept so the factor can move
+        private static readonly System.Collections.Generic.Dictionary<WorkerData, (float hire, float day)> s_staffBase =
+            new System.Collections.Generic.Dictionary<WorkerData, (float hire, float day)>();
+        private static float s_staffApplied = 1f;
+
         public static int Players
         {
             get
@@ -74,6 +80,7 @@ namespace TcgDifficulty
             if (Plugin.ProfileEntry != null && Enum.IsDefined(typeof(DifficultyProfile), profile))
                 Plugin.ProfileEntry.Value = (DifficultyProfile)profile;
             Reapply();
+            ApplyStaffCosts();
         }
 
         /// <summary>Base multipliers at ONE player: cap, arrival rate, wallet.</summary>
@@ -122,11 +129,55 @@ namespace TcgDifficulty
         public static string Describe()
         {
             var p = Profile;
-            if (p == DifficultyProfile.Off)
-                return "Off (vanilla)";
             int n = Players;
+            string staff = Mathf.Approximately(StaffFactor(n), 1f) ? "" : $", staff hire+wages x{StaffFactor(n):0.00}";
+            if (p == DifficultyProfile.Off)
+                return "Off (vanilla)" + staff;
             Effective(p, n, out float cap, out float rate, out float wallet);
-            return $"{p}, {n} player{(n == 1 ? "" : "s")}: customers x{cap:0.00}, arrivals x{rate:0.00}, wallets x{wallet:0.00}";
+            return $"{p}, {n} player{(n == 1 ? "" : "s")}: customers x{cap:0.00}, arrivals x{rate:0.00}, wallets x{wallet:0.00}{staff}";
+        }
+
+        // ---------------------------------------------------------------- staff costs
+
+        /// <summary>1 + StaffCostPerPlayer x (players - 1): at the default 1.0, two players pay
+        /// double to hire and keep staff, three pay triple. Independent of the crowd profile,
+        /// and applied on every PC in a session (the guest's hire screen must show the price
+        /// the host will charge).</summary>
+        public static float StaffFactor(int players)
+        {
+            float per = Plugin.StaffCostPerPlayer != null ? Plugin.StaffCostPerPlayer.Value : 1f;
+            return 1f + Mathf.Clamp(per, 0f, 10f) * Mathf.Max(0, players - 1);
+        }
+
+        public static void ApplyStaffCosts()
+        {
+            try
+            {
+                var wm = UnityEngine.Object.FindObjectOfType<WorkerManager>(); // never CSingleton
+                var list = wm != null ? wm.m_WorkerDataList : null;
+                if (list == null)
+                    return;
+                float f = StaffFactor(Players);
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var wd = list[i];
+                    if (wd == null)
+                        continue;
+                    if (!s_staffBase.TryGetValue(wd, out var b))
+                    {
+                        b = (wd.hiringCost, wd.costPerDay);
+                        s_staffBase[wd] = b;
+                    }
+                    wd.hiringCost = Mathf.Round(b.hire * f * 100f) / 100f;
+                    wd.costPerDay = Mathf.Round(b.day * f * 100f) / 100f;
+                }
+                if (!Mathf.Approximately(f, s_staffApplied))
+                {
+                    s_staffApplied = f;
+                    Plugin.Log.LogInfo($"Difficulty: staff hire cost and wages x{f:0.00} ({Players} player(s))");
+                }
+            }
+            catch (Exception e) { Plugin.Log.LogWarning("Difficulty.ApplyStaffCosts: " + e.Message); }
         }
 
         // ---------------------------------------------------------------- patches

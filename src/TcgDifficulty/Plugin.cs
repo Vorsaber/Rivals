@@ -24,6 +24,7 @@ namespace TcgDifficulty
         internal static ConfigEntry<float> CustomCap;
         internal static ConfigEntry<float> CustomRate;
         internal static ConfigEntry<float> CustomWallet;
+        internal static ConfigEntry<float> StaffCostPerPlayer;
 
         private float _timer;
         private int _appliedPlayers = -1;
@@ -42,6 +43,8 @@ namespace TcgDifficulty
                 "Custom profile: multiplier on how often customers arrive (before the per-player scale).");
             CustomWallet = Config.Bind("Difficulty", "CustomWallet", 1f,
                 "Custom profile: multiplier on how much money customers carry.");
+            StaffCostPerPlayer = Config.Bind("Difficulty", "StaffCostPerPlayer", 1f,
+                "Staff hire cost and daily wages grow by this much per EXTRA player in a CardShopCoop session: 1 = two players pay double, three pay triple (extra hands make hired staff a luxury). 0 = off. Any profile; single player unaffected.");
 
             var harmony = new Harmony(Guid);
             Difficulty.ApplyPatches(harmony);
@@ -56,6 +59,7 @@ namespace TcgDifficulty
             if (_timer < 3f)
                 return;
             _timer = 0f;
+            Difficulty.ApplyStaffCosts(); // every PC, every scene load (cheap: a handful of fields)
             if (!Difficulty.IsAuthority)
                 return;
             int players = Difficulty.Players;
