@@ -113,6 +113,7 @@ namespace CardShopCoop.Net.Messages
     public sealed class CheatResultMessage : INetMessage
     {
         public string Text = "";
+        public int SelectDeck = -1;     // a deck the host just made FOR this guest: select it once mirrored
         public MsgType Type
         {
             get

@@ -51,6 +51,11 @@ namespace CardShopCoop.Sync
 
         private static DeckSync s_instance;
 
+        /// <summary>Client: select this index as soon as the mirrored list is long enough
+        /// (a deck the host just built for us arrives on the next DeckState).</summary>
+        public static int PendingSelect = -1;
+        private static string s_lastSavedDeckName;
+
         public override string Name => nameof(DeckSync);
 
         public DeckSync()
@@ -256,13 +261,18 @@ namespace CardShopCoop.Sync
             _editing = false;
             _upTimer = 0f;
             _upHash = 0;
+            PendingSelect = -1;
+            s_restoredOnce = false;
         }
 
         // ================================================================ client
 
         protected override void OnClientTick(in SyncFrame frame)
         {
-            if (!frame.InGame || !_editing)
+            if (!frame.InGame)
+                return;
+            RememberSelection();
+            if (!_editing)
                 return;
             _upTimer += frame.Dt;
             if (_upTimer < 1f)
@@ -378,6 +388,62 @@ namespace CardShopCoop.Sync
             int sel = CPlayerData.m_CurrentSelectedDeckIndex;
             if (sel < 0 || sel >= decks.Count)
                 CPlayerData.m_CurrentSelectedDeckIndex = 0;
+            if (CoopCore.Role == CoopRole.Client)
+                ClientRestoreSelection(decks);
+        }
+
+        /// <summary>Client: honour a pending "select this" from the host, else on the first
+        /// mirror after joining pick the deck this guest used last time (by name, saved in the
+        /// guest's own config), so the scratch save's selection does not decide for them.</summary>
+        private static bool s_restoredOnce;
+
+        private static void ClientRestoreSelection(List<DeckCompactCardDataList> decks)
+        {
+            try
+            {
+                if (PendingSelect >= 0 && PendingSelect < decks.Count)
+                {
+                    CPlayerData.m_CurrentSelectedDeckIndex = PendingSelect;
+                    PendingSelect = -1;
+                    RememberSelection();
+                    HostOnlyFeatures.Notice("Co-op: deck '" + (decks[CPlayerData.m_CurrentSelectedDeckIndex].deckName ?? "") + "' selected for you");
+                    return;
+                }
+                if (s_restoredOnce)
+                    return;
+                s_restoredOnce = true;
+                string want = CoopPlugin.GuestLastDeck != null ? CoopPlugin.GuestLastDeck.Value : "";
+                if (string.IsNullOrEmpty(want))
+                    return;
+                for (int i = 0; i < decks.Count; i++)
+                    if (decks[i] != null && decks[i].deckName == want)
+                    {
+                        CPlayerData.m_CurrentSelectedDeckIndex = i;
+                        CoopPlugin.Log.LogInfo("DeckSync: restored your last deck '" + want + "'");
+                        return;
+                    }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("DeckSync.ClientRestoreSelection: " + e.Message); }
+        }
+
+        /// <summary>Client: persist the selected deck's NAME so it survives to the next session.</summary>
+        public static void RememberSelection()
+        {
+            try
+            {
+                if (CoopCore.Role != CoopRole.Client || CoopPlugin.GuestLastDeck == null)
+                    return;
+                var decks = CPlayerData.m_DeckCompactCardDataList;
+                int sel = CPlayerData.m_CurrentSelectedDeckIndex;
+                if (decks == null || sel < 0 || sel >= decks.Count || decks[sel] == null)
+                    return;
+                string name = decks[sel].deckName ?? "";
+                if (name == s_lastSavedDeckName)
+                    return;
+                s_lastSavedDeckName = name;
+                CoopPlugin.GuestLastDeck.Value = name;
+            }
+            catch { }
         }
 
         private static DeckStateMessage BuildState(List<DeckCompactCardDataList> decks, int selected)

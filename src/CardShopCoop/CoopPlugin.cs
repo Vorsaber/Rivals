@@ -52,6 +52,7 @@ namespace CardShopCoop
         public static ConfigEntry<float> ServeReach;
         public static ConfigEntry<bool> AllowCrossBuildJoin;
         public static ConfigEntry<bool> SleepVoteEnabled;
+        public static ConfigEntry<string> GuestLastDeck;
         public static ConfigEntry<string> UpdateHint;
         public static ConfigEntry<bool> AutoPortForward;
         public static ConfigEntry<bool> AutoLanPassword;
@@ -117,6 +118,8 @@ namespace CardShopCoop
                 "When your modded-card ID registry (EPL enum_values.json) differs from the host's, automatically install the host's copy (yours is backed up beside it) so you only need to restart and rejoin. Set false to handle the file yourself.");
             ServeReach = Config.Bind("Player", "ServeReach", 1.6f,
                 "How close (meters, to the counter's center) a JOINER must stand to answer a counter trade customer. The counter itself is ~1m wide, so values below ~1.2 make it unreachable.");
+            GuestLastDeck = Config.Bind("Guest", "LastDeck", "",
+                "Written automatically: the deck you last had selected as a guest, re-selected by name next time you join.");
             SleepVoteEnabled = Config.Bind("Coop", "SleepVote", true,
                 "Host: after closing time, the first Enter waits until every guest has pressed Enter too (they see a notice); a second Enter ends the day anyway. Off = the host's Enter ends the day at once, as before.");
             UpdateHint = Config.Bind("Network", "UpdateHint", "",

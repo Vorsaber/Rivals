@@ -51,7 +51,11 @@ namespace CardShopCoop.UI
             Furniture,       // A = EObjectType
             Difficulty,      // A = DifficultyProfile
             Economy,         // A = EconomyProfile
+            DuplicateDeck,   // A = deck index (-1 = the host's selected)
         }
+
+        // set by StarterDeck / DuplicateDeck: the index of the deck just made, for the requester
+        private int _madeDeckIndex = -1;
 
         // set by CoopCore: the guest's requests go up, the host's answers come back
         public static Action<INetMessage> SendToHost;
@@ -62,6 +66,7 @@ namespace CardShopCoop.UI
 
         // while a guest's request runs on the host, "in front of you" means in front of them
         private static bool s_hasRemotePose;
+        private static bool s_remoteRequest;    // a guest asked for this (not the host pressing)
         private static Vector3 s_remotePos;
         private static Vector3 s_remoteFwd;
 
@@ -94,6 +99,7 @@ namespace CardShopCoop.UI
             if (me == null)
                 return;
             string text;
+            int madeDeck = -1;
             try
             {
                 if (CoopPlugin.CheatsEnabled == null || !CoopPlugin.CheatsEnabled.Value)
@@ -112,12 +118,19 @@ namespace CardShopCoop.UI
                         s_remotePos = pose.pos;
                         s_remoteFwd = pose.fwd;
                     }
+                    me._madeDeckIndex = -1;
+                    s_remoteRequest = true;
                     try
                     {
                         me.Run((Op)msg.Op, msg.A, msg.B);
                     }
-                    finally { s_hasRemotePose = false; }
+                    finally
+                    {
+                        s_hasRemotePose = false;
+                        s_remoteRequest = false;
+                    }
                     text = me._status;
+                    madeDeck = me._madeDeckIndex;
                     string who = PeerName?.Invoke(conn);
                     CoopPlugin.Log.LogInfo($"CheatMenu: {(string.IsNullOrEmpty(who) ? "a guest" : who)} asked for {(Op)msg.Op} {msg.A} {msg.B} -> {text}");
                 }
@@ -127,12 +140,14 @@ namespace CardShopCoop.UI
                 text = "failed: " + e.Message;
                 CoopPlugin.Log.LogWarning("CheatMenu request: " + e);
             }
-            SendToClient?.Invoke(conn, new CheatResultMessage { Text = text ?? "" });
+            SendToClient?.Invoke(conn, new CheatResultMessage { Text = text ?? "", SelectDeck = madeDeck });
         }
 
         public static void ClientApplyResult(CheatResultMessage msg)
         {
             s_instance?.Say("host: " + (msg.Text ?? ""));
+            if (msg.SelectDeck >= 0)
+                Sync.DeckSync.PendingSelect = msg.SelectDeck; // lands with the next deck mirror
         }
 
         private void Run(Op op, int a, int b)
@@ -191,6 +206,9 @@ namespace CardShopCoop.UI
                 case Op.Economy:
                     Util.Companions.Economy.SetProfile(a);
                     Say("economy: " + Util.Companions.Economy.Describe());
+                    break;
+                case Op.DuplicateDeck:
+                    DuplicateDeck(a);
                     break;
                 default:
                     Say("unknown cheat " + op);
@@ -531,6 +549,17 @@ namespace CardShopCoop.UI
             GUILayout.Label("Starter deck: 50 different Tetramon base cards, added to the collection and saved as a new deck, then selected.");
             if (GUILayout.Button("Give and select a 50-card starter deck"))
                 Do(Op.StarterDeck);
+            GUILayout.Space(4);
+            GUILayout.Label("Duplicate a deck (its cards are added to the collection so the copy is real). On a guest the copy is selected for you.");
+            var dl = CPlayerData.m_DeckCompactCardDataList;
+            for (int i = 0; dl != null && i < dl.Count && i < 12; i++)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label((dl[i] != null ? dl[i].deckName : "?") + (i == CPlayerData.m_CurrentSelectedDeckIndex ? "  (selected)" : ""), GUILayout.Width(260));
+                if (GUILayout.Button("duplicate", GUILayout.Width(90)))
+                    Do(Op.DuplicateDeck, i);
+                GUILayout.EndHorizontal();
+            }
         }
 
         private void GiveSet(ECardExpansionType exp, int amount)
@@ -620,8 +649,63 @@ namespace CardShopCoop.UI
                 added++;
             }
             CPlayerData.m_DeckCompactCardDataList.Add(deck);
-            CPlayerData.m_CurrentSelectedDeckIndex = CPlayerData.m_DeckCompactCardDataList.Count - 1;
-            Say($"deck '{deck.deckName}' ({added} cards) created and selected");
+            _madeDeckIndex = CPlayerData.m_DeckCompactCardDataList.Count - 1;
+            if (!s_remoteRequest)
+                CPlayerData.m_CurrentSelectedDeckIndex = _madeDeckIndex; // a guest's request selects it for THEM, not the host
+            Say($"deck '{deck.deckName}' ({added} cards) created" + (s_remoteRequest ? " for the guest" : " and selected"));
+        }
+
+        /// <summary>Copy a deck as a new one, adding its cards to the collection first (a deck
+        /// holds cards taken OUT of the collection, so a copy needs its own).</summary>
+        private void DuplicateDeck(int index)
+        {
+            var decks = CPlayerData.m_DeckCompactCardDataList;
+            if (decks == null || decks.Count == 0)
+            {
+                Say("no decks to copy");
+                return;
+            }
+            if (index < 0)
+                index = CPlayerData.m_CurrentSelectedDeckIndex;
+            if (index < 0 || index >= decks.Count || decks[index] == null)
+            {
+                Say("no such deck");
+                return;
+            }
+            var src = decks[index];
+            var copy = new DeckCompactCardDataList
+            {
+                deckName = (src.deckName ?? "Deck") + " copy",
+                deckBoxIndex = src.deckBoxIndex,
+                playmatIndex = src.playmatIndex,
+            };
+            int added = 0;
+            var cards = src.compactCardDataAmountList;
+            for (int i = 0; cards != null && i < cards.Count; i++)
+            {
+                var c = cards[i];
+                if (c == null)
+                    continue;
+                var cd = CPlayerData.GetCardData(c.cardSaveIndex, c.expansionType, c.isDestiny);
+                if (cd != null && c.amount > 0)
+                {
+                    CPlayerData.AddCard(cd, c.amount);
+                    added += c.amount;
+                }
+                copy.compactCardDataAmountList.Add(new CompactCardDataAmount
+                {
+                    cardSaveIndex = c.cardSaveIndex,
+                    expansionType = c.expansionType,
+                    amount = c.amount,
+                    gradedCardIndex = c.gradedCardIndex,
+                    isDestiny = c.isDestiny,
+                });
+            }
+            decks.Add(copy);
+            _madeDeckIndex = decks.Count - 1;
+            if (!s_remoteRequest)
+                CPlayerData.m_CurrentSelectedDeckIndex = _madeDeckIndex;
+            Say($"deck '{copy.deckName}' ({added} cards) created" + (s_remoteRequest ? " for the guest" : " and selected"));
         }
 
         // ------------------------------------------------------------------ Boxes
