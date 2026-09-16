@@ -1172,6 +1172,17 @@ namespace CardShopCoop
             Social.NotePackOpened();
         }
 
+        /// <summary>Rivals: the league's shared market landed. Apply it like a guest would, and if
+        /// this shop hosts a co-op session, pass it on to the guests.</summary>
+        internal void ApplyLeagueMarket(MarketStateMessage market)
+        {
+            if (Role == CoopRole.Client)
+                return; // our co-op host will send us its copy
+            _market.ClientApplyOrBuffer(market, InGameLevel());
+            if (Role == CoopRole.Host)
+                Sync.MarketSync.MarkDirty();
+        }
+
         /// <summary>Team host: the Rivals board goes down to the guests over the co-op session.</summary>
         internal void RelayRivalsBoard(RivalsBoardMessage board)
         {

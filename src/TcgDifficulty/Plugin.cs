@@ -16,7 +16,7 @@ namespace TcgDifficulty
     {
         public const string Guid = "com.vorsaber.tcgdifficulty";
         public const string Name = "TCG Difficulty";
-        public const string Version = "1.0.1";
+        public const string Version = "1.0.2";
 
         internal static ManualLogSource Log;
         internal static ConfigEntry<DifficultyProfile> ProfileEntry;

@@ -35,6 +35,33 @@ namespace TcgDifficulty
         /// <summary>Set by CardShopCoop: false on a guest (the host simulates the crowd).</summary>
         public static Func<bool> AuthorityProvider;
 
+        // Set by another mod (CardShopCoop's Rivals league): the league host's settings apply
+        // here instead of this PC's config. -1 / negative = not overridden.
+        private static bool s_override;
+        private static int s_oProfile;
+        private static float s_oPerPlayer = 0.35f, s_oStaff = 1f;
+
+        public static void SetOverride(int profile, float perPlayer, float staffPerPlayer)
+        {
+            s_override = true;
+            s_oProfile = profile;
+            s_oPerPlayer = perPlayer;
+            s_oStaff = staffPerPlayer;
+            Reapply();
+            ApplyStaffCosts();
+        }
+
+        public static void ClearOverride()
+        {
+            if (!s_override)
+                return;
+            s_override = false;
+            Reapply();
+            ApplyStaffCosts();
+        }
+
+        public static bool HasOverride => s_override;
+
         private static readonly MethodInfo MiEvaluate = AccessTools.Method(typeof(CustomerManager), "EvaluateMaxCustomerCount");
         private static readonly FieldInfo FiMaxMoney = AccessTools.Field(typeof(CustomerManager), "m_CustomerMaxMoney");
         private static int s_players = 1;
@@ -71,9 +98,14 @@ namespace TcgDifficulty
         {
             get
             {
+                if (s_override && Enum.IsDefined(typeof(DifficultyProfile), s_oProfile))
+                    return (DifficultyProfile)s_oProfile;
                 return Plugin.ProfileEntry != null ? Plugin.ProfileEntry.Value : DifficultyProfile.Off;
             }
         }
+
+        public static float PerPlayerScale => s_override ? s_oPerPlayer : (Plugin.PerPlayer != null ? Plugin.PerPlayer.Value : 0.35f);
+        public static float StaffCostPerPlayerValue => s_override ? s_oStaff : (Plugin.StaffCostPerPlayer != null ? Plugin.StaffCostPerPlayer.Value : 1f);
 
         public static void SetProfile(int profile)
         {
@@ -119,7 +151,7 @@ namespace TcgDifficulty
         private static void Effective(DifficultyProfile p, int players, out float cap, out float rate, out float wallet)
         {
             Base(p, out cap, out rate, out wallet);
-            float per = Plugin.PerPlayer != null ? Plugin.PerPlayer.Value : 0.35f;
+            float per = PerPlayerScale;
             float crowd = 1f + Mathf.Clamp(per, 0f, 2f) * Mathf.Max(0, players - 1);
             cap *= crowd;
             rate *= crowd;
@@ -131,10 +163,11 @@ namespace TcgDifficulty
             var p = Profile;
             int n = Players;
             string staff = Mathf.Approximately(StaffFactor(n), 1f) ? "" : $", staff hire+wages x{StaffFactor(n):0.00}";
+            string src = s_override ? " [league]" : "";
             if (p == DifficultyProfile.Off)
-                return "Off (vanilla)" + staff;
+                return "Off (vanilla)" + staff + src;
             Effective(p, n, out float cap, out float rate, out float wallet);
-            return $"{p}, {n} player{(n == 1 ? "" : "s")}: customers x{cap:0.00}, arrivals x{rate:0.00}, wallets x{wallet:0.00}{staff}";
+            return $"{p}, {n} player{(n == 1 ? "" : "s")}: customers x{cap:0.00}, arrivals x{rate:0.00}, wallets x{wallet:0.00}{staff}{src}";
         }
 
         // ---------------------------------------------------------------- staff costs
@@ -145,7 +178,7 @@ namespace TcgDifficulty
         /// the host will charge).</summary>
         public static float StaffFactor(int players)
         {
-            float per = Plugin.StaffCostPerPlayer != null ? Plugin.StaffCostPerPlayer.Value : 1f;
+            float per = StaffCostPerPlayerValue;
             return 1f + Mathf.Clamp(per, 0f, 10f) * Mathf.Max(0, players - 1);
         }
 

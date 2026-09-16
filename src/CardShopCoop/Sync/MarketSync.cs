@@ -242,16 +242,21 @@ namespace CardShopCoop.Sync
 
         public static bool ClientBlockPrefix()
         {
+            // a co-op guest never rolls its own market; neither does a shop that takes the
+            // league's shared market (Rivals), whatever its co-op role
+            if (Rivals.RivalsLobby.MarketFromLeague)
+                return false;
             return CoopCore.Role != CoopRole.Client;
         }
 
         public static void HostRolledPostfix()
         {
             // postfixes run even when the prefix skipped the original - host gate here
-            if (CoopCore.Role == CoopRole.Host)
+            if (CoopCore.Role == CoopRole.Host || Rivals.RivalsLobby.Role == Rivals.RivalsLobby.LobbyRole.Server)
             {
                 s_rollGen++;
                 s_dirty = true; // a day roll changed the market; flush promptly
+                Rivals.RivalsLobby.MarketDirty = true;
                 Diag($"[market] roll gen={s_rollGen}");
             }
         }
@@ -345,6 +350,18 @@ namespace CardShopCoop.Sync
                 s_dirty = false;
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("MarketSync host: " + e.Message); }
+        }
+
+        /// <summary>The league server publishes its market with this too.</summary>
+        internal static MarketStateMessage BuildLeagueState()
+        {
+            return BuildState();
+        }
+
+        /// <summary>A co-op host that just adopted the league's market must pass it on.</summary>
+        internal static void MarkDirty()
+        {
+            s_dirty = true;
         }
 
         private static MarketStateMessage BuildState()

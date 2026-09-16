@@ -82,6 +82,14 @@ namespace CardShopCoop.Net.Messages
         public string LobbyName = "";
         public float PriceEffect;
         public List<RivalsShop> Shops = new List<RivalsShop>();
+        // the league host's settings, applied by every shop (0 = not carried)
+        public bool SharedMarket;
+        public bool SharedTuning;
+        public int DifficultyProfile = -1;
+        public float PerPlayerScale;
+        public float StaffCostPerPlayer;
+        public bool EconomyPresent;
+        public float EconMargin = 1f, EconCard = 1f, EconPick = 1f, EconCost = 1f, EconBill = 1f;
         public MsgType Type
         {
             get

@@ -47,6 +47,14 @@ namespace CardShopCoop.Sync.Rivals
         public static float CrowdMultiplier = 1f;
         public static int MyPriceRank = -1;
         public static int MyId => Instance != null ? Instance._myId : -1;
+        /// <summary>League client taking the league's market: block the local daily roll.</summary>
+        public static bool MarketFromLeague
+        {
+            get; private set;
+        }
+        /// <summary>League server: the market changed (day roll); send it on the next tick.</summary>
+        public static bool MarketDirty;
+        private float _marketTimer;
 
         private ICoopTransport _net;
         private bool _viaSteam;
@@ -243,7 +251,16 @@ namespace CardShopCoop.Sync.Rivals
             Board = new RivalsBoardMessage();
             CrowdMultiplier = 1f;
             MyPriceRank = -1;
+            MarketFromLeague = false;
+            MarketDirty = false;
             Util.Companions.Economy.SetExternalPickiness(1f);
+            if (_tuningApplied)
+            {
+                _tuningApplied = false;
+                Util.Companions.Difficulty.ClearOverride();
+                if (CoopCore.Role != CoopRole.Client)
+                    Util.Companions.Economy.ClearOverride();
+            }
             PopulationTuning.Reapply();
         }
 
@@ -302,6 +319,22 @@ namespace CardShopCoop.Sync.Rivals
                     {
                         _boardTimer = 0f;
                         BuildAndSendBoard();
+                    }
+                    _marketTimer += dt;
+                    bool shared = CoopPlugin.RivalsSharedMarket == null || CoopPlugin.RivalsSharedMarket.Value;
+                    if (shared && (MarketDirty || _marketTimer >= 30f) && _net.ConnectionCount > 0)
+                    {
+                        var gm2 = CSingleton<CGameManager>.Instance;
+                        if (gm2 != null && gm2.m_IsGameLevel && CPlayerData.m_ItemPricePercentChangeList != null && CPlayerData.m_ItemPricePercentChangeList.Count > 0)
+                        {
+                            _marketTimer = 0f;
+                            MarketDirty = false;
+                            try
+                            {
+                                _net.Broadcast(MarketSync.BuildLeagueState());
+                            }
+                            catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals market send: " + e.Message); }
+                        }
                     }
                 }
             }
@@ -364,6 +397,12 @@ namespace CardShopCoop.Sync.Rivals
                     PushChat(chat.From, chat.Text);
                     break;
                 case RivalsPingMessage _:
+                    break;
+                case MarketStateMessage market:
+                    if (Role != LobbyRole.Client)
+                        return;
+                    MarketFromLeague = true;
+                    CoopCore.Instance?.ApplyLeagueMarket(market);
                     break;
             }
         }
@@ -443,7 +482,16 @@ namespace CardShopCoop.Sync.Rivals
             {
                 LobbyName = LobbyName,
                 PriceEffect = CoopPlugin.RivalsPriceEffect != null ? Mathf.Clamp01(CoopPlugin.RivalsPriceEffect.Value) : 0.3f,
+                SharedMarket = CoopPlugin.RivalsSharedMarket == null || CoopPlugin.RivalsSharedMarket.Value,
+                SharedTuning = CoopPlugin.RivalsSharedTuning == null || CoopPlugin.RivalsSharedTuning.Value,
             };
+            if (board.SharedTuning)
+            {
+                if (Util.Companions.Difficulty.Present)
+                    Util.Companions.Difficulty.LocalSettings(out board.DifficultyProfile, out board.PerPlayerScale, out board.StaffCostPerPlayer);
+                board.EconomyPresent = Util.Companions.Economy.Present;
+                Util.Companions.Economy.LocalFactors(out board.EconMargin, out board.EconCard, out board.EconPick, out board.EconCost, out board.EconBill);
+            }
             foreach (var kv in _shops)
                 if (kv.Value != null)
                     board.Shops.Add(kv.Value);
@@ -474,10 +522,21 @@ namespace CardShopCoop.Sync.Rivals
             ApplyBoard(board);
         }
 
+        private bool _tuningApplied;
+
         private void ApplyBoard(RivalsBoardMessage board)
         {
             Board = board;
             BoardAt = Time.unscaledTime;
+            // the league host's tuning applies on every member (not on the host itself: it IS the source)
+            if (Role == LobbyRole.Client && board.SharedTuning && CoopCore.Role != CoopRole.Client)
+            {
+                if (board.DifficultyProfile >= 0)
+                    Util.Companions.Difficulty.SetOverride(board.DifficultyProfile, board.PerPlayerScale, board.StaffCostPerPlayer);
+                if (board.EconomyPresent)
+                    Util.Companions.Economy.SetOverride(board.EconMargin, board.EconCard, board.EconPick, board.EconCost, board.EconBill);
+                _tuningApplied = true;
+            }
             var mine = board.Shops.Find(x => x.Id == _myId);
             if (mine != null)
             {
@@ -589,14 +648,28 @@ namespace CardShopCoop.Sync.Rivals
         }
     }
 
-    /// <summary>The shop's average markup over everything it has actually priced: set item
-    /// prices over market, and set Tetramon card prices over market. 1.0 = at market.</summary>
+    /// <summary>The shop's markup over everything it has actually priced - set item prices and
+    /// set card prices (every expansion) over their market price - WEIGHTED BY MARKET VALUE, so
+    /// a $200 card counts for a hundred $2 packs. 1.0 = at market.</summary>
     internal static class PriceIndex
     {
+        // built per call: the game REASSIGNS these lists on save load, so captured references go stale
+        private static (List<float> list, ECardExpansionType exp, bool destiny)[] CardLists() => new[]
+        {
+            (CPlayerData.m_CardPriceSetList, ECardExpansionType.Tetramon, false),
+            (CPlayerData.m_CardPriceSetListDestiny, ECardExpansionType.Destiny, false),
+            (CPlayerData.m_CardPriceSetListGhost, ECardExpansionType.Ghost, true),
+            (CPlayerData.m_CardPriceSetListGhostBlack, ECardExpansionType.Ghost, false),
+            (CPlayerData.m_CardPriceSetListMegabot, ECardExpansionType.Megabot, false),
+            (CPlayerData.m_CardPriceSetListFantasyRPG, ECardExpansionType.FantasyRPG, false),
+            (CPlayerData.m_CardPriceSetListCatJob, ECardExpansionType.CatJob, false),
+            (CPlayerData.m_CardPriceSetListAscension, ECardExpansionType.Ascension, false),
+        };
+
         public static float AverageMarkup(out int priced)
         {
             priced = 0;
-            double sum = 0;
+            double weighted = 0, weight = 0;
             try
             {
                 var set = CPlayerData.m_SetItemPriceList;
@@ -608,24 +681,33 @@ namespace CardShopCoop.Sync.Rivals
                     float m = CPlayerData.GetItemMarketPrice((EItemType)i);
                     if (m <= 0f)
                         continue;
-                    sum += Mathf.Clamp(p / m, 0.1f, 10f);
+                    weighted += Mathf.Clamp(p / m, 0.1f, 10f) * m;
+                    weight += m;
                     priced++;
                 }
-                var cards = CPlayerData.m_CardPriceSetList;
-                for (int i = 0; cards != null && i < cards.Count; i++)
+                foreach (var (list, exp, destiny) in CardLists())
                 {
-                    float p = cards[i];
-                    if (p <= 0f)
-                        continue;
-                    float m = CPlayerData.GetCardMarketPrice(i, ECardExpansionType.Tetramon, false, 0);
-                    if (m <= 0f)
-                        continue;
-                    sum += Mathf.Clamp(p / m, 0.1f, 10f);
-                    priced++;
+                    for (int i = 0; list != null && i < list.Count; i++)
+                    {
+                        float p = list[i];
+                        if (p <= 0f)
+                            continue;
+                        float m;
+                        try
+                        {
+                            m = CPlayerData.GetCardMarketPrice(i, exp, destiny, 0);
+                        }
+                        catch { continue; }
+                        if (m <= 0f)
+                            continue;
+                        weighted += Mathf.Clamp(p / m, 0.1f, 10f) * m;
+                        weight += m;
+                        priced++;
+                    }
                 }
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals PriceIndex: " + e.Message); }
-            return priced > 0 ? (float)(sum / priced) : 1f;
+            return weight > 0 ? (float)(weighted / weight) : 1f;
         }
     }
 }

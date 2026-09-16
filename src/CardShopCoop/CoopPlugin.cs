@@ -39,6 +39,8 @@ namespace CardShopCoop
         public static ConfigEntry<string> RivalsShopName;
         public static ConfigEntry<string> RivalsLastAddress;
         public static ConfigEntry<float> RivalsPriceEffect;
+        public static ConfigEntry<bool> RivalsSharedMarket;
+        public static ConfigEntry<bool> RivalsSharedTuning;
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
         public static ConfigEntry<string> LastJoinIP;
@@ -95,6 +97,10 @@ namespace CardShopCoop
                 "How your shop appears on the Rivals board. Empty = the shop's in-game name.");
             RivalsLastAddress = Config.Bind("Rivals", "LastAddress", "",
                 "Written automatically: the lobby address you last joined.");
+            RivalsSharedMarket = Config.Bind("Rivals", "SharedMarket", true,
+                "Lobby host: every shop in the league uses the lobby host's market (item and card market prices, drift, game-event prices), so the price race compares like with like.");
+            RivalsSharedTuning = Config.Bind("Rivals", "SharedTuning", true,
+                "Lobby host: the lobby host's TcgDifficulty and TcgEconomy settings apply to every shop in the league (each shop still counts its own players).");
             RivalsPriceEffect = Config.Bind("Rivals", "PriceEffect", 0.3f,
                 "Lobby host: how much the price race moves the crowd. 0.3 = the cheapest shop draws 30% more customers, the priciest 30% fewer, linear between. 0 = off.");
             MaxPlayers = Config.Bind("Network", "MaxPlayers", 4,

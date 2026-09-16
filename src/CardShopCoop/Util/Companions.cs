@@ -31,6 +31,29 @@ namespace CardShopCoop.Util
             return false;
         }
 
+        /// <summary>Read an ENUM entry as its integer value.</summary>
+        internal static bool TryGetInt(string guid, string section, string key, out float value)
+        {
+            value = 0f;
+            try
+            {
+                if (!Chainloader.PluginInfos.TryGetValue(guid, out var info) || info.Instance == null)
+                    return false;
+                foreach (var kv in info.Instance.Config)
+                {
+                    if (kv.Key.Section != section || kv.Key.Key != key)
+                        continue;
+                    var box = kv.Value.BoxedValue;
+                    if (box == null)
+                        return false;
+                    value = Convert.ToInt32(box);
+                    return true;
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning($"companion {guid} {section}.{key}: {e.Message}"); }
+            return false;
+        }
+
         internal static bool SetFloat(string guid, string section, string key, float value)
         {
             try
@@ -54,7 +77,7 @@ namespace CardShopCoop.Util
             public const string Guid = "com.vorsaber.tcgeconomy";
             private static bool s_resolved;
             private static Type s_type;
-            private static MethodInfo s_local, s_setOverride, s_clearOverride, s_setProfile, s_describe;
+            private static MethodInfo s_local, s_setOverride, s_clearOverride, s_setProfile, s_describe, s_factors;
 
             public static bool Present
             {
@@ -79,6 +102,7 @@ namespace CardShopCoop.Util
                     if (s_type == null)
                         return;
                     s_local = s_type.GetMethod("LocalFactors", BindingFlags.Public | BindingFlags.Static);
+                    s_factors = s_type.GetMethod("Factors", BindingFlags.Public | BindingFlags.Static);
                     s_setOverride = s_type.GetMethod("SetOverride", BindingFlags.Public | BindingFlags.Static);
                     s_clearOverride = s_type.GetMethod("ClearOverride", BindingFlags.Public | BindingFlags.Static);
                     s_setProfile = s_type.GetMethod("SetProfile", BindingFlags.Public | BindingFlags.Static);
@@ -109,6 +133,32 @@ namespace CardShopCoop.Util
                     bill = (float)args[4];
                 }
                 catch (Exception e) { CoopPlugin.Log.LogWarning("companion TcgEconomy.LocalFactors: " + e.Message); }
+            }
+
+            /// <summary>The factors in force on this PC (an override if one is set, else config).</summary>
+            public static void EffectiveFactors(out float margin, out float card, out float pick, out float cost, out float bill)
+            {
+                margin = card = pick = cost = bill = 1f;
+                if (!Present || s_factors == null)
+                    return;
+                try
+                {
+                    var args = new object[5];
+                    s_factors.Invoke(null, args);
+                    margin = (float)args[0];
+                    card = (float)args[1];
+                    pick = (float)args[2];
+                    cost = (float)args[3];
+                    bill = (float)args[4];
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning("companion TcgEconomy.Factors: " + e.Message); }
+            }
+
+            /// <summary>This PC's economy profile as an int (config), for the league board.</summary>
+            public static int LocalProfile()
+            {
+                float v;
+                return TryGetInt(Guid, "Economy", "Profile", out v) ? (int)v : 0;
             }
 
             public static void SetOverride(float margin, float card, float pick, float cost, float bill)
@@ -179,7 +229,7 @@ namespace CardShopCoop.Util
             private static bool s_resolved;
             private static Type s_type;
             private static FieldInfo s_players, s_authority;
-            private static MethodInfo s_setProfile, s_describe, s_reapply, s_staff;
+            private static MethodInfo s_setProfile, s_describe, s_reapply, s_staff, s_setOverride, s_clearOverride;
 
             public static bool Present
             {
@@ -209,6 +259,8 @@ namespace CardShopCoop.Util
                     s_describe = s_type.GetMethod("Describe", BindingFlags.Public | BindingFlags.Static);
                     s_reapply = s_type.GetMethod("Reapply", BindingFlags.Public | BindingFlags.Static);
                     s_staff = s_type.GetMethod("ApplyStaffCosts", BindingFlags.Public | BindingFlags.Static);
+                    s_setOverride = s_type.GetMethod("SetOverride", BindingFlags.Public | BindingFlags.Static);
+                    s_clearOverride = s_type.GetMethod("ClearOverride", BindingFlags.Public | BindingFlags.Static);
                     CoopPlugin.Log.LogInfo("companion: TcgDifficulty found");
                 }
                 catch (Exception e)
@@ -252,6 +304,38 @@ namespace CardShopCoop.Util
                     s_reapply.Invoke(null, null);
                 }
                 catch (Exception e) { CoopPlugin.Log.LogWarning("companion TcgDifficulty.Reapply: " + e.Message); }
+            }
+
+            /// <summary>Rivals: the league host's profile / per-player / staff settings apply here.</summary>
+            public static void SetOverride(int profile, float perPlayer, float staff)
+            {
+                if (!Present || s_setOverride == null)
+                    return;
+                try
+                {
+                    s_setOverride.Invoke(null, new object[] { profile, perPlayer, staff });
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning("companion TcgDifficulty.SetOverride: " + e.Message); }
+            }
+
+            public static void ClearOverride()
+            {
+                if (!Present || s_clearOverride == null)
+                    return;
+                try
+                {
+                    s_clearOverride.Invoke(null, null);
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning("companion TcgDifficulty.ClearOverride: " + e.Message); }
+            }
+
+            /// <summary>This PC's own config, for the league board when we host it.</summary>
+            public static void LocalSettings(out int profile, out float perPlayer, out float staff)
+            {
+                float v;
+                profile = TryGetInt(Guid, "Difficulty", "Profile", out v) ? (int)v : 2;
+                perPlayer = TryGetFloat(Guid, "Difficulty", "PerPlayerScale", out v) ? v : 0.35f;
+                staff = TryGetFloat(Guid, "Difficulty", "StaffCostPerPlayer", out v) ? v : 1f;
             }
 
             public static void ApplyStaffCosts()

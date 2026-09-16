@@ -142,7 +142,7 @@ namespace TcgEconomy
         public static string Describe()
         {
             Factors(out float m, out float c, out float p, out float k, out float b);
-            string p0 = s_override ? "host's" : Profile.ToString();
+            string p0 = s_override ? "league/host's" : Profile.ToString();
             if (IsUnity(m, c, p, k, b))
                 return p0 + " (vanilla)";
             return $"{p0}: margin x{m:0.00}, card value x{c:0.00}, pickiness x{p:0.00}, stock cost x{k:0.00}, bills x{b:0.00}";

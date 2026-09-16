@@ -509,7 +509,7 @@ namespace CardShopCoop.Sync
             int fn = Mathf.Min(fees.Count, 255);
             for (int i = 0; i < fn; i++)
                 msg.GameEventPrices.Add(fees[i]);
-            Util.Companions.Economy.LocalFactors(out msg.EconMargin, out msg.EconCard, out msg.EconPick, out msg.EconCost, out msg.EconBill);
+            Util.Companions.Economy.EffectiveFactors(out msg.EconMargin, out msg.EconCard, out msg.EconPick, out msg.EconCost, out msg.EconBill);
             msg.EconPresent = Util.Companions.Economy.Present;
             var counters = Sm()?.m_CashierCounterList;
             int cn = counters == null ? 0 : Mathf.Min(counters.Count, 255);
@@ -602,7 +602,7 @@ namespace CardShopCoop.Sync
             h = h * 31 + CPlayerData.m_EquippedCeilingDecoIndexB;
             h = h * 31 + (int)CPlayerData.m_GameEventFormat;
             h = h * 31 + (int)CPlayerData.m_PendingGameEventFormat;
-            Util.Companions.Economy.LocalFactors(out float em, out float ec, out float ep, out float ek, out float eb);
+            Util.Companions.Economy.EffectiveFactors(out float em, out float ec, out float ep, out float ek, out float eb);
             h = h * 31 + (int)(em * 1000f);
             h = h * 31 + (int)(ec * 1000f);
             h = h * 31 + (int)(ep * 1000f);
