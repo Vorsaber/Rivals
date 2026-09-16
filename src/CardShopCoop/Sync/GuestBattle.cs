@@ -63,6 +63,11 @@ namespace CardShopCoop.Sync
 
         public static void ApplyPatches(Harmony h)
         {
+            var pad = AccessTools.Method(typeof(ShelfManager), "UpdatePlayTableSaveData");
+            if (pad == null)
+                CoopPlugin.Log.LogWarning("GuestBattle patch target missing: ShelfManager.UpdatePlayTableSaveData");
+            else
+                h.Patch(pad, prefix: new HarmonyMethod(typeof(GuestBattle), nameof(PadPlayTableSaveDataPrefix)));
             var exit = AccessTools.Method(typeof(InteractablePlayTable), "ExitPlayerCardGame");
             if (exit == null)
                 CoopPlugin.Log.LogWarning("GuestBattle patch target missing: InteractablePlayTable.ExitPlayerCardGame");
@@ -71,6 +76,48 @@ namespace CardShopCoop.Sync
         }
 
         private static ShelfManager Sm() => CSingleton<ShelfManager>.Instance;
+
+        /// <summary>ShelfManager.UpdatePlayTableSaveData indexes CPlayerData.m_PlayTableSaveDataList
+        /// by the table's position in m_PlayTableList, but that save list is only rebuilt when
+        /// the game SAVES. A play table placed since the last save has no entry, so the first
+        /// UpdatePlayTableSaveData on it throws ArgumentOutOfRange - inside CustomerHasReached
+        /// (customer sits), StopTableGame, and SetPlayerTableNumberScreen.OnPressConfirm, which
+        /// then never reaches CloseScreen. Vanilla hides it behind frequent autosaves; a co-op
+        /// guest never saves, and the host may not have saved since placing the table (seen
+        /// 2026-09-16: 7 host + 9 guest crashes, tournament-number screen dead on both). Pad the
+        /// list to the table count with blank entries; the next save rewrites them all.</summary>
+        public static void PadPlayTableSaveDataPrefix(ShelfManager __instance)
+        {
+            try
+            {
+                var tables = __instance != null ? __instance.m_PlayTableList : null;
+                if (tables == null)
+                    return;
+                var save = CPlayerData.m_PlayTableSaveDataList;
+                if (save == null)
+                    CPlayerData.m_PlayTableSaveDataList = save = new List<PlayTableSaveData>();
+                bool padded = false;
+                while (save.Count < tables.Count)
+                {
+                    var t = tables[save.Count];
+                    var d = new PlayTableSaveData();
+                    if (t != null)
+                    {
+                        d.objectType = t.m_ObjectType;
+                        d.isSeatOccupied = t.GetIsSeatOccupied();
+                        d.isPlayerSeat = t.GetIsPlayerSeat();
+                    }
+                    save.Add(d);
+                    padded = true;
+                }
+                if (padded)
+                    CoopPlugin.Log.LogInfo($"play table save list padded to {save.Count} (table placed since the last save)");
+            }
+            catch (Exception e)
+            {
+                CoopPlugin.Log.LogWarning("PadPlayTableSaveData: " + e.Message);
+            }
+        }
 
         private static int IndexOf(InteractablePlayTable table)
         {
