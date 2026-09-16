@@ -49,6 +49,8 @@ namespace CardShopCoop
         public static ConfigEntry<bool> AutoSyncCardDatabase;
         public static ConfigEntry<float> ServeReach;
         public static ConfigEntry<bool> AllowCrossBuildJoin;
+        public static ConfigEntry<bool> SleepVoteEnabled;
+        public static ConfigEntry<string> UpdateHint;
         public static ConfigEntry<bool> AutoPortForward;
         public static ConfigEntry<bool> AutoLanPassword;
         public static ConfigEntry<GradedAlertMode> GradedDriftAlert;
@@ -109,6 +111,10 @@ namespace CardShopCoop
                 "When your modded-card ID registry (EPL enum_values.json) differs from the host's, automatically install the host's copy (yours is backed up beside it) so you only need to restart and rejoin. Set false to handle the file yourself.");
             ServeReach = Config.Bind("Player", "ServeReach", 1.6f,
                 "How close (meters, to the counter's center) a JOINER must stand to answer a counter trade customer. The counter itself is ~1m wide, so values below ~1.2 make it unreachable.");
+            SleepVoteEnabled = Config.Bind("Coop", "SleepVote", true,
+                "Host: after closing time, the first Enter waits until every guest has pressed Enter too (they see a notice); a second Enter ends the day anyway. Off = the host's Enter ends the day at once, as before.");
+            UpdateHint = Config.Bind("Network", "UpdateHint", "",
+                "Host: where guests can get YOUR exact build - a share path or URL. Appended to the 'version mismatch' / 'mod set differs' rejection so the other player knows what to install. Empty = nothing appended.");
             AllowCrossBuildJoin = Config.Bind("Network", "AllowCrossBuildJoin", false,
                 "Let players join even when the GAME build fingerprint (game version / Unity version) differs from the host's. Dangerous: two different game builds can corrupt each other's saves. Only enable for supervised testing of Steam <-> Game Pass cross-play.");
             AutoPortForward = Config.Bind("Network", "AutoPortForward", true,

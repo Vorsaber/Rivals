@@ -121,4 +121,32 @@ namespace CardShopCoop.Net.Messages
             }
         }
     }
+    /// <summary>Client -> host: the guest is (or is no longer) ready to end the day.</summary>
+    [NetworkMessage(MsgType.SleepVote, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class SleepVoteMessage : INetMessage
+    {
+        public bool Ready;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.SleepVote;
+            }
+        }
+    }
+
+    /// <summary>Host -> clients: one notice line about the end-of-day wait.</summary>
+    [NetworkMessage(MsgType.SleepStatus, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class SleepStatusMessage : INetMessage
+    {
+        public string Text = "";
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.SleepStatus;
+            }
+        }
+    }
 }
+

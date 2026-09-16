@@ -150,6 +150,21 @@ namespace CardShopCoop
         /// on CoopCore.</summary>
         private ISteamBridge _steam;
         private readonly Dictionary<int, string> _peerWireNames = new Dictionary<int, string>();
+        /// <summary>Host: how many guests are in the shop.</summary>
+        internal int GuestCount
+        {
+            get
+            {
+                return _peerWireNames.Count;
+            }
+        }
+
+        /// <summary>Host: the guests' connection ids.</summary>
+        internal IEnumerable<int> GuestConnections()
+        {
+            return _peerWireNames.Keys;
+        }
+
         /// <summary>Host: the joined name of a connection, or "" when unknown.</summary>
         internal string PeerNameFor(int conn)
         {
@@ -191,6 +206,7 @@ namespace CardShopCoop
         private readonly BattleSync _battle = new BattleSync();
         private readonly GuestBattle _guestBattle = new GuestBattle();
         private readonly PvpBattle _pvp = new PvpBattle();
+        private readonly SleepVote _sleep = new SleepVote();
         private readonly DeckSync _decks = new DeckSync();
         private readonly PlayerIntentBus _intents = new PlayerIntentBus();
         private readonly StaffSync _staff = new StaffSync();
@@ -650,6 +666,9 @@ namespace CardShopCoop
             _pvp.SendToHost = Send(1);
             _pvp.SendToClient = Send;
             _pvp.PeerName = PeerNameFor;
+            _sleep.SendToHost = Send(1);
+            _sleep.Broadcast = Broadcast;
+            _sleep.PeerName = PeerNameFor;
             UI.CheatMenu.SendToHost = Send(1);
             UI.CheatMenu.SendToClient = Send;
             UI.CheatMenu.PeerName = PeerNameFor;
@@ -1050,6 +1069,11 @@ namespace CardShopCoop
 
         private void RejectConn(int connId, string reason)
         {
+            // a build/mod mismatch is fixable by the other player - tell them where the host's build is
+            string hint = CoopPlugin.UpdateHint != null ? CoopPlugin.UpdateHint.Value : "";
+            if (!string.IsNullOrWhiteSpace(hint) && reason != null
+                && (reason.Contains("mismatch") || reason.Contains("mod set") || reason.Contains("version differs") || reason.Contains("missing")))
+                reason += " - get the host's build from: " + hint.Trim();
             CoopPlugin.Log.LogWarning($"rejected connection {connId}: {reason}");
             Send(connId, new ByeMessage { Reason = reason });
             _pendingKicks.Add(new KeyValuePair<int, float>(connId, 1.5f));
@@ -1838,6 +1862,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(null, "cardboxes", patches: Sync.CardBoxOps.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "furnboxes", patches: Sync.FurnitureBoxOps.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "hand-protection", patches: Sync.HandProtection.ApplyPatches),
+                new Sync.CoopModuleEntry(_sleep, "sleep-vote", patches: Sync.SleepVote.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "population-tuning", patches: Sync.PopulationTuning.ApplyPatches),
             };
@@ -3904,6 +3929,11 @@ namespace CardShopCoop
                     try
                     {
                         _pvp.HostReleaseConn(left);
+                    }
+                    catch (System.Exception e) { Swallow.Log(e); }
+                    try
+                    {
+                        _sleep.HostReleaseConn(left);
                     }
                     catch (System.Exception e) { Swallow.Log(e); }
                     try

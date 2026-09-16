@@ -115,6 +115,8 @@ namespace CardShopCoop.Net
         TournamentPlan = 117, // client -> host: the guest scheduled / cancelled / re-prized the tournament
         CheatRequest = 118,  // client -> host: a guest pressed a cheat-menu button (host runs it)
         CheatResult = 119,   // host -> one client: what the cheat did, for the guest's status line
+        SleepVote = 120,     // client -> host: ready (or not) to end the day
+        SleepStatus = 121,   // host -> clients: a line about the end-of-day wait
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

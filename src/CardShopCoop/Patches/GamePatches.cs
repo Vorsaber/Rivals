@@ -1307,7 +1307,14 @@ namespace CardShopCoop.Patches
         /// joiner's report history on close. Same Role-check idiom as ClientBlockPrefix.</summary>
         public static bool GoNextDayScreenBlockPrefix()
         {
-            return CoopCore.Role != CoopRole.Client;
+            if (CoopCore.Role == CoopRole.Client)
+            {
+                SleepVote.ClientPressed(); // the guest's Enter becomes a "ready" toggle
+                return false;
+            }
+            if (CoopCore.Role == CoopRole.Host)
+                return SleepVote.HostMayProceed(); // waits for the guests once, then goes
+            return true;
         }
 
         public static bool ClientLightTogglePrefix()
