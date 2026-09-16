@@ -91,6 +91,7 @@ namespace CardShopCoop.Sync
         public override void Reset()
         {
             _gate.Reset(-1.9f);
+            ResetHudReveal();
             _billScreen = null;
             _openSign = null;
             _warehouseSign = null;
@@ -696,6 +697,43 @@ namespace CardShopCoop.Sync
                 tm.EvaluateTaskVisibility();
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("tutorial visibility: " + e.Message); }
+            RevealHudAfterShopNamed(tm, tutIndex);
         }
+
+        /// <summary>On a FRESH save the game hides the entire HUD at tutorial step 0
+        /// (TutorialManager.OnGameDataFinishLoaded -> ShopRenamer.SetIsTutorial ->
+        /// GameUIScreen.SetGameUIVisible(false)) and only shows it again inside
+        /// ShopRenamer.OnPressConfirmShopName - which the guest never reaches, because the
+        /// rename screen is blocked on the joiner (the host names the shop). Seen 2026-09-16:
+        /// guest joined a new game, host named the shop, guest had no money / level HUD for
+        /// the whole session. So when the mirrored index leaves 0, replay the tail of
+        /// OnPressConfirmShopName here: show the HUD, drop the renamer's tutorial flag, hide
+        /// the target indicator. Idempotent; SetGameUIVisible(true) is a no-op once shown.</summary>
+        private static bool s_hudRevealed;
+        private static readonly System.Reflection.FieldInfo FiRenamerIsTutorial =
+            AccessTools.Field(typeof(ShopRenamer), "m_IsTutorial");
+
+        private static void RevealHudAfterShopNamed(TutorialManager tm, int tutIndex)
+        {
+            if (CoopCore.Role != CoopRole.Client || tutIndex <= 0 || s_hudRevealed)
+                return;
+            try
+            {
+                GameUIScreen.SetGameUIVisible(isVisible: true);
+                if (tm != null)
+                {
+                    if (tm.m_ShopRenamer != null && FiRenamerIsTutorial != null)
+                        FiRenamerIsTutorial.SetValue(tm.m_ShopRenamer, false);
+                    if (tm.m_TutorialTargetIndicator != null)
+                        tm.m_TutorialTargetIndicator.SetActive(false);
+                }
+                s_hudRevealed = true;
+                CoopPlugin.Log.LogInfo("tutorial: host named the shop - HUD revealed on the guest");
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("tutorial hud reveal: " + e.Message); }
+        }
+
+        /// <summary>Session reset hook: a new join may land on a fresh save again.</summary>
+        internal static void ResetHudReveal() => s_hudRevealed = false;
     }
 }
