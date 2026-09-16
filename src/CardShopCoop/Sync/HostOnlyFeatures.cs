@@ -4,17 +4,16 @@ using HarmonyLib;
 namespace CardShopCoop.Sync
 {
     /// <summary>
-    /// Host-only gate for the game-1.0 features that have no co-op sync yet: the Workbench
-    /// deck editor and signing the player up for their own tournament. The playable TCG
+    /// Host-only gate for the game-1.0 feature that has no co-op sync yet: signing the
+    /// player up for their own tournament. The playable TCG
     /// itself is guest-playable through <see cref="GuestBattle"/>; the RMB prefix here only
     /// routes the guest's click there (and falls back to a notice if that is unavailable).
     ///
-    /// Why a gate rather than a sync: both run on LOCAL state. Decks live in
-    /// <c>CPlayerData.m_DeckCompactCardDataList</c>, which nothing mirrors, and tournament
-    /// sign-up writes <see cref="CPlayerData"/> tournament data the host's bracket reads. On
-    /// the guest every one of those writes lands in the scratch slot and is thrown away. So
-    /// until each has a real sync, the HOST does it and the guest is told why, in the game's
-    /// own popup.
+    /// Why a gate rather than a sync: it runs on LOCAL state. Tournament sign-up writes
+    /// <see cref="CPlayerData"/> tournament data the host's bracket reads; on the guest that
+    /// write lands in the scratch slot and is thrown away. So until it has a real sync, the
+    /// HOST does it and the guest is told why, in the game's own popup. (The deck editor used
+    /// to be gated here too; it is now guest-usable through <see cref="DeckSync"/>'s editor lock.)
     ///
     /// Also here: <see cref="IsHostBattleTable"/>, the guard PlayTableSync uses to refuse a
     /// guest's table-kick intent while anyone is in a battle at that table (StopTableGame
@@ -23,7 +22,6 @@ namespace CardShopCoop.Sync
     internal static class HostOnlyFeatures
     {
         private const string BattleNotice = "Co-op: only the host can play the card game for now";
-        private const string DeckNotice = "Co-op: only the host can edit decks for now";
         private const string TournamentNotice = "Co-op: only the host can join the tournament for now";
         private static string s_lastNotice;
         private static float s_lastNoticeAt = -10f;
@@ -32,10 +30,6 @@ namespace CardShopCoop.Sync
         {
             Try(h, typeof(InteractablePlayTable), "OnRightMouseButtonUp",
                 new HarmonyMethod(typeof(HostOnlyFeatures), nameof(PlayTableRightClickPrefix)));
-            Try(h, typeof(WorkbenchUIScreen), "OnPressEditDeckButton",
-                new HarmonyMethod(typeof(HostOnlyFeatures), nameof(EditDeckButtonPrefix)));
-            Try(h, typeof(PlayCardGameManager), "OpenDeckListScreen",
-                new HarmonyMethod(typeof(HostOnlyFeatures), nameof(OpenDeckListPrefix)));
             Try(h, typeof(HostTournamentScreen), "OnPressPlayerSignUpTournament",
                 new HarmonyMethod(typeof(HostOnlyFeatures), nameof(PlayerSignUpPrefix)));
         }
@@ -65,36 +59,6 @@ namespace CardShopCoop.Sync
                 return true;
             if (!GuestBattle.ClientRequestSit(__instance))
                 Notice(BattleNotice);
-            return false;
-        }
-
-        /// <summary>The Workbench "deck" button. Gated HERE, not one call later in
-        /// <c>OpenDeckListScreen</c>: the button handler sets <c>m_IsEditingDeck</c> on both the
-        /// screen and the workbench before it opens the deck list, and while that flag is up
-        /// <c>WorkbenchUIScreen.CloseScreen</c> refuses to close - cancelling only the screen
-        /// welded the guest to the workbench.</summary>
-        public static bool EditDeckButtonPrefix()
-        {
-            if (CoopCore.Role != CoopRole.Client)
-                return true;
-            Notice(DeckNotice);
-            return false;
-        }
-
-        /// <summary>Belt and braces for any other route into the deck list. If it fires on a
-        /// guest, also clear the editing flags so the workbench can still be closed.</summary>
-        public static bool OpenDeckListPrefix()
-        {
-            if (CoopCore.Role != CoopRole.Client)
-                return true;
-            Notice(DeckNotice);
-            try
-            {
-                var wb = UnityEngine.Object.FindObjectOfType<WorkbenchUIScreen>();
-                if (wb != null)
-                    wb.OnCloseEditDeckScreen();
-            }
-            catch (Exception e) { CoopPlugin.Log.LogWarning("OpenDeckListPrefix: " + e.Message); }
             return false;
         }
 

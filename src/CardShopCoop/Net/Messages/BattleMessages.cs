@@ -158,4 +158,50 @@ namespace CardShopCoop.Net.Messages
         public int GradedIndex;
         public bool IsDestiny;
     }
+    /// <summary>Client -> host: take (<c>Want</c>) or release the one deck-editor lock. Decks are
+    /// shop state, so only one player edits at a time; the host answers with
+    /// <see cref="DeckEditResultMessage"/>.</summary>
+    [NetworkMessage(MsgType.DeckEditRequest, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class DeckEditRequestMessage : INetMessage
+    {
+        public bool Want;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.DeckEditRequest;
+            }
+        }
+    }
+
+    /// <summary>Host -> one client: the lock is theirs, or someone else (<c>Holder</c>) has it.</summary>
+    [NetworkMessage(MsgType.DeckEditResult, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class DeckEditResultMessage : INetMessage
+    {
+        public bool Granted;
+        public string Holder = "";
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.DeckEditResult;
+            }
+        }
+    }
+
+    /// <summary>Client -> host: the lock holder's whole deck list. The host replaces its own
+    /// list with it and the normal DeckState mirror carries it to everyone.</summary>
+    [NetworkMessage(MsgType.DeckStateUp, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class DeckStateUpMessage : INetMessage
+    {
+        public bool Final;
+        public List<DeckEntry> Decks = new List<DeckEntry>();
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.DeckStateUp;
+            }
+        }
+    }
 }

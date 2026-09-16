@@ -103,6 +103,9 @@ namespace CardShopCoop.Net
         BattleExit = 105,   // client -> host: the guest's battle ended (win / draw)
         BattleStateUp = 106, // client -> host: the guest's own battle digest (relayed as BattleState)
         DeckState = 107,    // host -> client: the shop's card-game decks (read-only mirror)
+        DeckEditRequest = 108, // client -> host: take (Want) or release the deck-editor lock
+        DeckEditResult = 109,  // host -> one client: lock granted, or refused with the holder's name
+        DeckStateUp = 110,     // client -> host: the lock holder's deck list (applied, then re-mirrored)
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

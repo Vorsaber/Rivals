@@ -150,6 +150,11 @@ namespace CardShopCoop
         /// on CoopCore.</summary>
         private ISteamBridge _steam;
         private readonly Dictionary<int, string> _peerWireNames = new Dictionary<int, string>();
+        /// <summary>Host: the joined name of a connection, or "" when unknown.</summary>
+        internal string PeerNameFor(int conn)
+        {
+            return _peerWireNames.TryGetValue(conn, out var n) ? n : "";
+        }
         private readonly Dictionary<int, ulong> _peerSteamIds = new Dictionary<int, ulong>();
         private ulong _autoJoinSteamLobby; // from +connect_lobby (game launched via invite)
         public bool IsSteamSession
@@ -635,6 +640,9 @@ namespace CardShopCoop
             _battle.BroadcastState = Broadcast;
             _battle.SendToHost = Send(1);
             _decks.BroadcastState = Broadcast;
+            _decks.SendToHost = Send(1);
+            _decks.SendToClient = Send;
+            _decks.PeerName = PeerNameFor;
             _guestBattle.SendToHost = Send(1);
             _guestBattle.SendToClient = Send;
             _tables.RegisterIntents(_intents);
@@ -1805,7 +1813,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(_register, "register", 10, 4, Sync.RegisterSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_tv, "tv", 11, 1, Sync.TvSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_battle, "battle", 12, 5, Sync.BattleSync.ApplyPatches),
-                new Sync.CoopModuleEntry(_decks, "decks", 13, -1, Sync.DeckSync.ApplyPatches),
+                new Sync.CoopModuleEntry(_decks, "decks", 13, 6, Sync.DeckSync.ApplyPatches),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("join-heal", null, null,
                     () => _priceFullPending = true), "join-heal"),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("live-hooks",
@@ -3846,6 +3854,11 @@ namespace CardShopCoop
                     try
                     {
                         _guestBattle.HostReleaseConn(left);
+                    }
+                    catch (System.Exception e) { Swallow.Log(e); }
+                    try
+                    {
+                        _decks.HostReleaseConn(left);
                     }
                     catch (System.Exception e) { Swallow.Log(e); }
                     try

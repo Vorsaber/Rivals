@@ -2,16 +2,26 @@ using System;
 using System.Collections.Generic;
 using CardShopCoop.Net;
 using CardShopCoop.Net.Messages;
+using HarmonyLib;
 
 namespace CardShopCoop.Sync
 {
     /// <summary>
-    /// Read-only mirror of the shop's card-game decks (game 1.0). Decks live in
-    /// <c>CPlayerData.m_DeckCompactCardDataList</c> plus <c>m_CurrentSelectedDeckIndex</c>,
-    /// which nothing else syncs. The guest starts with the host's save, so decks match at
-    /// join; this keeps them matching when the host edits one at the Workbench mid-session,
-    /// so the guest sits down to a battle (<see cref="GuestBattle"/>) with the same deck the
-    /// host would. The guest never writes decks (the editor is host-only).
+    /// The shop's card-game decks (game 1.0). Decks live in
+    /// <c>CPlayerData.m_DeckCompactCardDataList</c>, which nothing else syncs; the cards that
+    /// move in and out of them already travel as CardDeltas (the AddCard / ReduceCard
+    /// postfixes fire on both sides), so this module only carries the deck list.
+    ///
+    /// Ownership: the host's list is the truth, mirrored to guests as DeckState. A guest may
+    /// edit too - the Workbench "deck" button asks the host for the ONE editor lock
+    /// (DeckEditRequest); while the guest holds it, its list streams up as DeckStateUp, the
+    /// host replaces its own and the mirror carries it to everyone. One editor at a time
+    /// (host included) is what makes "replace the whole list" safe: nobody else's edit is in
+    /// flight to be clobbered. The holder ignores the mirror while editing, for the same
+    /// reason in reverse.
+    ///
+    /// The selected deck (<c>m_CurrentSelectedDeckIndex</c>) is per PLAYER, not mirrored:
+    /// each player picks their own deck from the shared list and battles with it.
     ///
     /// Host: hash the deck list every 2s, broadcast on change (heal every 20s).
     /// Client: replace the list in place - never while in a battle, since the engine reads
@@ -20,14 +30,123 @@ namespace CardShopCoop.Sync
     public sealed class DeckSync : TickableCoopModule
     {
         public Action<INetMessage> BroadcastState;
+        public Action<INetMessage> SendToHost;              // client side
+        public Action<int, INetMessage> SendToClient;       // host side
+        public Func<int, string> PeerName;                  // host side: conn -> display name
+
+        private const int NoEditor = -1;
+        private const int HostEditor = -2;
 
         private readonly SnapshotGate _gate = new SnapshotGate(2f, 20f, -1.3f);
 
+        // host
+        private int _editorConn = NoEditor;
+        private DeckStateUpMessage _pendingUp;
+
+        // client
+        private bool _requestPending;
+        private bool _editing;
+        private float _upTimer;
+        private int _upHash;
+
+        private static DeckSync s_instance;
+
         public override string Name => nameof(DeckSync);
 
-        public static void ApplyPatches(HarmonyLib.Harmony h)
-        { /* no patches: a pure digest */
+        public DeckSync()
+        {
+            s_instance = this;
         }
+
+        public static void ApplyPatches(Harmony h)
+        {
+            Try(h, typeof(WorkbenchUIScreen), "OnPressEditDeckButton",
+                new HarmonyMethod(typeof(DeckSync), nameof(EditDeckButtonPrefix)));
+            Try(h, typeof(PlayCardGameManager), "OnCloseDeckListScreen",
+                null, new HarmonyMethod(typeof(DeckSync), nameof(CloseDeckListPostfix)));
+        }
+
+        private static void Try(Harmony h, Type type, string method, HarmonyMethod prefix, HarmonyMethod postfix = null)
+        {
+            try
+            {
+                var target = AccessTools.Method(type, method);
+                if (target == null)
+                {
+                    CoopPlugin.Log.LogWarning($"DeckSync: {type.Name}.{method} not found - skipped");
+                    return;
+                }
+                h.Patch(target, prefix, postfix);
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning($"DeckSync: patch {type.Name}.{method} failed: {e.Message}"); }
+        }
+
+        // ================================================================ patches
+
+        /// <summary>The Workbench "deck" button. Gated HERE, not one call later in
+        /// <c>OpenDeckListScreen</c>: the button handler sets <c>m_IsEditingDeck</c> on both the
+        /// screen and the workbench before it opens the deck list, and while that flag is up
+        /// <c>WorkbenchUIScreen.CloseScreen</c> refuses to close - cancelling only the screen
+        /// welded the guest to the workbench.</summary>
+        public static bool EditDeckButtonPrefix()
+        {
+            var self = s_instance;
+            if (self == null)
+                return true;
+            try
+            {
+                if (CoopCore.Role == CoopRole.Host)
+                {
+                    if (self._editorConn != NoEditor && self._editorConn != HostEditor)
+                    {
+                        HostOnlyFeatures.Notice("Co-op: " + self.NameOf(self._editorConn) + " is editing the decks");
+                        return false;
+                    }
+                    self._editorConn = HostEditor;
+                    return true;
+                }
+                if (CoopCore.Role == CoopRole.Client)
+                {
+                    if (self._editing)
+                        return true; // lock granted: the re-press from ClientApplyEditResult
+                    if (!self._requestPending)
+                    {
+                        self._requestPending = true;
+                        self.SendToHost?.Invoke(new DeckEditRequestMessage { Want = true });
+                    }
+                    return false; // the grant re-presses the button
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("DeckSync.EditDeckButtonPrefix: " + e.Message); }
+            return true;
+        }
+
+        /// <summary>Deck list closed: the editor is done. Host releases its own lock; the guest
+        /// ships its final list and releases.</summary>
+        public static void CloseDeckListPostfix()
+        {
+            var self = s_instance;
+            if (self == null)
+                return;
+            try
+            {
+                if (CoopCore.Role == CoopRole.Host)
+                {
+                    if (self._editorConn == HostEditor)
+                        self._editorConn = NoEditor;
+                }
+                else if (CoopCore.Role == CoopRole.Client && self._editing)
+                {
+                    self.ClientSendUp(final: true);
+                    self._editing = false;
+                    self.SendToHost?.Invoke(new DeckEditRequestMessage { Want = false });
+                    CoopPlugin.Log.LogInfo("DeckSync: deck editor closed, lock released");
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("DeckSync.CloseDeckListPostfix: " + e.Message); }
+        }
+
+        // ================================================================ host
 
         protected override void OnHostTick(in SyncFrame frame) => HostTick(frame.Dt, frame.InGame);
 
@@ -35,6 +154,13 @@ namespace CardShopCoop.Sync
         {
             if (!inGame)
                 return;
+            if (_pendingUp != null && !InBattle())
+            {
+                var up = _pendingUp;
+                _pendingUp = null;
+                Guarded("apply-up", () => ApplyList(up.Decks));
+                _gate.Force();
+            }
             if (!_gate.Due(dt))
                 return;
             Guarded("host", () =>
@@ -42,10 +168,73 @@ namespace CardShopCoop.Sync
                 var decks = CPlayerData.m_DeckCompactCardDataList;
                 if (decks == null)
                     return;
-                if (!_gate.ShouldSend(Hash(decks, CPlayerData.m_CurrentSelectedDeckIndex)))
+                if (!_gate.ShouldSend(Hash(decks)))
                     return;
                 BroadcastState?.Invoke(BuildState(decks, CPlayerData.m_CurrentSelectedDeckIndex));
             });
+        }
+
+        public void HostApplyEditRequest(DeckEditRequestMessage msg, int conn)
+        {
+            Guarded("edit-request", () =>
+            {
+                if (!msg.Want)
+                {
+                    if (_editorConn == conn)
+                    {
+                        _editorConn = NoEditor;
+                        CoopPlugin.Log.LogInfo($"DeckSync: {NameOf(conn)} released the deck editor");
+                    }
+                    return;
+                }
+                if (_editorConn == NoEditor || _editorConn == conn)
+                {
+                    _editorConn = conn;
+                    CoopPlugin.Log.LogInfo($"DeckSync: deck editor granted to {NameOf(conn)}");
+                    SendToClient?.Invoke(conn, new DeckEditResultMessage { Granted = true });
+                    return;
+                }
+                string holder = _editorConn == HostEditor ? "the host" : NameOf(_editorConn);
+                CoopPlugin.Log.LogInfo($"DeckSync: deck editor refused to {NameOf(conn)} - {holder} has it");
+                SendToClient?.Invoke(conn, new DeckEditResultMessage { Granted = false, Holder = holder });
+            });
+        }
+
+        public void HostApplyStateUp(DeckStateUpMessage msg, int conn)
+        {
+            Guarded("state-up", () =>
+            {
+                if (_editorConn != conn)
+                {
+                    CoopPlugin.Log.LogWarning($"DeckSync: deck list from {NameOf(conn)} ignored - not the editor");
+                    return;
+                }
+                if (InBattle())
+                {
+                    _pendingUp = msg; // the engine may be reading the selected deck right now
+                    return;
+                }
+                ApplyList(msg.Decks);
+                _gate.Force();
+                if (msg.Final)
+                    CoopPlugin.Log.LogInfo($"DeckSync: {NameOf(conn)}'s deck edit applied ({msg.Decks.Count} decks)");
+            });
+        }
+
+        public void HostReleaseConn(int conn)
+        {
+            if (_editorConn != conn)
+                return;
+            _editorConn = NoEditor;
+            CoopPlugin.Log.LogInfo($"DeckSync: {NameOf(conn)} left while editing decks - lock released");
+        }
+
+        private string NameOf(int conn)
+        {
+            if (conn == HostEditor)
+                return "the host";
+            var name = PeerName?.Invoke(conn);
+            return string.IsNullOrEmpty(name) ? "a guest" : name;
         }
 
         public override void OnFullyJoin(int connId)
@@ -61,6 +250,134 @@ namespace CardShopCoop.Sync
         public override void Reset()
         {
             _gate.Reset(-1.3f);
+            _editorConn = NoEditor;
+            _pendingUp = null;
+            _requestPending = false;
+            _editing = false;
+            _upTimer = 0f;
+            _upHash = 0;
+        }
+
+        // ================================================================ client
+
+        protected override void OnClientTick(in SyncFrame frame)
+        {
+            if (!frame.InGame || !_editing)
+                return;
+            _upTimer += frame.Dt;
+            if (_upTimer < 1f)
+                return;
+            _upTimer = 0f;
+            Guarded("client", () => ClientSendUp(final: false));
+        }
+
+        private void ClientSendUp(bool final)
+        {
+            var decks = CPlayerData.m_DeckCompactCardDataList;
+            if (decks == null)
+                return;
+            int h = Hash(decks);
+            if (!final && h == _upHash)
+                return;
+            _upHash = h;
+            var state = BuildState(decks, 0);
+            SendToHost?.Invoke(new DeckStateUpMessage { Final = final, Decks = state.Decks });
+        }
+
+        public void ClientApplyEditResult(DeckEditResultMessage msg)
+        {
+            Guarded("edit-result", () =>
+            {
+                _requestPending = false;
+                if (!msg.Granted)
+                {
+                    HostOnlyFeatures.Notice("Co-op: " + (string.IsNullOrEmpty(msg.Holder) ? "someone" : msg.Holder) + " is editing the decks");
+                    return;
+                }
+                var wb = UnityEngine.Object.FindObjectOfType<WorkbenchUIScreen>();
+                if (wb == null || wb.m_ScreenGrp == null || !wb.m_ScreenGrp.activeInHierarchy)
+                {
+                    // walked away before the answer came back - hand it straight back
+                    SendToHost?.Invoke(new DeckEditRequestMessage { Want = false });
+                    return;
+                }
+                _editing = true;
+                _upTimer = 0f;
+                _upHash = Hash(CPlayerData.m_DeckCompactCardDataList ?? new List<DeckCompactCardDataList>());
+                CoopPlugin.Log.LogInfo("DeckSync: deck editor lock granted - opening");
+                wb.OnPressEditDeckButton(); // prefix lets it through while _editing
+                if (!IsDeckListOpen())
+                {
+                    _editing = false;
+                    SendToHost?.Invoke(new DeckEditRequestMessage { Want = false });
+                }
+            });
+        }
+
+        public void ClientApplyState(DeckStateMessage message)
+        {
+            Guarded("apply", () =>
+            {
+                if (_editing)
+                    return; // our list is the truth until we close the editor; the host re-mirrors it
+                if (InBattle())
+                    return; // mid-battle: the engine is reading the selected deck
+                ApplyList(message.Decks);
+            });
+        }
+
+        // ================================================================ shared
+
+        private static bool InBattle()
+        {
+            var ptg = PlayCardGame.Game();
+            return ptg != null && ptg.IsPlayTableGameMode();
+        }
+
+        private static bool IsDeckListOpen()
+        {
+            try
+            {
+                var m = PlayCardGame.Manager();
+                var screen = m != null ? m.m_DeckListScreen : null;
+                return screen != null && screen.gameObject.activeInHierarchy;
+            }
+            catch { return true; }
+        }
+
+        /// <summary>Replace the deck list in place, keeping THIS player's selected deck (clamped).</summary>
+        private static void ApplyList(List<DeckEntry> entries)
+        {
+            var decks = CPlayerData.m_DeckCompactCardDataList;
+            if (decks == null)
+                CPlayerData.m_DeckCompactCardDataList = decks = new List<DeckCompactCardDataList>();
+            decks.Clear();
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var e = entries[i];
+                var d = new DeckCompactCardDataList
+                {
+                    deckName = e.Name ?? "",
+                    deckBoxIndex = e.DeckBox,
+                    playmatIndex = e.Playmat,
+                };
+                for (int c = 0; c < e.Cards.Count; c++)
+                {
+                    var ce = e.Cards[c];
+                    d.compactCardDataAmountList.Add(new CompactCardDataAmount
+                    {
+                        expansionType = ce.Expansion,
+                        cardSaveIndex = ce.Index,
+                        amount = ce.Amount,
+                        gradedCardIndex = ce.GradedIndex,
+                        isDestiny = ce.IsDestiny,
+                    });
+                }
+                decks.Add(d);
+            }
+            int sel = CPlayerData.m_CurrentSelectedDeckIndex;
+            if (sel < 0 || sel >= decks.Count)
+                CPlayerData.m_CurrentSelectedDeckIndex = 0;
         }
 
         private static DeckStateMessage BuildState(List<DeckCompactCardDataList> decks, int selected)
@@ -97,10 +414,9 @@ namespace CardShopCoop.Sync
             return msg;
         }
 
-        private static int Hash(List<DeckCompactCardDataList> decks, int selected)
+        private static int Hash(List<DeckCompactCardDataList> decks)
         {
             int h = 17;
-            h = h * 31 + selected;
             h = h * 31 + decks.Count;
             for (int i = 0; i < decks.Count && i < 32; i++)
             {
@@ -129,47 +445,6 @@ namespace CardShopCoop.Sync
                 }
             }
             return h;
-        }
-
-        // ================================================================ client
-
-        public void ClientApplyState(DeckStateMessage message)
-        {
-            Guarded("apply", () =>
-            {
-                var ptg = PlayCardGame.Game();
-                if (ptg != null && ptg.IsPlayTableGameMode())
-                    return; // mid-battle: the engine is reading the selected deck
-                var decks = CPlayerData.m_DeckCompactCardDataList;
-                if (decks == null)
-                    CPlayerData.m_DeckCompactCardDataList = decks = new List<DeckCompactCardDataList>();
-                decks.Clear();
-                for (int i = 0; i < message.Decks.Count; i++)
-                {
-                    var e = message.Decks[i];
-                    var d = new DeckCompactCardDataList
-                    {
-                        deckName = e.Name ?? "",
-                        deckBoxIndex = e.DeckBox,
-                        playmatIndex = e.Playmat,
-                    };
-                    for (int c = 0; c < e.Cards.Count; c++)
-                    {
-                        var ce = e.Cards[c];
-                        d.compactCardDataAmountList.Add(new CompactCardDataAmount
-                        {
-                            expansionType = ce.Expansion,
-                            cardSaveIndex = ce.Index,
-                            amount = ce.Amount,
-                            gradedCardIndex = ce.GradedIndex,
-                            isDestiny = ce.IsDestiny,
-                        });
-                    }
-                    decks.Add(d);
-                }
-                int sel = message.SelectedIndex;
-                CPlayerData.m_CurrentSelectedDeckIndex = (sel >= 0 && sel < decks.Count) ? sel : 0;
-            });
         }
     }
 }
