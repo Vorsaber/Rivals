@@ -37,9 +37,9 @@ namespace CardShopCoop.Sync
     /// bookkeeping that ExitPlayerCardGame would write on the wrong machine.
     ///
     /// Won gift packs spawn on the guest's board and go into the guest's hand through
-    /// vanilla's TakeEndGameGiftItem; from there they are ordinary held items. Not mirrored:
-    /// the host does not see the guest's board (BattleSync is host-authored only) - only
-    /// the guest's puppet seated at an occupied table.
+    /// vanilla's TakeEndGameGiftItem; from there they are ordinary held items. The other
+    /// players watch the guest's board through <see cref="BattleSync"/> (client digest,
+    /// relayed by the host).
     /// </summary>
     public sealed class GuestBattle
     {
