@@ -451,12 +451,18 @@ namespace CardShopCoop.Sync.Rivals
             var priced = board.Shops.FindAll(x => x.PricedItems > 0);
             priced.Sort((a, b) => a.AvgMarkup.CompareTo(b.AvgMarkup));
             int n = priced.Count;
+            // Scale by markup DISTANCE from the league average, not by rank position: two shops
+            // at x1.10 and x1.11 are a dead heat and stay neutral (2026-09-16: rank flipped
+            // 1<->2 every minute on that wobble, swinging the crowd x0.70 <-> x1.30). Full
+            // effect needs a real gap: +-1 at half the league's spread, spread under 5% = nothing.
+            float lo = n > 0 ? priced[0].AvgMarkup : 1f, hi = n > 0 ? priced[n - 1].AvgMarkup : 1f;
+            float mid = (lo + hi) * 0.5f, half = (hi - lo) * 0.5f;
             for (int i = 0; i < n; i++)
             {
                 priced[i].PriceRank = i;
-                // cheapest -> 1 + effect, priciest -> 1 - effect, linear between; one shop = neutral
-                float t = n > 1 ? (float)i / (n - 1) : 0.5f;
-                priced[i].CrowdMultiplier = 1f + board.PriceEffect * (1f - 2f * t);
+                float t = half >= 0.025f ? Mathf.Clamp((mid - priced[i].AvgMarkup) / half, -1f, 1f) : 0f;
+                float m = 1f + board.PriceEffect * t;
+                priced[i].CrowdMultiplier = Mathf.Round(m * 20f) / 20f; // 5% steps: no jitter
             }
             foreach (var x in board.Shops)
                 if (x.PricedItems <= 0)
