@@ -52,7 +52,9 @@ namespace CardShopCoop.Sync
         private static int s_seq;
         private static float s_hashTimer;
         private static float s_queueStuckSince = -1f;
+        private static bool s_endSent;                      // PvpEnd already went out for this match
         private static PvpBattle s_instance;
+        private static readonly FieldInfo FiTurnActive = AccessTools.Field(typeof(PlayCardSet), "m_IsTurnActive");
 
         // host bookkeeping
         private int _hostWaitingTable = -1;
@@ -120,7 +122,12 @@ namespace CardShopCoop.Sync
             // no gift packs in PvP (each engine would roll its own)
             Try(h, typeof(PlayTableGame), "EvaluateEndGameGift",
                 postfix: new HarmonyMethod(typeof(PvpBattle), nameof(NoGiftPostfix)));
-            // exit
+            // exit: the decision to leave (quit dialog / win screen) comes here, and the table
+            // exit only after the end-of-battle conversation is clicked through - tell the
+            // other side at the decision, not the exit (2026-09-16: the host sat in the match
+            // until the guest pressed "Done")
+            Try(h, typeof(PlayTableGame), "FinishLeaveGame",
+                postfix: new HarmonyMethod(typeof(PvpBattle), nameof(LeavePostfix)));
             Try(h, typeof(InteractablePlayTable), "ExitPlayerCardGame",
                 postfix: new HarmonyMethod(typeof(PvpBattle), nameof(ExitPostfix)));
         }
@@ -304,6 +311,7 @@ namespace CardShopCoop.Sync
             s_seq = 0;
             s_hashTimer = 0f;
             s_queueStuckSince = -1f;
+            s_endSent = false;
             CoopPlugin.Log.LogInfo($"PvpBattle: match vs {opponent} at table {table}, seed {seed}, {(hostPc ? "host" : "guest")} PC");
             HostOnlyFeatures.Notice("Co-op: match vs " + opponent + " (experimental)");
         }
@@ -387,7 +395,34 @@ namespace CardShopCoop.Sync
             End();
         }
 
-        /// <summary>Either side's table exit ends the match locally and tells the other PC.</summary>
+        /// <summary>This side decided to leave (quit dialog or the win screen's Leave): tell the
+        /// other PC now. The table exit that follows only cleans up.</summary>
+        public static void LeavePostfix(PlayTableGame __instance)
+        {
+            if (!Active || s_endSent)
+                return;
+            SendEnd("left the match");
+        }
+
+        private static void SendEnd(string reason)
+        {
+            if (s_endSent)
+                return;
+            s_endSent = true;
+            var self = s_instance;
+            var msg = new PvpEndMessage { TableIndex = (byte)Mathf.Clamp(s_table, 0, 255), Reason = reason };
+            if (s_isHostPc)
+            {
+                if (self != null && self._peerConn >= 0)
+                    self.SendToClient?.Invoke(self._peerConn, msg);
+            }
+            else
+                self?.SendToHost?.Invoke(msg);
+            CoopPlugin.Log.LogInfo("PvpBattle: told the opponent we left (" + reason + ")");
+        }
+
+        /// <summary>Either side's table exit ends the match locally (and tells the other PC if
+        /// nothing did yet).</summary>
         public static void ExitPostfix(InteractablePlayTable __instance)
         {
             if (!Active)
@@ -397,20 +432,9 @@ namespace CardShopCoop.Sync
                 int index = GuestBattle.IndexOf(__instance);
                 if (index != s_table)
                     return;
-                var self = s_instance;
-                var msg = new PvpEndMessage { TableIndex = (byte)index, Reason = "left the table" };
-                if (s_isHostPc)
-                {
-                    if (self != null && self._peerConn >= 0)
-                        self.SendToClient?.Invoke(self._peerConn, msg);
-                    // the guest's puppet seat
-                    GuestBattle.BookSeat(__instance, 1, false);
-                }
-                else
-                {
-                    self?.SendToHost?.Invoke(msg);
-                    GuestBattle.BookSeat(__instance, 0, false);
-                }
+                SendEnd("left the table");
+                // the other player's puppet seat
+                GuestBattle.BookSeat(__instance, s_isHostPc ? 1 : 0, false);
                 CoopPlugin.Log.LogInfo("PvpBattle: match over");
                 End();
             }
@@ -809,12 +833,31 @@ namespace CardShopCoop.Sync
                 float now = Time.unscaledTime;
                 if (s_queueStuckSince < 0f)
                     s_queueStuckSince = now;
-                else if (now - s_queueStuckSince > 20f)
+                else if (now - s_queueStuckSince > 5f)
                 {
-                    CoopPlugin.Log.LogWarning($"PvpBattle: {a.Kind} #{a.Seq} has waited 20s for the engine - engines may have diverged");
+                    CoopPlugin.Log.LogWarning($"PvpBattle: {a.Kind} #{a.Seq} has waited 5s - gate: {GateState(__instance, ptg)}");
                     s_queueStuckSince = now;
                 }
             }
+        }
+
+        /// <summary>Every input to the "may act" gate, for the stuck-queue log line.</summary>
+        private static string GateState(PlayCardSet enemy, PlayTableGame ptg)
+        {
+            try
+            {
+                bool canAct = MiCanTakeAction != null && (bool)MiCanTakeAction.Invoke(enemy, null);
+                bool turnActive = FiTurnActive != null && (bool)FiTurnActive.GetValue(enemy);
+                bool stopping = FiStopping != null && (bool)FiStopping.GetValue(enemy);
+                bool playerTurn = FiIsPlayerTurn != null && (bool)FiIsPlayerTurn.GetValue(ptg);
+                bool chosen = FiHasSelectedTurn != null && (bool)FiHasSelectedTurn.GetValue(ptg);
+                bool enemyMull = FiHasEnemyMulligan != null && (bool)FiHasEnemyMulligan.GetValue(ptg);
+                return $"canAct={canAct} turnActive={turnActive} stopping={stopping} waitingResolve={enemy.m_IsWaitingActionResolve} "
+                     + $"drawQueueEmpty={ptg.BothPlayerDrawQueueEmpty()} center={enemy.m_CenterShowCardList.Count} waitingResponse={ptg.IsWaitingResponse()} "
+                     + $"triggering={ptg.IsTriggeringPlayEffect()} selectArea={ptg.IsWaitingSelectElementArea()} playerTurn={playerTurn} turnChosen={chosen} "
+                     + $"enemyMulligan={enemyMull} mullWanted={s_enemyMulliganWanted} searchPending={s_enemySearchPending} turn={ptg.GetTurnCount()} queue={s_queue.Count}";
+            }
+            catch (Exception e) { return "unreadable: " + e.Message; }
         }
 
         private static bool AiGate(PlayCardSet set, PlayTableGame ptg)
