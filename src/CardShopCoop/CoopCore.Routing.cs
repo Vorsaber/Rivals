@@ -875,6 +875,52 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<PvpSitMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Host || !InGameLevel())
+                    return;
+                if (message is PvpSitMessage sit)
+                    _pvp.HostApplySit(sit, context.ConnectionId);
+                return;
+            },
+                MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<PvpStartMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client || !InGameLevel())
+                    return;
+                if (message is PvpStartMessage start)
+                    _pvp.ClientApplyStart(start);
+                return;
+            },
+                MessagePolicy.ClientOnlyInGame, false);
+            _messageRouter.Register<PvpActionMessage>((context, message) =>
+            {
+                if (!InGameLevel())
+                    return;
+                if (message is PvpActionMessage action)
+                {
+                    if (Role == CoopRole.Host)
+                        _pvp.HostApplyAction(action, context.ConnectionId);
+                    else if (Role == CoopRole.Client)
+                        _pvp.ClientApplyAction(action);
+                }
+                return;
+            },
+                MessagePolicy.InGameOnly, false, heal: null);
+            _messageRouter.Register<PvpEndMessage>((context, message) =>
+            {
+                if (!InGameLevel())
+                    return;
+                if (message is PvpEndMessage end)
+                {
+                    if (Role == CoopRole.Host)
+                        _pvp.HostApplyEnd(end, context.ConnectionId);
+                    else if (Role == CoopRole.Client)
+                        _pvp.ClientApplyEnd(end);
+                }
+                return;
+            },
+                MessagePolicy.InGameOnly, false, heal: null);
             _messageRouter.Register<TournamentEntryMessage>((context, message) =>
             {
                 if (Role != CoopRole.Host || !InGameLevel())

@@ -190,6 +190,7 @@ namespace CardShopCoop
         private readonly PlayTableSync _tables = new PlayTableSync();
         private readonly BattleSync _battle = new BattleSync();
         private readonly GuestBattle _guestBattle = new GuestBattle();
+        private readonly PvpBattle _pvp = new PvpBattle();
         private readonly DeckSync _decks = new DeckSync();
         private readonly PlayerIntentBus _intents = new PlayerIntentBus();
         private readonly StaffSync _staff = new StaffSync();
@@ -646,6 +647,9 @@ namespace CardShopCoop
             _tournament.SendToHost = Send(1);
             _tournament.SendToClient = Send;
             _tournament.PeerName = PeerNameFor;
+            _pvp.SendToHost = Send(1);
+            _pvp.SendToClient = Send;
+            _pvp.PeerName = PeerNameFor;
             _guestBattle.SendToHost = Send(1);
             _guestBattle.SendToClient = Send;
             _tables.RegisterIntents(_intents);
@@ -1817,6 +1821,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(_tv, "tv", 11, 1, Sync.TvSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_battle, "battle", 12, 5, Sync.BattleSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_decks, "decks", 13, 6, Sync.DeckSync.ApplyPatches),
+                new Sync.CoopModuleEntry(_pvp, "pvp", 14, 7, Sync.PvpBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("join-heal", null, null,
                     () => _priceFullPending = true), "join-heal"),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("live-hooks",
@@ -3867,6 +3872,11 @@ namespace CardShopCoop
                     try
                     {
                         _tournament.HostReleaseConn(left);
+                    }
+                    catch (System.Exception e) { Swallow.Log(e); }
+                    try
+                    {
+                        _pvp.HostReleaseConn(left);
                     }
                     catch (System.Exception e) { Swallow.Log(e); }
                     try

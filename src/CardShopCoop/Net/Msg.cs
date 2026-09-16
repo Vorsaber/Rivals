@@ -108,6 +108,10 @@ namespace CardShopCoop.Net
         DeckStateUp = 110,     // client -> host: the lock holder's deck list (applied, then re-mirrored)
         TournamentEntry = 111, // client -> host: sign the guest up for (Want) / out of the shop's tournament
         TournamentEntryResult = 112, // host -> one client: entry taken, or refused with the game's reason
+        PvpSit = 113,       // client -> host: play the host at an empty table (carries the guest's deck)
+        PvpStart = 114,     // host -> one client: match on - seed, sides, the host's deck
+        PvpAction = 115,    // both ways: one human action, replayed on the other PC's enemy set
+        PvpEnd = 116,       // both ways: this side left the table
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

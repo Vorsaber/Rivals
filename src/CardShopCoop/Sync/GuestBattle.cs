@@ -119,13 +119,13 @@ namespace CardShopCoop.Sync
             }
         }
 
-        private static int IndexOf(InteractablePlayTable table)
+        internal static int IndexOf(InteractablePlayTable table)
         {
             var sm = Sm();
             return (sm != null && sm.m_PlayTableList != null && table != null) ? sm.m_PlayTableList.IndexOf(table) : -1;
         }
 
-        private static InteractablePlayTable TableAt(int index)
+        internal static InteractablePlayTable TableAt(int index)
         {
             var sm = Sm();
             var list = sm != null ? sm.m_PlayTableList : null;
@@ -165,6 +165,11 @@ namespace CardShopCoop.Sync
                 }
                 if (me._pendingTable >= 0 && UnityEngine.Time.unscaledTime - me._pendingSince < 3f)
                     return true; // request in flight
+                // nobody at the table: that is a request to play the HOST, not a customer
+                var cust = table.GetOccupiedCustomerList();
+                bool anyCustomer = cust != null && ((cust.Count > 0 && cust[0] != null) || (cust.Count > 1 && cust[1] != null));
+                if (!anyCustomer && PvpBattle.ClientRequestPvp(table, index))
+                    return true;
                 me._pendingTable = index;
                 me._pendingSince = UnityEngine.Time.unscaledTime;
                 me.SendToHost(new BattleSitMessage { TableIndex = (byte)index });
@@ -411,7 +416,7 @@ namespace CardShopCoop.Sync
 
         /// <summary>The seat flags vanilla's OnRightMouseButtonUp writes when the player sits
         /// (minus PlayCardGameManager.SetPlayTable), or their inverse to give the seat back.</summary>
-        private static void BookSeat(InteractablePlayTable table, int seat, bool book)
+        internal static void BookSeat(InteractablePlayTable table, int seat, bool book)
         {
             try
             {

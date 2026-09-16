@@ -95,7 +95,7 @@ namespace CardShopCoop.Sync
         private void DigestLocalBattle(ref bool wasActive, Action<BattleStateMessage> send)
         {
             var game = Game();
-            bool active = game != null && game.IsPlayTableGameMode();
+            bool active = game != null && game.IsPlayTableGameMode() && !PvpBattle.Active;
             if (!active)
             {
                 if (wasActive)
