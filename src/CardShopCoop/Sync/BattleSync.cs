@@ -8,9 +8,12 @@ using UnityEngine;
 namespace CardShopCoop.Sync
 {
     /// <summary>
-    /// Spectator mirror of the HOST's card battle (game 1.0 playable TCG), so a guest can
-    /// walk up and watch. (The guest's own battles are <see cref="GuestBattle"/>; those are
-    /// not mirrored back to the host yet.)
+    /// Spectator mirror of a card battle (game 1.0 playable TCG), so the other players can
+    /// walk up and watch. The host's battle is digested on the host and broadcast; a guest's
+    /// own battle (<see cref="GuestBattle"/>) is digested on that guest, sent up as
+    /// BattleStateUp, applied on the host and relayed to the other guests stamped with the
+    /// sender's connection id. One PlayTableGame per machine means each peer mirrors one
+    /// remote battle at a time, never while in a battle of its own.
     ///
     /// RESEARCH NOTE (decompiled/PlayTableGame.cs, PlayCardSet.cs, PlayCardSetUI.cs): a
     /// battle is PlayTableGame's own prop group <c>m_Grp</c>, moved onto the table by
@@ -32,10 +35,13 @@ namespace CardShopCoop.Sync
     /// </summary>
     public sealed class BattleSync : TickableCoopModule
     {
-        public Action<INetMessage> BroadcastState;
+        public Action<INetMessage> BroadcastState;   // host: to every client
+        public Action<INetMessage> SendToHost;        // client: BattleStateUp
 
         private readonly SnapshotGate _gate = new SnapshotGate(0.5f, 6f, -3.1f);
         private bool _hostWasActive;
+        private bool _clientWasActive;
+        private int _mirroredSender = -1;              // whose battle the local mirror shows
 
         // ---- client mirror state ----
         private bool _clientActive;
@@ -68,6 +74,7 @@ namespace CardShopCoop.Sync
         // ================================================================ host
 
         protected override void OnHostTick(in SyncFrame frame) => HostTick(frame.Dt, frame.InGame);
+        protected override void OnClientTick(in SyncFrame frame) => ClientTick(frame.Dt, frame.InGame);
 
         public void HostTick(float dt, bool inGame)
         {
@@ -75,29 +82,62 @@ namespace CardShopCoop.Sync
                 return;
             if (!_gate.Due(dt))
                 return;
-            Guarded("host", () =>
+            Guarded("host", () => DigestLocalBattle(ref _hostWasActive, m => BroadcastState?.Invoke(m)));
+        }
+
+        /// <summary>Guest in its own battle: same digest, sent up for the host to apply and relay.</summary>
+        public void ClientTick(float dt, bool inGame)
+        {
+            if (!inGame || SendToHost == null)
+                return;
+            if (!_gate.Due(dt))
+                return;
+            Guarded("client", () => DigestLocalBattle(ref _clientWasActive,
+                m => SendToHost(new BattleStateUpMessage { State = m })));
+        }
+
+        private void DigestLocalBattle(ref bool wasActive, Action<BattleStateMessage> send)
+        {
+            var game = Game();
+            bool active = game != null && game.IsPlayTableGameMode();
+            if (!active)
             {
-                var game = Game();
-                bool active = game != null && game.IsPlayTableGameMode();
-                if (!active)
+                if (wasActive)
                 {
-                    if (_hostWasActive)
-                    {
-                        _hostWasActive = false;
-                        _gate.Force();
-                        _gate.ShouldSend(0);
-                        BroadcastState?.Invoke(new BattleStateMessage { Active = false });
-                    }
-                    return;
+                    wasActive = false;
+                    _gate.Force();
+                    _gate.ShouldSend(0);
+                    send(new BattleStateMessage { Active = false });
                 }
-                _hostWasActive = true;
-                var msg = BuildState(game);
-                if (msg == null)
-                    return;
-                if (!_gate.ShouldSend(Hash(msg)))
-                    return;
-                BroadcastState?.Invoke(msg);
-            });
+                return;
+            }
+            wasActive = true;
+            var msg = BuildState(game);
+            if (msg == null)
+                return;
+            if (!_gate.ShouldSend(Hash(msg)))
+                return;
+            send(msg);
+        }
+
+        /// <summary>Host: a guest's battle digest arrived. Mirror it here (unless the host is
+        /// in a battle of its own) and relay it to the other guests stamped with the sender.
+        /// The sender ignores the echo because it is in battle mode.</summary>
+        public void HostApplyUp(BattleStateUpMessage up, int connId)
+        {
+            if (up == null || up.State == null)
+                return;
+            var state = up.State;
+            state.SenderConn = connId;
+            Guarded("relay", () => BroadcastState?.Invoke(state));
+            ClientApplyState(state);
+        }
+
+        /// <summary>Host: a guest just finished joining - resend the current battle so a late
+        /// joiner does not stare at an empty table until the next change.</summary>
+        public override void OnFullyJoin(int connId)
+        {
+            _gate.Force();
         }
 
         private static BattleStateMessage BuildState(PlayTableGame game)
@@ -231,10 +271,17 @@ namespace CardShopCoop.Sync
                 return;
             }
             if (game.IsPlayTableGameMode())
-                return; // this client is somehow in its own battle - never touch a live board
+                return; // this peer is in its own battle - never touch a live board
             if (!message.Active)
             {
-                TearDown(game);
+                if (_clientActive && _mirroredSender == message.SenderConn)
+                    TearDown(game);
+                return;
+            }
+            if (_clientActive && _mirroredSender != message.SenderConn)
+            {
+                // two battles at once (host + guest, or two guests): one PlayTableGame per
+                // machine, so keep showing the one we already mirror
                 return;
             }
             var sm = Sm();
@@ -267,6 +314,7 @@ namespace CardShopCoop.Sync
                 _clientActive = true;
                 _clientTable = message.TableIndex;
                 _clientSideA = message.HostSideA;
+                _mirroredSender = message.SenderConn;
             }
 
             ApplySide("h", game.m_PlayCardSetPlayer, message.Host);
@@ -460,12 +508,14 @@ namespace CardShopCoop.Sync
             }
             _clientActive = false;
             _clientTable = -1;
+            _mirroredSender = -1;
         }
 
         public override void Reset()
         {
             _gate.Reset(-3.1f);
             _hostWasActive = false;
+            _clientWasActive = false;
             TearDown(Game());
         }
 

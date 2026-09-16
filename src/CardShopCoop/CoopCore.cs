@@ -185,6 +185,7 @@ namespace CardShopCoop
         private readonly PlayTableSync _tables = new PlayTableSync();
         private readonly BattleSync _battle = new BattleSync();
         private readonly GuestBattle _guestBattle = new GuestBattle();
+        private readonly DeckSync _decks = new DeckSync();
         private readonly PlayerIntentBus _intents = new PlayerIntentBus();
         private readonly StaffSync _staff = new StaffSync();
         private readonly ShopStateSync _shopState = new ShopStateSync();
@@ -632,6 +633,8 @@ namespace CardShopCoop
             _trades.BroadcastState = Broadcast;
             _tables.BroadcastState = Broadcast;
             _battle.BroadcastState = Broadcast;
+            _battle.SendToHost = Send(1);
+            _decks.BroadcastState = Broadcast;
             _guestBattle.SendToHost = Send(1);
             _guestBattle.SendToClient = Send;
             _tables.RegisterIntents(_intents);
@@ -1801,7 +1804,8 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(_tournament, "tournament", 9, -1, Sync.TournamentSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_register, "register", 10, 4, Sync.RegisterSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_tv, "tv", 11, 1, Sync.TvSync.ApplyPatches),
-                new Sync.CoopModuleEntry(_battle, "battle", 12, -1, Sync.BattleSync.ApplyPatches),
+                new Sync.CoopModuleEntry(_battle, "battle", 12, 5, Sync.BattleSync.ApplyPatches),
+                new Sync.CoopModuleEntry(_decks, "decks", 13, -1, Sync.DeckSync.ApplyPatches),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("join-heal", null, null,
                     () => _priceFullPending = true), "join-heal"),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("live-hooks",

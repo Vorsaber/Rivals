@@ -12,8 +12,11 @@ namespace CardShopCoop.Net.Messages
     public sealed class BattleStateMessage : INetMessage
     {
         public bool Active;
+        // who is playing: 0 = the host, else the guest's connection id (the host relays a
+        // guest's BattleStateUp as this with SenderConn set; a peer in its own battle ignores it)
+        public int SenderConn;
         public byte TableIndex;      // ShelfManager.m_PlayTableList index of the table in play
-        public bool HostSideA;       // which side the host sits on (PlayTableGame.m_IsSideA)
+        public bool HostSideA;       // which side the PLAYER sits on (PlayTableGame.m_IsSideA)
         public BattleSideEntry Host = new BattleSideEntry();
         public BattleSideEntry Enemy = new BattleSideEntry();
         // gift packs the host won, still lying on the board (EItemType = host id space)
@@ -101,5 +104,58 @@ namespace CardShopCoop.Net.Messages
                 return MsgType.BattleExit;
             }
         }
+    }
+
+    /// <summary>Client -> host: the guest's own battle, same payload as BattleStateMessage.
+    /// The host applies it (when not in a battle itself) and relays it to the other guests
+    /// as a BattleStateMessage stamped with the sender's connection id.</summary>
+    [NetworkMessage(MsgType.BattleStateUp, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class BattleStateUpMessage : INetMessage
+    {
+        public BattleStateMessage State = new BattleStateMessage();
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.BattleStateUp;
+            }
+        }
+    }
+
+    // --------------------------------------------------------------- Decks (game 1.0)
+
+    /// <summary>Host -> clients: the shop's card-game decks and which one is selected. The
+    /// guest joins with the host's save (so decks match at join); this keeps them matching
+    /// when the host edits a deck at the Workbench mid-session. Read-only on the guest -
+    /// the deck editor is host-only (HostOnlyFeatures).</summary>
+    [NetworkMessage(MsgType.DeckState, Policy = MessagePolicy.ClientOnly)]
+    public sealed class DeckStateMessage : INetMessage
+    {
+        public int SelectedIndex;
+        public List<DeckEntry> Decks = new List<DeckEntry>();
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.DeckState;
+            }
+        }
+    }
+
+    public sealed class DeckEntry
+    {
+        public string Name = "";
+        public int DeckBox;
+        public int Playmat;
+        public List<DeckCardEntry> Cards = new List<DeckCardEntry>();
+    }
+
+    public sealed class DeckCardEntry
+    {
+        public ECardExpansionType Expansion;
+        public int Index;        // cardSaveIndex
+        public int Amount;
+        public int GradedIndex;
+        public bool IsDestiny;
     }
 }

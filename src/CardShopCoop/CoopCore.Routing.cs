@@ -848,6 +848,24 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.ClientOnlyInGame, false);
+            _messageRouter.Register<DeckStateMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client || !InGameLevel())
+                    return;
+                if (message is DeckStateMessage deckState)
+                    _decks.ClientApplyState(deckState);
+                return;
+            },
+                MessagePolicy.ClientOnlyInGame, false);
+            _messageRouter.Register<BattleStateUpMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Host || !InGameLevel())
+                    return;
+                if (message is BattleStateUpMessage up)
+                    _battle.HostApplyUp(up, context.ConnectionId);
+                return;
+            },
+                MessagePolicy.HostOnlyInGame, false);
             _messageRouter.Register<BattleStateMessage>((context, message) =>
             {
                 if (Role != CoopRole.Client || !InGameLevel())

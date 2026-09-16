@@ -59,6 +59,7 @@ namespace CardShopCoop
             {
                 Assembly.Load("Newtonsoft.Json");
                 Logger.LogInfo("network payload serializer: Newtonsoft.Json");
+                Logger.LogInfo("game 1.0 co-op features: ascension market, host/guest card battles, battle spectating, deck mirror, tournament self-join board");
             }
             catch (Exception e)
             {

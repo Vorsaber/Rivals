@@ -101,6 +101,8 @@ namespace CardShopCoop.Net
         BattleSit = 103,    // client -> host: guest wants to sit down for a battle at a play table
         BattleSitResult = 104, // host -> one client: seat granted (side) or refused (reason)
         BattleExit = 105,   // client -> host: the guest's battle ended (win / draw)
+        BattleStateUp = 106, // client -> host: the guest's own battle digest (relayed as BattleState)
+        DeckState = 107,    // host -> client: the shop's card-game decks (read-only mirror)
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.
