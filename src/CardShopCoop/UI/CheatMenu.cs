@@ -185,6 +185,15 @@ namespace CardShopCoop.UI
                     }
                 Say($"unlocked {n} licenses (reopen the phone shop to see them)");
             }
+            GUILayout.Space(4);
+            GUILayout.Label("Play table fee (a new shop has no review rating, so customers read a market fee as 10x market and refuse to sit)");
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Fee = $0 (everyone plays)"))
+                SetTableFees(0f);
+            if (GUILayout.Button("Fee = market"))
+                SetTableFees(-1f);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(4);
             if (GUILayout.Button("Finish the tutorial"))
             {
                 CPlayerData.m_HasFinishedTutorial = true;
@@ -223,6 +232,28 @@ namespace CardShopCoop.UI
                 GameUIScreen.SetGameUIVisible(isVisible: true);
                 Say("tutorial marked finished");
             }
+        }
+
+        /// <summary>Every game-event format's fee (CPlayerData.m_SetGameEventPriceList, the same
+        /// list the play table's own fee screen writes). -1 = back to the market price. The
+        /// list rides MarketSync, so the guest sees the same fee.</summary>
+        private void SetTableFees(float fee)
+        {
+            int n = 0;
+            foreach (EGameEventFormat f in Enum.GetValues(typeof(EGameEventFormat)))
+            {
+                string name = f.ToString();
+                if (name == "None" || name == "MAX")
+                    continue;
+                try
+                {
+                    float v = fee < 0f ? PriceChangeManager.GetGameEventMarketPrice(f) : fee;
+                    PriceChangeManager.SetGameEventPrice(f, v);
+                    n++;
+                }
+                catch { }
+            }
+            Say(fee < 0f ? $"{n} table fees reset to market" : $"{n} table fees set to {GameInstance.GetPriceString(fee)}");
         }
 
         private void AddMoney(float amount)
