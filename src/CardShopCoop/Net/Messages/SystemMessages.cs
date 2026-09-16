@@ -27,6 +27,7 @@ namespace CardShopCoop.Net.Messages
         public string GameVersion;
         public string UnityVersion;
         public ulong SteamId;
+        public bool IsVisitor;      // Rivals: a guest from another shop - restricted, carries a bag
 
         public MsgType Type
         {

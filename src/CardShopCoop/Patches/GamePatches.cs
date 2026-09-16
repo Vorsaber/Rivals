@@ -1080,6 +1080,16 @@ namespace CardShopCoop.Patches
         {
             if (ApplyingRemoteCards || CoopCore.Role == CoopRole.None)
                 return;
+            // Rivals visitor: a card the game hands us here (tournament prize, gift pack,
+            // trade) lands in the scratch collection, so it goes into the carry-out bag too
+            if (CoopCore.IsVisiting && addAmount > 0)
+            {
+                try
+                {
+                    Sync.Rivals.VisitorBag.AddCard(cardData, addAmount, 0f);
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning("VisitorBag card capture: " + e.Message); }
+            }
             try
             {
                 // Forward the ENCODED grade for a graded card. Some display/album paths

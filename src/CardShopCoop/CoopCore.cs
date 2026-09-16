@@ -213,6 +213,20 @@ namespace CardShopCoop
         private readonly PvpBattle _pvp = new PvpBattle();
         private readonly SleepVote _sleep = new SleepVote();
         private readonly Social _social = new Social();
+        /// <summary>Host: connections that joined as Rivals VISITORS (another shop's owner
+        /// dropping in). They may look, buy, play and enter the tournament; they may not
+        /// change the shop. Enforced at dispatch by <see cref="VisitorMayDo"/>.</summary>
+        private readonly HashSet<int> _visitorConns = new HashSet<int>();
+        /// <summary>Client: this join is a Rivals visit (set before Join; sent in the Hello).</summary>
+        public static bool JoiningAsVisitor;
+        public static bool IsVisiting
+        {
+            get; private set;
+        }
+        /// <summary>Host: the LAN address peers should use for this shop, if hosting via LAN.</summary>
+        public string LanAddressForRivals = "";
+        /// <summary>Host: the co-op Steam lobby id while hosting via Steam (0 otherwise).</summary>
+        public ulong SteamLobbyIdForRivals;
         private readonly DeckSync _decks = new DeckSync();
         private readonly PlayerIntentBus _intents = new PlayerIntentBus();
         private readonly StaffSync _staff = new StaffSync();
@@ -885,6 +899,7 @@ namespace CardShopCoop
                     // the joiner's "+connect_lobby <id>" and invite-accept both name, so
                     // without it the two halves of a failed join cannot be matched up.
                     CoopPlugin.Log.LogInfo("steam: lobby live " + lobby);
+                    SteamLobbyIdForRivals = lobby;
                 };
                 _steam.OnConnectedToHost = () =>
                 {
@@ -975,6 +990,7 @@ namespace CardShopCoop
                 return;
             }
             Role = CoopRole.Client;
+            IsVisiting = JoiningAsVisitor;
             try
             {
                 ActivateLiveModuleHooks();
@@ -1071,6 +1087,7 @@ namespace CardShopCoop
                 Version = CoopPlugin.Version,
                 PlayerName = EffectivePlayerName,
                 SteamId = _steam == null ? 0 : _steam.LocalSteamId,
+                IsVisitor = JoiningAsVisitor,
                 Password = _joinPassword ?? "",
                 PluginHash = Util.ModParity.PluginHash(),
                 EnumHash = Util.ModParity.EnumHash(),
@@ -1900,6 +1917,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(null, "hand-protection", patches: Sync.HandProtection.ApplyPatches),
                 new Sync.CoopModuleEntry(_sleep, "sleep-vote", patches: Sync.SleepVote.ApplyPatches),
                 new Sync.CoopModuleEntry(_social, "social", 16, 8, Sync.Social.ApplyPatches),
+                new Sync.CoopModuleEntry(null, "visitor-bag", patches: Sync.Rivals.VisitorBag.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "population-tuning", patches: Sync.PopulationTuning.ApplyPatches),
             };
@@ -2718,6 +2736,7 @@ namespace CardShopCoop
                 tcp.StartHost(CoopPlugin.Port.Value);
                 _net = LagTransport.Wrap(tcp);
                 Role = CoopRole.Host;
+                LanAddressForRivals = FirstLanAddress();
                 ActivateLiveModuleHooks();
                 StatusLine = "Hosting - waiting for a player...";
                 CoopPlugin.Log.LogInfo($"Hosting on port {CoopPlugin.Port.Value}");
@@ -2956,6 +2975,7 @@ namespace CardShopCoop
 
             CoopPlugin.LastJoinIP.Value = ip;
             Role = CoopRole.Client;
+            IsVisiting = JoiningAsVisitor;
             try
             {
                 ActivateLiveModuleHooks();
@@ -3605,6 +3625,9 @@ namespace CardShopCoop
             _avatars.Clear();
             PeerNames.Clear();
             _peerWireNames.Clear();
+            _visitorConns.Clear();
+            IsVisiting = false;
+            JoiningAsVisitor = false;
             _peerSteamIds.Clear();
             _rosterNames.Clear();
             _enumSyncSentTo.Clear(); // FIX C: the loop-breaker memory is per hosting session
@@ -3923,6 +3946,7 @@ namespace CardShopCoop
                 string name = PeerNames.TryGetValue(left, out var n) ? n : ("player " + left);
                 PeerNames.Remove(left);
                 _peerWireNames.Remove(left);
+                _visitorConns.Remove(left);
                 _peerSteamIds.Remove(left);
                 _avatars.Remove(left);
                 _movePreview.RemoveSource(left);
@@ -4799,8 +4823,91 @@ namespace CardShopCoop
             }
         }
 
+        /// <summary>Host: what a Rivals visitor's messages may reach. Handshake, presence,
+        /// social, battles, PvP, tournament entry and the visitor's own purchases; nothing
+        /// that shelves, prices, staffs, decorates, cheats or ends the day.</summary>
+        private static bool VisitorMayDo(MsgType t)
+        {
+            switch (t)
+            {
+                case MsgType.Hello:
+                case MsgType.Ping:
+                case MsgType.Pong:
+                case MsgType.Bye:
+                case MsgType.PlayerState:
+                case MsgType.Emote:
+                case MsgType.Activity:
+                case MsgType.PlayerModelRequest:
+                case MsgType.PlayerModelState:
+                case MsgType.PlayerIntent:
+                case MsgType.MovePreview:
+                case MsgType.JoinResyncRequest:
+                case MsgType.GradedDigest:
+                case MsgType.Social:
+                case MsgType.Activity2:
+                case MsgType.BattleSit:
+                case MsgType.BattleExit:
+                case MsgType.BattleStateUp:
+                case MsgType.PvpSit:
+                case MsgType.PvpAction:
+                case MsgType.PvpEnd:
+                case MsgType.TournamentEntry:
+                case MsgType.SprayHit:
+                case MsgType.NpcSpeech:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>The first home-router-looking IPv4 of this PC, for the Rivals board.</summary>
+        private static string FirstLanAddress()
+        {
+            try
+            {
+                string best = "";
+                foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up
+                        || ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
+                        continue;
+                    foreach (var a in ni.GetIPProperties().UnicastAddresses)
+                    {
+                        if (a.Address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+                            continue;
+                        string ip = a.Address.ToString();
+                        if (ip.StartsWith("169.254"))
+                            continue;
+                        if (ip.StartsWith("192.168.") || ip.StartsWith("10."))
+                            return ip;
+                        if (best.Length == 0)
+                            best = ip;
+                    }
+                }
+                return best;
+            }
+            catch { return ""; }
+        }
+
+        public bool IsVisitorConn(int conn)
+        {
+            return _visitorConns.Contains(conn);
+        }
+
+        private double _lastVisitorDropLog = -10;
+
         private bool Dispatch(InMsg msg)
         {
+            if (Role == CoopRole.Host && _visitorConns.Contains(msg.ConnId) && !VisitorMayDo(msg.Type))
+            {
+                double now = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                if (now - _lastVisitorDropLog > 5)
+                {
+                    _lastVisitorDropLog = now;
+                    CoopPlugin.Log.LogInfo($"rivals: dropped {msg.Type} from visitor {PeerNameFor(msg.ConnId)} (visitors can't change the shop)");
+                }
+                return true;
+            }
             if (msg.Message != null)
             {
                 bool routed = _messageRouter.Dispatch(new MessageContext
@@ -5086,6 +5193,11 @@ namespace CardShopCoop
                                 break;
                             }
 
+                            if (hello.IsVisitor)
+                            {
+                                _visitorConns.Add(msg.ConnId);
+                                CoopPlugin.Log.LogInfo($"rivals: {name} is VISITING (restricted guest)");
+                            }
                             _peerWireNames[msg.ConnId] = name;
                             _peerSteamIds[msg.ConnId] = hello.SteamId;
                             name = ResolvePeerName(hello.SteamId, name);

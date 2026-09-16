@@ -458,8 +458,26 @@ namespace CardShopCoop.UI
                 string price = s.PriceRank < 0 ? "no prices set" : (s.PriceRank == 0 ? "CHEAPEST" : "price #" + (s.PriceRank + 1)) + $" x{s.AvgMarkup:0.00}";
                 string crowd = Mathf.Approximately(s.CrowdMultiplier, 1f) ? "" : $"  customers x{s.CrowdMultiplier:0.00}";
                 string tourney = s.TournamentToday ? "  TOURNAMENT TODAY" : (s.TournamentScheduled ? "  tournament scheduled" : "");
+                GUILayout.BeginHorizontal();
                 GUILayout.Label($"{i + 1}. {s.Name}{team} - lvl {s.Level}, {GameInstance.GetPriceString(s.Money)}, day {s.Day}", CoopTheme.Label);
-                GUILayout.Label($"<size=10>    sales today {s.SalesToday}, customers {s.CustomersToday}  |  {price}{crowd}{tourney}</size>", CoopTheme.LabelDim);
+                bool mine = s.Id == Sync.Rivals.RivalsLobby.MyId;
+                if (!mine && s.Visitable && CoopCore.Role == CoopRole.None
+                    && GUILayout.Button("Visit", CoopTheme.ButtonSecondary, GUILayout.Width(60f)))
+                    Sync.Rivals.RivalsLobby.Visit(s);
+                GUILayout.EndHorizontal();
+                string open = s.Visitable ? "  open to visitors" : "  not hosting (can't be visited)";
+                GUILayout.Label($"<size=10>    sales today {s.SalesToday}, customers {s.CustomersToday}  |  {price}{crowd}{tourney}{open}</size>", CoopTheme.LabelDim);
+            }
+            if (R != Sync.Rivals.RivalsLobby.LobbyRole.None && CoopCore.Role == CoopRole.None)
+            {
+                var gm = CSingleton<CGameManager>.Instance;
+                if (gm != null && gm.m_IsGameLevel && GUILayout.Button("Open my shop to visitors  (host a LAN session)", CoopTheme.ButtonSecondary))
+                    Sync.Rivals.RivalsLobby.OpenShopForVisitors();
+            }
+            if (Sync.Rivals.VisitorBag.IsOpen)
+            {
+                var bag = Sync.Rivals.VisitorBag.Current;
+                GUILayout.Label($"<size=10>carry-out bag: visiting {bag.VisitingShop} - balance {GameInstance.GetPriceString(Sync.Rivals.VisitorBag.Balance)}, {bag.Cards.Count} card line(s), {bag.Items.Count} item line(s). Applied to save slot {bag.HomeSaveIndex} when you load it.</size>", CoopTheme.LabelWarn);
             }
             if (Sync.Rivals.RivalsLobby.MyPriceRank >= 0)
                 GUILayout.Label($"<size=10>your price rank: {Sync.Rivals.RivalsLobby.MyPriceRank + 1} of {shops.Count}  ->  customers x{Sync.Rivals.RivalsLobby.CrowdMultiplier:0.00}</size>", CoopTheme.LabelDim);

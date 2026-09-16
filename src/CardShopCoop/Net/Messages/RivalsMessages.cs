@@ -52,8 +52,10 @@ namespace CardShopCoop.Net.Messages
         public int CustomersToday;
         public bool TournamentScheduled;
         public bool TournamentToday;
-        public string LanAddress = "";         // for visits (phase 2)
+        public string LanAddress = "";         // for visits: the shop's co-op session
         public int CoopPort;
+        public ulong SteamLobby;               // when the shop hosts its co-op session on Steam
+        public bool Visitable;                 // hosting a co-op session right now
         // filled by the server
         public int PriceRank;                  // 0 = cheapest
         public float CrowdMultiplier = 1f;     // what this shop's population sim should apply

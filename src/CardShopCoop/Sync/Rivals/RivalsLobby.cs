@@ -46,6 +46,7 @@ namespace CardShopCoop.Sync.Rivals
         /// PopulationTuning on the host / solo PC.</summary>
         public static float CrowdMultiplier = 1f;
         public static int MyPriceRank = -1;
+        public static int MyId => Instance != null ? Instance._myId : -1;
 
         private ICoopTransport _net;
         private bool _viaSteam;
@@ -293,6 +294,7 @@ namespace CardShopCoop.Sync.Rivals
                     _publishTimer = 0f;
                     PublishMyShop();
                 }
+                VisitorBag.Tick();
                 if (Role == LobbyRole.Server)
                 {
                     _boardTimer += dt;
@@ -420,6 +422,14 @@ namespace CardShopCoop.Sync.Rivals
                 s.AvgMarkup = PriceIndex.AverageMarkup(out s.PricedItems);
                 s.ShopValue = s.Money;
                 s.CoopPort = CoopPlugin.Port != null ? CoopPlugin.Port.Value : 0;
+                // visitable = hosting a co-op session right now (LAN address or Steam lobby)
+                if (CoopCore.Instance != null && CoopCore.Role == CoopRole.Host)
+                {
+                    s.Visitable = true;
+                    if (CoopCore.Instance.IsSteamSession && CoopCore.Instance.Steam != null)
+                        s.SteamLobby = CoopCore.Instance.SteamLobbyIdForRivals;
+                    s.LanAddress = CoopCore.Instance.LanAddressForRivals;
+                }
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals BuildMyShop: " + e.Message); }
             return s;
@@ -489,6 +499,61 @@ namespace CardShopCoop.Sync.Rivals
             Board = board;
             BoardAt = Time.unscaledTime;
             Status = board.Shops.Count > 0 ? $"in lobby '{board.LobbyName}' via your host" : Status;
+        }
+
+        // ================================================================ visits
+
+        /// <summary>Open the shop for visitors: host a LAN co-op session if not in one.</summary>
+        public static void OpenShopForVisitors()
+        {
+            var core = CoopCore.Instance;
+            if (core == null || CoopCore.Role != CoopRole.None)
+                return;
+            core.StartHosting();
+            Status = CoopCore.Role == CoopRole.Host ? "shop open to visitors (LAN)" : Status;
+        }
+
+        /// <summary>Leave home and drop in on a rival: their world loads into the scratch
+        /// slot, our save stays untouched, the bag records what we bring back. Must be done
+        /// from the title screen (a co-op join always is); the bag opens on the way out.</summary>
+        public static void Visit(RivalsShop shop)
+        {
+            var core = CoopCore.Instance;
+            if (core == null || shop == null)
+                return;
+            if (CoopCore.Role != CoopRole.None)
+            {
+                Status = "leave your current session first";
+                return;
+            }
+            if (!shop.Visitable)
+            {
+                Status = shop.Name + " is not open to visitors (they need to host their shop)";
+                return;
+            }
+            var gm = CSingleton<CGameManager>.Instance;
+            if (gm != null && gm.m_IsGameLevel)
+            {
+                // the bag must know home before the world changes; the join itself needs the title screen
+                VisitorBag.Open(shop.Name);
+                Status = "bag packed - go to the TITLE SCREEN (save first), then press Visit again";
+                return;
+            }
+            if (!VisitorBag.IsOpen)
+                VisitorBag.Open(shop.Name);
+            CoopCore.JoiningAsVisitor = true;
+            if (shop.SteamLobby != 0 && core.Steam != null)
+            {
+                Status = "visiting " + shop.Name + " via Steam...";
+                core.JoinSteam(shop.SteamLobby);
+            }
+            else if (!string.IsNullOrEmpty(shop.LanAddress))
+            {
+                Status = "visiting " + shop.Name + " at " + shop.LanAddress + "...";
+                core.Join(shop.LanAddress, shop.CoopPort > 0 ? shop.CoopPort : (CoopPlugin.Port != null ? CoopPlugin.Port.Value : 27886), "");
+            }
+            else
+                Status = shop.Name + " published no address";
         }
 
         // ================================================================ chat

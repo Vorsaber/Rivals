@@ -71,6 +71,7 @@ namespace CardShopCoop
         private void Awake()
         {
             Log = Logger;
+            Sync.Rivals.VisitorBag.Load();
             try
             {
                 Assembly.Load("Newtonsoft.Json");
