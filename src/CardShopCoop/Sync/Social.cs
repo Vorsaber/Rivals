@@ -268,7 +268,7 @@ namespace CardShopCoop.Sync
                 if (g != null && g.IsPlayTableGameMode())
                     return "in a card battle";
                 var m = PlayCardGame.Manager();
-                if (m != null && m.m_DeckListScreen != null && m.m_DeckListScreen.gameObject.activeInHierarchy)
+                if (m != null && m.m_DeckListScreen != null && m.m_DeckListScreen.IsScreenOpened())
                     return "editing decks";
                 var ipc = InteractionPlayerController.m_Instance;
                 if (ipc != null)

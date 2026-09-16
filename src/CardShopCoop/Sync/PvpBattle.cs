@@ -467,13 +467,27 @@ namespace CardShopCoop.Sync
 
         /// <summary>Who goes first: the host's click decides; the guest's own click is ignored
         /// and the host's result is replayed (see <see cref="ApplyTurnFirst"/>).</summary>
+        private static bool s_turnClickCounts;
+
         public static bool TurnSelectPrefix(PlayTableGame __instance, out UnityEngine.Random.State __state)
         {
             __state = UnityEngine.Random.state;
+            s_turnClickCounts = false;
             if (!Active)
                 return true;
             if (!s_isHostPc && !s_applying)
                 return false;
+            try
+            {
+                // vanilla ignores a click once the card is chosen or while it is not waiting;
+                // only a click that will DECIDE may be seeded and sent (2026-09-16: a double
+                // click sent TurnFirst twice and the duplicate blocked the guest's queue)
+                bool chosen = FiHasSelectedTurn != null && (bool)FiHasSelectedTurn.GetValue(__instance);
+                s_turnClickCounts = !chosen && __instance.IsWaitingResponse();
+            }
+            catch { s_turnClickCounts = true; }
+            if (!s_turnClickCounts)
+                return true;
             UnityEngine.Random.InitState(SeedFor(2, 3));
             return true;
         }
@@ -481,6 +495,8 @@ namespace CardShopCoop.Sync
         public static void TurnSelectPostfix(PlayTableGame __instance, UnityEngine.Random.State __state)
         {
             if (!Active)
+                return;
+            if (!s_turnClickCounts)
                 return;
             UnityEngine.Random.state = __state;
             if (!s_isHostPc || s_applying)
@@ -811,7 +827,9 @@ namespace CardShopCoop.Sync
         {
             if (s_isHostPc)
                 return true; // never sent to the host
-            if (!ptg.IsWaitingResponse() || FiHasSelectedTurn == null || (bool)FiHasSelectedTurn.GetValue(ptg))
+            if (FiHasSelectedTurn == null || (bool)FiHasSelectedTurn.GetValue(ptg))
+                return true; // already decided (a duplicate) - drop it, never block the queue
+            if (!ptg.IsWaitingResponse())
                 return false;
             ptg.OnPressTurnSelectCard(0); // flips the card and rolls its own coin...
             bool guestFirst = !a.Flag;    // ...which we overrule with the host's result
