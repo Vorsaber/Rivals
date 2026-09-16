@@ -33,6 +33,7 @@ namespace CardShopCoop
         public static ManualLogSource Log;
 
         public static ConfigEntry<int> Port;
+        public static ConfigEntry<int> MaxPlayers;
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
         public static ConfigEntry<string> LastJoinIP;
@@ -80,6 +81,8 @@ namespace CardShopCoop
 
             Port = Config.Bind("Network", "Port", 27886,
                 "TCP port used for hosting. Both PCs' firewalls must allow the game on this port.");
+            MaxPlayers = Config.Bind("Network", "MaxPlayers", 4,
+                new ConfigDescription("Host: players in the shop including you (2-8). Sets the Steam lobby size and refuses LAN joins past it. Everything is relayed through the host, so above 4 expect the host's upload to be the limit.", new AcceptableValueRange<int>(2, 8)));
             LastJoinIP = Config.Bind("Network", "LastJoinIP", "192.168.1.100",
                 "IP address of the host PC (remembered after a successful join).");
             PlayerName = Config.Bind("Player", "Name", System.Environment.UserName,

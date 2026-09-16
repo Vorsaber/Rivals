@@ -476,8 +476,9 @@ namespace CardShopCoop.Net
             _pendingPublic = isPublic;
             _pendingName = lobbyName ?? "";
             _pendingHasPw = hasPassword;
+            int max = CoopPlugin.MaxPlayers != null ? UnityEngine.Mathf.Clamp(CoopPlugin.MaxPlayers.Value, 2, 8) : 4;
             SteamMatchmaking.CreateLobby(
-                isPublic ? ELobbyType.k_ELobbyTypePublic : ELobbyType.k_ELobbyTypeFriendsOnly, 4);
+                isPublic ? ELobbyType.k_ELobbyTypePublic : ELobbyType.k_ELobbyTypeFriendsOnly, max);
         }
 
         /// <summary>Fetch public lobbies of THIS mod (server-side filtered by our key).</summary>

@@ -150,6 +150,11 @@ namespace CardShopCoop
         /// on CoopCore.</summary>
         private ISteamBridge _steam;
         private readonly Dictionary<int, string> _peerWireNames = new Dictionary<int, string>();
+        private static int CoopPlayers()
+        {
+            return CoopPlugin.MaxPlayers != null ? CoopPlugin.MaxPlayers.Value : 4;
+        }
+
         /// <summary>Host: how many guests are in the shop.</summary>
         internal int GuestCount
         {
@@ -4840,6 +4845,12 @@ namespace CardShopCoop
                             string theirGameVersion = hello.GameVersion ?? "";
                             string theirUnityVersion = hello.UnityVersion ?? "";
                             CoopPlugin.Log.LogInfo($"game build: host is {Application.version} / Unity {Application.unityVersion}; {name} is {theirGameVersion} / Unity {theirUnityVersion}");
+                            int maxPlayers = CoopPlugin.MaxPlayers != null ? Mathf.Clamp(CoopPlayers(), 2, 8) : 4;
+                            if (PeerNames.Count >= maxPlayers - 1)
+                            {
+                                RejectConn(msg.ConnId, $"the shop is full ({maxPlayers} players including the host)");
+                                break;
+                            }
                             if (HostPassword.Length > 0 && password != HostPassword)
                             {
                                 RejectConn(msg.ConnId, "wrong password");
