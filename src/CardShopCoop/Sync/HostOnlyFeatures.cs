@@ -32,6 +32,8 @@ namespace CardShopCoop.Sync
         {
             Try(h, typeof(InteractablePlayTable), "OnRightMouseButtonUp",
                 new HarmonyMethod(typeof(HostOnlyFeatures), nameof(PlayTableRightClickPrefix)));
+            Try(h, typeof(WorkbenchUIScreen), "OnPressEditDeckButton",
+                new HarmonyMethod(typeof(HostOnlyFeatures), nameof(EditDeckButtonPrefix)));
             Try(h, typeof(PlayCardGameManager), "OpenDeckListScreen",
                 new HarmonyMethod(typeof(HostOnlyFeatures), nameof(OpenDeckListPrefix)));
             Try(h, typeof(HostTournamentScreen), "OnPressPlayerSignUpTournament",
@@ -66,13 +68,33 @@ namespace CardShopCoop.Sync
             return false;
         }
 
-        /// <summary>The Workbench "deck" button routes through this static; the deck list
-        /// screen itself is the only way into DeckEditScreen.</summary>
+        /// <summary>The Workbench "deck" button. Gated HERE, not one call later in
+        /// <c>OpenDeckListScreen</c>: the button handler sets <c>m_IsEditingDeck</c> on both the
+        /// screen and the workbench before it opens the deck list, and while that flag is up
+        /// <c>WorkbenchUIScreen.CloseScreen</c> refuses to close - cancelling only the screen
+        /// welded the guest to the workbench.</summary>
+        public static bool EditDeckButtonPrefix()
+        {
+            if (CoopCore.Role != CoopRole.Client)
+                return true;
+            Notice(DeckNotice);
+            return false;
+        }
+
+        /// <summary>Belt and braces for any other route into the deck list. If it fires on a
+        /// guest, also clear the editing flags so the workbench can still be closed.</summary>
         public static bool OpenDeckListPrefix()
         {
             if (CoopCore.Role != CoopRole.Client)
                 return true;
             Notice(DeckNotice);
+            try
+            {
+                var wb = UnityEngine.Object.FindObjectOfType<WorkbenchUIScreen>();
+                if (wb != null)
+                    wb.OnCloseEditDeckScreen();
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("OpenDeckListPrefix: " + e.Message); }
             return false;
         }
 
