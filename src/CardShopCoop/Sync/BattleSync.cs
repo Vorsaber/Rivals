@@ -63,11 +63,7 @@ namespace CardShopCoop.Sync
         { /* no patches: a pure digest */
         }
 
-        private static PlayTableGame Game()
-        {
-            var mgr = CSingleton<PlayCardGameManager>.Instance;
-            return mgr != null ? mgr.m_PlayTableGame : null;
-        }
+        private static PlayTableGame Game() => PlayCardGame.Game();
 
         private static ShelfManager Sm() => CSingleton<ShelfManager>.Instance;
 
@@ -522,6 +518,37 @@ namespace CardShopCoop.Sync
         public override void ForceResend()
         {
             _gate.Force();
+        }
+    }
+
+    /// <summary>Resolve the scene's PlayCardGameManager WITHOUT CSingleton.Instance. That
+    /// accessor creates an empty "(singleton)PlayCardGameManager" if it runs before the scene
+    /// object exists, and from then on returns the fake - whose m_PlayTableGame is null - for
+    /// the rest of the session, breaking vanilla's own PlayCardGameManager.SetPlayTable on
+    /// that machine. Same trap ShopStateSync documents for TutorialManager.</summary>
+    internal static class PlayCardGame
+    {
+        private static PlayCardGameManager s_cached;
+        public static PlayCardGameManager Manager()
+        {
+            if (s_cached == null)
+            {
+                var all = UnityEngine.Object.FindObjectsOfType<PlayCardGameManager>();
+                for (int i = 0; i < all.Length; i++)
+                    if (all[i] != null && all[i].m_PlayTableGame != null)
+                    {
+                        s_cached = all[i];
+                        break;
+                    }
+                if (s_cached == null && all.Length > 0)
+                    s_cached = all[0];
+            }
+            return s_cached;
+        }
+        public static PlayTableGame Game()
+        {
+            var m = Manager();
+            return m != null ? m.m_PlayTableGame : null;
         }
     }
 }

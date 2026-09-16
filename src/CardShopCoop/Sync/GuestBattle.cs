@@ -132,7 +132,12 @@ namespace CardShopCoop.Sync
             try
             {
                 if (_pendingTable != msg.TableIndex)
-                    return; // stale
+                {
+                    // not what we asked for (or we gave up waiting): release rather than strand
+                    if (msg.Granted)
+                        SendToHost?.Invoke(new BattleExitMessage { TableIndex = msg.TableIndex, PlayerWin = false, Draw = false });
+                    return;
+                }
                 _pendingTable = -1;
                 if (!msg.Granted)
                 {
@@ -144,22 +149,35 @@ namespace CardShopCoop.Sync
                     return;
                 }
                 var table = TableAt(msg.TableIndex);
-                var game = CSingleton<PlayCardGameManager>.Instance;
-                if (table == null || game == null || game.m_PlayTableGame == null)
-                    return;
-                if (game.m_PlayTableGame.IsPlayTableGameMode())
-                    return;
+                var ptg = PlayCardGame.Game();
                 int seat = msg.SideA ? 0 : 1;
-                BookSeat(table, seat, true);
-                _playingTable = msg.TableIndex;
-                CoopPlugin.Log.LogInfo($"GuestBattle: seat granted at table {msg.TableIndex} side {(msg.SideA ? "A" : "B")}");
-                PlayCardGameManager.SetPlayTable(table, msg.SideA);
-                if (!game.m_PlayTableGame.IsPlayTableGameMode())
+                string refuse = null;
+                if (table == null)
+                    refuse = "table not found locally";
+                else if (ptg == null)
+                    refuse = "PlayTableGame not available on this client";
+                else if (ptg.IsPlayTableGameMode())
+                    refuse = "already in a battle";
+                if (refuse == null)
                 {
-                    // SetPlayTable refused locally (m_CanPlayTableMode false, deck changed
-                    // under us); give the seat back so the customer is not left waiting
+                    BookSeat(table, seat, true);
+                    _playingTable = msg.TableIndex;
+                    CoopPlugin.Log.LogInfo($"GuestBattle: seat granted at table {msg.TableIndex} side {(msg.SideA ? "A" : "B")}");
+                    // vanilla's entry, but through the resolved manager - never the CSingleton
+                    // accessor (see PlayCardGame): m_CanPlayTableMode false or an incomplete
+                    // deck make it return without entering battle mode
+                    ptg.SetPlayTable(table, msg.SideA);
+                    if (!ptg.IsPlayTableGameMode())
+                        refuse = "SetPlayTable refused (play-table mode off, or deck incomplete)";
+                }
+                if (refuse != null)
+                {
+                    // the host already booked the seat and told the customer the game started:
+                    // hand it back, or she sits there 'playing' alone and every retry is refused
+                    CoopPlugin.Log.LogWarning($"GuestBattle: could not start at table {msg.TableIndex}: {refuse} - releasing the seat");
                     _playingTable = -1;
-                    BookSeat(table, seat, false);
+                    if (table != null)
+                        BookSeat(table, seat, false);
                     SendToHost?.Invoke(new BattleExitMessage { TableIndex = msg.TableIndex, PlayerWin = false, Draw = false });
                 }
             }
@@ -207,7 +225,8 @@ namespace CardShopCoop.Sync
                     reason = (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer;
                 else if (table.GetIsTournamentPlayTable())
                     reason = (int)ENotEnoughResourceText.TournamentInProgress;
-                else if (_guestSeats.ContainsKey(connId))
+                else if (_guestSeats.TryGetValue(connId, out var held)
+                         && TableAt(held.table) != null && TableAt(held.table).GetHasStartPlayerPlayCard())
                     reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
                 else if (table.GetHasStartPlayerPlayCard())
                     reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
@@ -225,6 +244,7 @@ namespace CardShopCoop.Sync
                 }
                 if (reason == 0)
                 {
+                    _guestSeats.Remove(connId); // a stale entry (game ended without an exit) is replaced
                     int seat = sideA ? 0 : 1;
                     BookSeat(table, seat, true);
                     try
@@ -269,6 +289,40 @@ namespace CardShopCoop.Sync
             {
                 CoopPlugin.Log.LogWarning("GuestBattle host exit: " + e.Message);
             }
+        }
+
+        /// <summary>Host / single player: stand every table down that has a player seat booked
+        /// or a player game flagged, and forget every guest seat. The cheat menu's eviction.</summary>
+        public static int HostFreeAllTables()
+        {
+            var me = _active;
+            int n = 0;
+            var sm = Sm();
+            var list = sm != null ? sm.m_PlayTableList : null;
+            if (list == null)
+                return 0;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var t = list[i];
+                if (t == null)
+                    continue;
+                bool playerSeat = false;
+                var ps = t.GetIsPlayerSeat();
+                if (ps != null)
+                    for (int s = 0; s < ps.Count; s++)
+                        playerSeat |= ps[s];
+                if (!playerSeat && !t.GetHasStartPlayerPlayCard())
+                    continue;
+                try
+                {
+                    t.ExitPlayerCardGame(isPlayerWin: false, isDraw: false);
+                    n++;
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning("GuestBattle free table: " + e.Message); }
+            }
+            if (me != null)
+                me._guestSeats.Clear();
+            return n;
         }
 
         /// <summary>A guest dropped mid-battle: stand the customer up and free the seat.</summary>

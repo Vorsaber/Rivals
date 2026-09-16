@@ -137,8 +137,8 @@ namespace CardShopCoop.Sync
         {
             Guarded("apply", () =>
             {
-                var mgr = CSingleton<PlayCardGameManager>.Instance;
-                if (mgr != null && mgr.m_PlayTableGame != null && mgr.m_PlayTableGame.IsPlayTableGameMode())
+                var ptg = PlayCardGame.Game();
+                if (ptg != null && ptg.IsPlayTableGameMode())
                     return; // mid-battle: the engine is reading the selected deck
                 var decks = CPlayerData.m_DeckCompactCardDataList;
                 if (decks == null)

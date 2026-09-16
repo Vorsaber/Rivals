@@ -194,6 +194,11 @@ namespace CardShopCoop.UI
                 SetTableFees(-1f);
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
+            if (GUILayout.Button("Free all play tables (evict, forget guest seats)"))
+            {
+                int n = Sync.GuestBattle.HostFreeAllTables();
+                Say($"{n} table(s) stood down");
+            }
             if (GUILayout.Button("Finish the tutorial"))
             {
                 CPlayerData.m_HasFinishedTutorial = true;
@@ -275,15 +280,15 @@ namespace CardShopCoop.UI
 
         private void DrawCards()
         {
-            GUILayout.Label("Add one of every card in an expansion to the collection (goes through CPlayerData.AddCard, so the guest gets them too).");
+            GUILayout.Label("Add cards to the collection (CPlayerData.AddCard, so the guest gets them too). Go easy: the deck editor and binder build UI from the whole collection - 5x of everything is ~34,000 cards and stalls them.");
             foreach (var exp in Expansions)
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(exp.ToString(), GUILayout.Width(110));
                 if (GUILayout.Button("full set x1"))
                     GiveSet(exp, 1);
-                if (GUILayout.Button("full set x5"))
-                    GiveSet(exp, 5);
+                if (GUILayout.Button("base cards x1"))
+                    GiveBase(exp, 1);
                 GUILayout.EndHorizontal();
             }
             GUILayout.Space(8);
@@ -311,6 +316,28 @@ namespace CardShopCoop.UI
                 n++;
             }
             Say($"{exp}: {n} cards x{amount} added");
+        }
+
+        /// <summary>Only the base-border, non-foil card of each monster (one per monster).</summary>
+        private void GiveBase(ECardExpansionType exp, int amount)
+        {
+            var monsters = InventoryBase.GetShownMonsterList(exp);
+            int per = CPlayerData.GetCardAmountPerMonsterType(exp);
+            if (monsters == null || per <= 0)
+            {
+                Say("no card list for " + exp);
+                return;
+            }
+            int n = 0;
+            for (int m = 0; m < monsters.Count; m++)
+            {
+                var cd = CPlayerData.GetCardData(m * per, exp, isDestiny: false);
+                if (cd == null)
+                    continue;
+                CPlayerData.AddCard(cd, amount);
+                n++;
+            }
+            Say($"{exp}: {n} base cards x{amount} added");
         }
 
         private void GiveStarterDeck()
