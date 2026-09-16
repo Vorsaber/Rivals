@@ -40,6 +40,11 @@ namespace CardShopCoop
         public static ConfigEntry<float> DifficultyCustomCap;
         public static ConfigEntry<float> DifficultyCustomRate;
         public static ConfigEntry<float> DifficultyCustomWallet;
+        public static ConfigEntry<Sync.EconomyProfile> EconomyProfile;
+        public static ConfigEntry<float> EconomyCustomMargin;
+        public static ConfigEntry<float> EconomyCustomCardValue;
+        public static ConfigEntry<float> EconomyCustomPickiness;
+        public static ConfigEntry<float> EconomyCustomCost;
         public static ConfigEntry<string> LastJoinIP;
         public static ConfigEntry<string> PlayerName;
         public static ConfigEntry<float> SendRateHz;
@@ -98,6 +103,16 @@ namespace CardShopCoop
                 "Custom profile: multiplier on how often customers arrive (before the per-player scale).");
             DifficultyCustomWallet = Config.Bind("Difficulty", "CustomWallet", 1f,
                 "Custom profile: multiplier on how much money customers carry.");
+            EconomyProfile = Config.Bind("Economy", "Profile", Sync.EconomyProfile.Vanilla,
+                "Host / single player. Rebases the economy so profit is harder. Vanilla: the game's own numbers (customers accept a 50-200% markup as fair). Tight: half that spread, cards worth 3/4, customers 1.5x as picky about markups, stock costs 10% more. Harsh: a third of the spread, cards worth 60%, customers twice as picky, stock costs 25% more. Custom: the values below. Applies to existing saves immediately and mirrors to guests. Changeable live from the cheat menu.");
+            EconomyCustomMargin = Config.Bind("Economy", "CustomMarginScale", 0.5f,
+                "Custom: scale on the wholesale-to-market spread (1 = vanilla, 0.5 = half the built-in markup, 0 = market price equals cost).");
+            EconomyCustomCardValue = Config.Bind("Economy", "CustomCardValueScale", 0.75f,
+                "Custom: multiplier on card market prices.");
+            EconomyCustomPickiness = Config.Bind("Economy", "CustomPickiness", 1.5f,
+                "Custom: multiplier on how harshly customers judge a price above market (2 = a 10% markup feels like 20%).");
+            EconomyCustomCost = Config.Bind("Economy", "CustomStockCostScale", 1.1f,
+                "Custom: multiplier on what the shop pays to restock.");
             SendRateHz = Config.Bind("Network", "SendRateHz", 15f,
                 "How many position updates per second to send (8-20 is sensible).");
             if (Mathf.Approximately(SendRateHz.Value, 12f))

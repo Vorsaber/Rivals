@@ -236,6 +236,8 @@ namespace CardShopCoop.Net.Messages
         public List<byte> CashierFlags = new List<byte>();
         public List<byte> TableNumbers = new List<byte>();
         public List<DecoStockEntry> DecoStock = new List<DecoStockEntry>();
+        // append-only: the host's economy factors (EconomyTuning), so guests price the same
+        public float EconMargin = 1f, EconCard = 1f, EconPick = 1f, EconCost = 1f;
 
         public MsgType Type
         {

@@ -1842,6 +1842,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(null, "hand-protection", patches: Sync.HandProtection.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "population-tuning", patches: Sync.PopulationTuning.ApplyPatches),
+                new Sync.CoopModuleEntry(null, "economy", patches: Sync.EconomyTuning.ApplyPatches),
             };
         }
 

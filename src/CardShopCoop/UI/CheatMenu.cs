@@ -50,6 +50,7 @@ namespace CardShopCoop.UI
             Deliver,         // A = restock index, B = count
             Furniture,       // A = EObjectType
             Difficulty,      // A = DifficultyProfile
+            Economy,         // A = EconomyProfile
         }
 
         // set by CoopCore: the guest's requests go up, the host's answers come back
@@ -186,6 +187,10 @@ namespace CardShopCoop.UI
                 case Op.Difficulty:
                     Sync.Difficulty.SetProfile((Sync.DifficultyProfile)a);
                     Say("difficulty: " + Sync.Difficulty.Describe());
+                    break;
+                case Op.Economy:
+                    Sync.EconomyTuning.SetProfile((Sync.EconomyProfile)a);
+                    Say("economy: " + Sync.EconomyTuning.Describe());
                     break;
                 default:
                     Say("unknown cheat " + op);
@@ -364,6 +369,12 @@ namespace CardShopCoop.UI
             foreach (Sync.DifficultyProfile p in Enum.GetValues(typeof(Sync.DifficultyProfile)))
                 if (GUILayout.Button(p.ToString()))
                     Do(Op.Difficulty, (int)p);
+            GUILayout.EndHorizontal();
+            GUILayout.Label("Economy: " + Sync.EconomyTuning.Describe());
+            GUILayout.BeginHorizontal();
+            foreach (Sync.EconomyProfile p in Enum.GetValues(typeof(Sync.EconomyProfile)))
+                if (GUILayout.Button(p.ToString()))
+                    Do(Op.Economy, (int)p);
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
             GUILayout.Label("Play table fee (a new shop has no review rating, so customers read a market fee as 10x market and refuse to sit)");
