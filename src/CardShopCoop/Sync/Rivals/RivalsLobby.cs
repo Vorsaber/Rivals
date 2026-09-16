@@ -149,6 +149,8 @@ namespace CardShopCoop.Sync.Rivals
             Board = new RivalsBoardMessage();
             CrowdMultiplier = 1f;
             MyPriceRank = -1;
+            Util.Companions.Economy.SetExternalPickiness(1f);
+            PopulationTuning.Reapply();
         }
 
         private void OnDestroy()
@@ -376,6 +378,8 @@ namespace CardShopCoop.Sync.Rivals
                 {
                     CoopPlugin.Log.LogInfo($"Rivals: price rank {mine.PriceRank + 1} of {board.Shops.Count} (markup x{mine.AvgMarkup:0.00}) -> customers x{CrowdMultiplier:0.00}");
                     PopulationTuning.Reapply();
+                    // the second lever: customers at the priciest shop are also pickier about markups
+                    Util.Companions.Economy.SetExternalPickiness(CrowdMultiplier > 0f ? 1f / CrowdMultiplier : 1f);
                 }
             }
             // a team host passes the board down to its guests over co-op

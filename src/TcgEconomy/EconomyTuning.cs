@@ -41,6 +41,10 @@ namespace TcgEconomy
     {
         private static bool s_bypass;
         private static bool s_override;
+
+        /// <summary>Set by another mod (CardShopCoop's Rivals league): an extra multiplier on
+        /// customer pickiness for THIS shop, 1 = none. Stacks on the profile.</summary>
+        public static float ExternalPickiness = 1f;
         private static float s_oMargin = 1f, s_oCard = 1f, s_oPick = 1f, s_oCost = 1f, s_oBill = 1f;
 
         // ---------------------------------------------------------------- public API (also used by CardShopCoop via reflection)
@@ -265,9 +269,14 @@ namespace TcgEconomy
         /// <summary>Scale the overage above market before the vanilla curve reads it.</summary>
         public static void BuyChancePrefix(ref float currentPrice, float marketPrice)
         {
-            if (Off() || marketPrice <= 0f || currentPrice <= marketPrice)
+            if (marketPrice <= 0f || currentPrice <= marketPrice)
                 return;
-            Factors(out _, out _, out float pick, out _, out _);
+            float pick = 1f;
+            if (!Off())
+                Factors(out _, out _, out pick, out _, out _);
+            pick *= Mathf.Clamp(ExternalPickiness, 0.2f, 5f);
+            if (Mathf.Approximately(pick, 1f))
+                return;
             currentPrice = marketPrice + (currentPrice - marketPrice) * pick;
         }
 

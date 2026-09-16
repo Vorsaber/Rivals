@@ -156,6 +156,19 @@ namespace CardShopCoop.Util
             }
 
             public static readonly string[] Profiles = { "Vanilla", "Tight", "Harsh", "Custom" };
+
+            /// <summary>Rivals: extra pickiness for this shop (1 = none). No-op without the plugin.</summary>
+            public static void SetExternalPickiness(float value)
+            {
+                if (!Present)
+                    return;
+                try
+                {
+                    var f = s_type.GetField("ExternalPickiness", BindingFlags.Public | BindingFlags.Static);
+                    f?.SetValue(null, value);
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning("companion TcgEconomy.ExternalPickiness: " + e.Message); }
+            }
         }
 
         // ------------------------------------------------------------ Difficulty (TcgDifficulty)
