@@ -177,7 +177,15 @@ namespace CardShopCoop.UI
             {
                 int n = 0;
                 var lic = CPlayerData.m_IsItemLicenseUnlocked;
-                for (int i = 0; lic != null && i < lic.Count; i++)
+                // the save list is padded well past the restock catalog; stay inside the
+                // catalog so the co-op license forward has a real product to name
+                int count = lic != null ? lic.Count : 0;
+                try
+                {
+                    count = Math.Min(count, CSingleton<InventoryBase>.Instance.m_StockItemData_SO.m_RestockDataList.Count);
+                }
+                catch { }
+                for (int i = 0; i < count; i++)
                     if (!lic[i])
                     {
                         CPlayerData.SetUnlockItemLicense(i);
@@ -185,6 +193,37 @@ namespace CardShopCoop.UI
                     }
                 Say($"unlocked {n} licenses (reopen the phone shop to see them)");
             }
+            GUILayout.Space(4);
+            GUILayout.Label("Shop expansion (mirrored to guests by the shop-state sync)");
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Next shop room"))
+                UnlockRooms(1, warehouse: false);
+            if (GUILayout.Button("All shop rooms"))
+                UnlockRooms(int.MaxValue, warehouse: false);
+            if (GUILayout.Button("Unlock warehouse"))
+            {
+                var urm = RoomManager();
+                if (urm == null)
+                    Say("no UnlockRoomManager in the scene");
+                else if (CPlayerData.m_IsWarehouseRoomUnlocked)
+                    Say("warehouse already unlocked");
+                else
+                {
+                    urm.SetUnlockWarehouseRoom(true);
+                    Say("warehouse unlocked");
+                }
+            }
+            if (GUILayout.Button("All warehouse rooms"))
+                UnlockRooms(int.MaxValue, warehouse: true);
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Own every wallpaper"))
+                UnlockDeco(0);
+            if (GUILayout.Button("Own every floor"))
+                UnlockDeco(1);
+            if (GUILayout.Button("Own every ceiling"))
+                UnlockDeco(2);
+            GUILayout.EndHorizontal();
             GUILayout.Space(4);
             GUILayout.Label("Play table fee (a new shop has no review rating, so customers read a market fee as 10x market and refuse to sit)");
             GUILayout.BeginHorizontal();
@@ -504,6 +543,71 @@ namespace CardShopCoop.UI
             var pos = t.position + fwd * 1.5f + Vector3.up * 0.5f;
             ShelfManager.SpawnInteractableObjectInPackageBox(type, pos, Quaternion.LookRotation(-fwd, Vector3.up));
             Say($"boxed {type} dropped in front of you");
+        }
+
+        private static UnlockRoomManager s_rooms;
+
+        /// <summary>Never <c>CSingleton&lt;UnlockRoomManager&gt;.Instance</c>: it mints a bare one
+        /// when called early and the real one's blockers never move.</summary>
+        private static UnlockRoomManager RoomManager()
+        {
+            if (s_rooms == null)
+                s_rooms = UnityEngine.Object.FindObjectOfType<UnlockRoomManager>();
+            return s_rooms;
+        }
+
+        private void UnlockRooms(int max, bool warehouse)
+        {
+            var urm = RoomManager();
+            if (urm == null)
+            {
+                Say("no UnlockRoomManager in the scene");
+                return;
+            }
+            if (warehouse && !CPlayerData.m_IsWarehouseRoomUnlocked)
+                urm.SetUnlockWarehouseRoom(true);
+            int n = 0;
+            try
+            {
+                for (int guard = 0; guard < 64 && n < max; guard++)
+                {
+                    int before = warehouse ? CPlayerData.m_UnlockWarehouseRoomCount : CPlayerData.m_UnlockRoomCount;
+                    if (warehouse)
+                        urm.StartUnlockNextWarehouseRoom();
+                    else
+                        urm.StartUnlockNextRoom();
+                    int after = warehouse ? CPlayerData.m_UnlockWarehouseRoomCount : CPlayerData.m_UnlockRoomCount;
+                    if (after == before)
+                        break; // every blocker is down
+                    n++;
+                }
+            }
+            catch (Exception e) { Say("room unlock failed: " + e.Message); return; }
+            string kind = warehouse ? "warehouse" : "shop";
+            int now = warehouse ? CPlayerData.m_UnlockWarehouseRoomCount : CPlayerData.m_UnlockRoomCount;
+            Say(n == 0 ? $"every {kind} room is already open" : $"opened {n} {kind} room(s) - now {now}");
+        }
+
+        private void UnlockDeco(int category)
+        {
+            var list = category == 0 ? CPlayerData.m_UnlockedDecoWallList
+                     : category == 1 ? CPlayerData.m_UnlockedDecoFloorList
+                     : CPlayerData.m_UnlockedDecoCeilingList;
+            int n = 0;
+            for (int i = 0; list != null && i < list.Count; i++)
+            {
+                if (list[i])
+                    continue;
+                if (category == 0)
+                    CPlayerData.SetUnlockDecoWall(i, true);
+                else if (category == 1)
+                    CPlayerData.SetUnlockDecoFloor(i, true);
+                else
+                    CPlayerData.SetUnlockDecoCeiling(i, true);
+                n++;
+            }
+            string kind = category == 0 ? "wallpaper" : category == 1 ? "floor" : "ceiling";
+            Say($"owned {n} new {kind} option(s) (reopen the deco shop to see them)");
         }
 
         private void Say(string s)
