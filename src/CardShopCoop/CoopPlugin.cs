@@ -41,6 +41,8 @@ namespace CardShopCoop
         public static ConfigEntry<bool> AvatarsEnabled;
         public static ConfigEntry<bool> AllowNsfw;
         public static ConfigEntry<KeyCode> UiToggleKey;
+        public static ConfigEntry<KeyCode> CheatMenuKey;
+        public static ConfigEntry<bool> CheatsEnabled;
         public static ConfigEntry<KeyCode> EmoteKey;
         public static ConfigEntry<int> ClientWorldSlot;
         public static ConfigEntry<bool> AutoSyncCardDatabase;
@@ -88,6 +90,10 @@ namespace CardShopCoop
                 "Show the other player as a walking character in your shop.");
             AllowNsfw = Config.Bind("Player", "AllowNsfw", false,
                 "Allow nude/NSFW character appearances. When off, new characters get a random clothed preset, the Nude wardrobe option is hidden, and fully nude players are shown in the game's random clothed customer look. When on, you may choose Nude and you will see other players who chose it.");
+            CheatsEnabled = Config.Bind("Cheats", "Enabled", true,
+                "Show the test-rig cheat menu (money, level, licenses, cards, deliveries, furniture). Host / single player only.");
+            CheatMenuKey = Config.Bind("Keys", "CheatMenuKey", KeyCode.F4,
+                "Toggles the test-rig cheat menu.");
             UiToggleKey = Config.Bind("Keys", "UiToggleKey", KeyCode.F2,
                 "Toggles the co-op window. (F3 is reserved for future co-op options.)");
             if (UiToggleKey.Value == KeyCode.F11)
@@ -210,6 +216,7 @@ namespace CardShopCoop
         private static void AttachCore(GameObject go)
         {
             go.AddComponent<CoopCore>();
+            go.AddComponent<UI.CheatMenu>();
         }
     }
 }
