@@ -12,6 +12,41 @@ namespace CardShopCoop.Util
     /// </summary>
     internal static class Companions
     {
+        /// <summary>Read / write a float entry in a companion plugin's own config file
+        /// (BaseUnityPlugin.Config), so the cheat menu can offer live sliders for it.</summary>
+        internal static bool TryGetFloat(string guid, string section, string key, out float value)
+        {
+            value = 0f;
+            try
+            {
+                if (!Chainloader.PluginInfos.TryGetValue(guid, out var info) || info.Instance == null)
+                    return false;
+                if (info.Instance.Config.TryGetEntry<float>(section, key, out var entry))
+                {
+                    value = entry.Value;
+                    return true;
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning($"companion {guid} {section}.{key}: {e.Message}"); }
+            return false;
+        }
+
+        internal static bool SetFloat(string guid, string section, string key, float value)
+        {
+            try
+            {
+                if (!Chainloader.PluginInfos.TryGetValue(guid, out var info) || info.Instance == null)
+                    return false;
+                if (info.Instance.Config.TryGetEntry<float>(section, key, out var entry))
+                {
+                    entry.Value = value;
+                    return true;
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning($"companion {guid} {section}.{key}: {e.Message}"); }
+            return false;
+        }
+
         // ------------------------------------------------------------ Economy (TcgEconomy)
 
         internal static class Economy
@@ -131,7 +166,7 @@ namespace CardShopCoop.Util
             private static bool s_resolved;
             private static Type s_type;
             private static FieldInfo s_players, s_authority;
-            private static MethodInfo s_setProfile, s_describe, s_reapply;
+            private static MethodInfo s_setProfile, s_describe, s_reapply, s_staff;
 
             public static bool Present
             {
@@ -160,6 +195,7 @@ namespace CardShopCoop.Util
                     s_setProfile = s_type.GetMethod("SetProfile", BindingFlags.Public | BindingFlags.Static);
                     s_describe = s_type.GetMethod("Describe", BindingFlags.Public | BindingFlags.Static);
                     s_reapply = s_type.GetMethod("Reapply", BindingFlags.Public | BindingFlags.Static);
+                    s_staff = s_type.GetMethod("ApplyStaffCosts", BindingFlags.Public | BindingFlags.Static);
                     CoopPlugin.Log.LogInfo("companion: TcgDifficulty found");
                 }
                 catch (Exception e)
@@ -203,6 +239,17 @@ namespace CardShopCoop.Util
                     s_reapply.Invoke(null, null);
                 }
                 catch (Exception e) { CoopPlugin.Log.LogWarning("companion TcgDifficulty.Reapply: " + e.Message); }
+            }
+
+            public static void ApplyStaffCosts()
+            {
+                if (!Present || s_staff == null)
+                    return;
+                try
+                {
+                    s_staff.Invoke(null, null);
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning("companion TcgDifficulty.ApplyStaffCosts: " + e.Message); }
             }
 
             public static string Describe()

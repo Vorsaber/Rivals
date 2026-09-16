@@ -52,7 +52,12 @@ namespace CardShopCoop.UI
             Difficulty,      // A = DifficultyProfile
             Economy,         // A = EconomyProfile
             DuplicateDeck,   // A = deck index (-1 = the host's selected)
+            Population,      // A = max customers (0 auto), B = arrival rate x100
+            DiffTuning,      // A = per-player scale x100, B = staff cost per player x100
         }
+
+        // slider scratch (drawn every frame; applied on the button)
+        private float _slCap = -1f, _slRate = -1f, _slPer = -1f, _slStaff = -1f;
 
         // set by StarterDeck / DuplicateDeck: the index of the deck just made, for the requester
         private int _madeDeckIndex = -1;
@@ -209,6 +214,21 @@ namespace CardShopCoop.UI
                     break;
                 case Op.DuplicateDeck:
                     DuplicateDeck(a);
+                    break;
+                case Op.Population:
+                    if (CoopPlugin.MaxCustomers != null)
+                        CoopPlugin.MaxCustomers.Value = Mathf.Clamp(a, 0, 300);
+                    if (CoopPlugin.SpawnRateMultiplier != null)
+                        CoopPlugin.SpawnRateMultiplier.Value = Mathf.Clamp(b / 100f, 0.1f, 10f);
+                    Sync.PopulationTuning.Reapply();
+                    Say($"population: cap {(a == 0 ? "auto" : a.ToString())}, arrivals x{b / 100f:0.00} (applied)");
+                    break;
+                case Op.DiffTuning:
+                    Util.Companions.SetFloat(Util.Companions.Difficulty.Guid, "Difficulty", "PerPlayerScale", Mathf.Clamp(a / 100f, 0f, 2f));
+                    Util.Companions.SetFloat(Util.Companions.Difficulty.Guid, "Difficulty", "StaffCostPerPlayer", Mathf.Clamp(b / 100f, 0f, 10f));
+                    Util.Companions.Difficulty.Reapply();
+                    Util.Companions.Difficulty.ApplyStaffCosts();
+                    Say($"per-player crowd +{a}% and staff cost +{b}% per extra player (applied) - " + Util.Companions.Difficulty.Describe());
                     break;
                 default:
                     Say("unknown cheat " + op);
@@ -390,6 +410,41 @@ namespace CardShopCoop.UI
                 for (int i = 0; i < dp.Length; i++)
                     if (GUILayout.Button(dp[i]))
                         Do(Op.Difficulty, i);
+                GUILayout.EndHorizontal();
+            }
+            // live sliders: dragged freely, written on Apply
+            GUILayout.Label("Live tuning (host config; applies without a relaunch)");
+            if (_slCap < 0f)
+            {
+                _slCap = CoopPlugin.MaxCustomers != null ? CoopPlugin.MaxCustomers.Value : 0;
+                _slRate = CoopPlugin.SpawnRateMultiplier != null ? CoopPlugin.SpawnRateMultiplier.Value : 1f;
+            }
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"customer cap {(_slCap < 0.5f ? "auto" : Mathf.RoundToInt(_slCap).ToString())}", GUILayout.Width(150));
+            _slCap = GUILayout.HorizontalSlider(_slCap, 0f, 100f);
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"arrivals x{_slRate:0.00}", GUILayout.Width(150));
+            _slRate = GUILayout.HorizontalSlider(_slRate, 0.25f, 4f);
+            if (GUILayout.Button("Apply", GUILayout.Width(60)))
+                Do(Op.Population, Mathf.RoundToInt(_slCap), Mathf.RoundToInt(_slRate * 100f));
+            GUILayout.EndHorizontal();
+            if (Util.Companions.Difficulty.Present)
+            {
+                if (_slPer < 0f)
+                {
+                    Util.Companions.TryGetFloat(Util.Companions.Difficulty.Guid, "Difficulty", "PerPlayerScale", out _slPer);
+                    Util.Companions.TryGetFloat(Util.Companions.Difficulty.Guid, "Difficulty", "StaffCostPerPlayer", out _slStaff);
+                }
+                GUILayout.BeginHorizontal();
+                GUILayout.Label($"crowd +{Mathf.RoundToInt(_slPer * 100f)}% per player", GUILayout.Width(150));
+                _slPer = GUILayout.HorizontalSlider(_slPer, 0f, 2f);
+                GUILayout.EndHorizontal();
+                GUILayout.BeginHorizontal();
+                GUILayout.Label($"staff cost +{Mathf.RoundToInt(_slStaff * 100f)}% per player", GUILayout.Width(150));
+                _slStaff = GUILayout.HorizontalSlider(_slStaff, 0f, 3f);
+                if (GUILayout.Button("Apply", GUILayout.Width(60)))
+                    Do(Op.DiffTuning, Mathf.RoundToInt(_slPer * 100f), Mathf.RoundToInt(_slStaff * 100f));
                 GUILayout.EndHorizontal();
             }
             GUILayout.Label("Economy (TcgEconomy plugin): " + Util.Companions.Economy.Describe());

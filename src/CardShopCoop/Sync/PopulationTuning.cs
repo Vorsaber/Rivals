@@ -32,6 +32,19 @@ namespace CardShopCoop.Sync
             h.Patch(original, postfix: new HarmonyMethod(typeof(PopulationTuning), nameof(EvaluateMaxCustomerCountPostfix)));
         }
 
+        /// <summary>Re-run the game's evaluation now (after a live config change).</summary>
+        public static void Reapply()
+        {
+            try
+            {
+                var cm = UnityEngine.Object.FindObjectOfType<CustomerManager>(); // never CSingleton: it mints a fake
+                var mi = AccessTools.Method(typeof(CustomerManager), "EvaluateMaxCustomerCount");
+                if (cm != null && mi != null)
+                    mi.Invoke(cm, null);
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("PopulationTuning.Reapply: " + e.Message); }
+        }
+
         public static void EvaluateMaxCustomerCountPostfix(CustomerManager __instance)
         {
             try
