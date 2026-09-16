@@ -17,9 +17,10 @@ namespace CardShopCoop.Sync
     /// app (HostTournamentScreen reads m_TournamentData live on open) and for the
     /// physical pairing board, which we drive directly through TournamentPairingScreen
     /// because RefreshAllCustomerData wants live Customer objects the joiner never has.
-    /// There are NO client ops: scheduling is host-only, so the joiner's confirm/cancel
-    /// buttons are blocked with a "the host schedules tournaments" toast instead of
-    /// being forwarded. Prize shelf CONTENTS are synced elsewhere (CardShelfSync).
+    /// Client ops (game 1.0): the shop's one player ENTRY (TournamentEntry - a guest may hold
+    /// it) and the PLAN (TournamentPlan - the guest runs the vanilla phone screen on the
+    /// mirrored data and ships the result on close; the mirror waits while that screen is
+    /// open). Prize shelf CONTENTS are synced elsewhere (CardShelfSync).
     /// </summary>
     public class TournamentSync : TickableCoopModule
     {
@@ -49,6 +50,12 @@ namespace CardShopCoop.Sync
         private static string s_entryHolder = "";      // both: name of the holder, "" none
         private static bool s_entryMine;               // client: the entry is this guest's
         private static TournamentSync s_instance;
+
+        // client: the phone's tournament screen is open here - the guest may be scheduling, so
+        // the mirror waits (it would repaint the prize list under the open screen) and the
+        // result goes up as one TournamentPlan when the screen closes
+        private static bool s_planEditing;
+        private static int s_planHashAtOpen;
 
         /// <summary>True while ClientApplyState writes CPlayerData.m_TournamentData, so
         /// no patch mistakes the authoritative copy for a local scheduling action.</summary>
@@ -90,6 +97,7 @@ namespace CardShopCoop.Sync
             _entryConn = NoEntry;
             s_entryHolder = "";
             s_entryMine = false;
+            s_planEditing = false;
         }
 
         public TournamentSync()
@@ -106,18 +114,18 @@ namespace CardShopCoop.Sync
 
         public static void ApplyPatches(Harmony h)
         {
-            // Scheduling, cancelling and prize setup all mutate m_TournamentData and the
-            // prize shelf plan - host-only decisions, since only the host's customer sim
-            // can actually run the event. The joiner's phone screen stays readable (it
-            // renders the synced data) but its buttons do nothing except explain why.
+            // Scheduling, cancelling and prize setup mutate m_TournamentData and the prize
+            // plan. The guest runs the vanilla screen against the mirrored data and, on
+            // closing it, ships the result up as one TournamentPlan; the host applies it and
+            // the mirror carries it back. While the screen is open here the mirror waits.
+            Try(h, typeof(HostTournamentScreen), "OnOpenScreen",
+                postfix: new HarmonyMethod(typeof(TournamentSync), nameof(ScreenOpenPostfix)));
+            Try(h, typeof(HostTournamentScreen), "OnCloseScreen",
+                postfix: new HarmonyMethod(typeof(TournamentSync), nameof(ScreenClosePostfix)));
             Try(h, typeof(HostTournamentScreen), "OnPressConfirm",
-                prefix: new HarmonyMethod(typeof(TournamentSync), nameof(ScheduleBlockPrefix)));
-            Try(h, typeof(HostTournamentScreen), "OnPressCancel",
-                prefix: new HarmonyMethod(typeof(TournamentSync), nameof(ScheduleBlockPrefix)));
+                postfix: new HarmonyMethod(typeof(TournamentSync), nameof(PlanChangedPostfix)));
             Try(h, typeof(HostTournamentScreen), "ConfirmCancelTournament",
-                prefix: new HarmonyMethod(typeof(TournamentSync), nameof(ScheduleBlockPrefix)));
-            Try(h, typeof(HostTournamentScreen), "OnPressPrizeSetup",
-                prefix: new HarmonyMethod(typeof(TournamentSync), nameof(ScheduleBlockPrefix)));
+                postfix: new HarmonyMethod(typeof(TournamentSync), nameof(PlanChangedPostfix)));
             // the one player entry: guest asks the host; host is refused while a guest holds it
             Try(h, typeof(HostTournamentScreen), "OnPressPlayerSignUpTournament",
                 prefix: new HarmonyMethod(typeof(TournamentSync), nameof(SignUpPrefix)),
@@ -236,16 +244,147 @@ namespace CardShopCoop.Sync
             return string.IsNullOrEmpty(name) ? "a guest" : name;
         }
 
-        public static bool ScheduleBlockPrefix()
+        public static void ScreenOpenPostfix()
         {
             if (CoopCore.Role != CoopRole.Client)
-                return true;
-            if (CoopCore.Instance != null)
+                return;
+            s_planEditing = true;
+            try
             {
-                CoopCore.Instance.RegisterLine = "the host schedules tournaments";
-                CoopCore.Instance.RegisterLineTimer = 3f;
+                s_planHashAtOpen = PlanHash(CPlayerData.m_TournamentData);
             }
-            return false;
+            catch { s_planHashAtOpen = 0; }
+        }
+
+        public static void ScreenClosePostfix()
+        {
+            if (CoopCore.Role != CoopRole.Client)
+                return;
+            s_planEditing = false;
+            s_instance?.ClientSendPlanIfChanged();
+        }
+
+        /// <summary>Scheduled or cancelled from the guest's phone: ship it now rather than on
+        /// close, so the host (and the customers) see it immediately.</summary>
+        public static void PlanChangedPostfix()
+        {
+            if (CoopCore.Role != CoopRole.Client)
+                return;
+            s_instance?.ClientSendPlanIfChanged();
+        }
+
+        private void ClientSendPlanIfChanged()
+        {
+            Guarded("plan-up", () =>
+            {
+                var td = CPlayerData.m_TournamentData;
+                if (td == null || SendToHost == null)
+                    return;
+                int h = PlanHash(td);
+                if (h == s_planHashAtOpen)
+                    return;
+                s_planHashAtOpen = h;
+                var msg = new TournamentPlanMessage
+                {
+                    IsHosting = td.m_IsHostingTournament,
+                    Fee = td.m_TournamentFee,
+                    TotalValue = td.m_TournamentTotalValue,
+                    MaxPlayerCount = td.m_TournamentMaxPlayerCount,
+                    PrizeSlots = BuildPrizeSlots(td),
+                };
+                SendToHost(msg);
+                CoopPlugin.Log.LogInfo($"TournamentSync: sent tournament plan (hosting={msg.IsHosting}, fee={msg.Fee}, cap={msg.MaxPlayerCount})");
+            });
+        }
+
+        /// <summary>Everything the guest's screen can change.</summary>
+        private static int PlanHash(TournamentData td)
+        {
+            if (td == null)
+                return 0;
+            int h = 17;
+            h = h * 31 + (td.m_IsHostingTournament ? 1 : 0);
+            h = h * 31 + td.m_TournamentMaxPlayerCount;
+            h = h * 31 + (int)(td.m_TournamentFee * 100f);
+            h = h * 31 + (int)(td.m_TournamentTotalValue * 100f);
+            var lists = td.m_PrizeDataList;
+            if (lists != null)
+                for (int i = 0; i < lists.Count; i++)
+                {
+                    var inner = lists[i] != null ? lists[i].m_PrizeDataList : null;
+                    if (inner == null)
+                        continue;
+                    for (int j = 0; j < inner.Count; j++)
+                    {
+                        var p = inner[j];
+                        if (p == null)
+                            continue;
+                        h = h * 31 + (int)p.m_ItemType;
+                        h = h * 31 + p.m_Count;
+                        if (p.m_CardData != null)
+                        {
+                            h = h * 31 + (int)p.m_CardData.expansionType;
+                            h = h * 31 + (int)p.m_CardData.monsterType;
+                            h = h * 31 + (int)p.m_CardData.borderType;
+                        }
+                    }
+                }
+            return h;
+        }
+
+        /// <summary>Host: a guest changed the plan from their phone. Same writes the vanilla
+        /// screen makes (OnPressConfirm / ConfirmCancelTournament / the prize screen) against
+        /// the host's data; refused on tournament day, when vanilla refuses too.</summary>
+        public void HostApplyPlan(TournamentPlanMessage msg, int conn)
+        {
+            Guarded("plan", () =>
+            {
+                var td = CPlayerData.m_TournamentData;
+                if (td == null || td.m_IsTournamentDay)
+                {
+                    CoopPlugin.Log.LogInfo($"TournamentSync: plan from {NameOf(conn)} ignored (tournament day)");
+                    return;
+                }
+                bool wasHosting = td.m_IsHostingTournament;
+                if (msg.IsHosting && !wasHosting)
+                {
+                    try
+                    {
+                        CSingleton<CPlayerData>.Instance.ResetPlayerTournamentData();
+                    }
+                    catch (Exception e) { CoopPlugin.Log.LogWarning("ResetPlayerTournamentData: " + e.Message); }
+                    td.m_TournamentSignedUpCustomerCount = 0;
+                    HostSetEntry(NoEntry);
+                }
+                else if (!msg.IsHosting && wasHosting)
+                {
+                    td.m_TournamentSignedUpCustomerCount = 0;
+                }
+                td.m_IsHostingTournament = msg.IsHosting;
+                td.m_TournamentFee = msg.Fee;
+                td.m_TournamentTotalValue = msg.TotalValue;
+                td.m_TournamentMaxPlayerCount = msg.MaxPlayerCount;
+                ApplyPrizeSlots(td, msg.PrizeSlots);
+                RefreshHostTournamentScreen();
+                _gate.Force();
+                CoopPlugin.Log.LogInfo($"TournamentSync: {NameOf(conn)} {(msg.IsHosting ? (wasHosting ? "updated" : "scheduled") : (wasHosting ? "cancelled" : "edited"))} the tournament (fee {msg.Fee}, cap {msg.MaxPlayerCount})");
+            });
+        }
+
+        private static readonly MethodInfo MiScreenOpen =
+            AccessTools.Method(typeof(HostTournamentScreen), "OnOpenScreen");
+
+        /// <summary>If the phone's tournament screen is open on this PC, repaint it from data.</summary>
+        private static void RefreshHostTournamentScreen()
+        {
+            try
+            {
+                var screen = UnityEngine.Object.FindObjectOfType<HostTournamentScreen>();
+                if (screen == null || !screen.gameObject.activeInHierarchy || MiScreenOpen == null)
+                    return;
+                MiScreenOpen.Invoke(screen, null);
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("TournamentSync.RefreshHostTournamentScreen: " + e.Message); }
         }
 
         private static void Try(Harmony h, Type type, string method,
@@ -393,6 +532,8 @@ namespace CardShopCoop.Sync
 
         private void ClientApplyInner(TournamentStateMessage message)
         {
+            if (s_planEditing)
+                return; // the guest's screen is open on this data; their close sends the plan up
             var td = CPlayerData.m_TournamentData;
             if (td == null)
             {
@@ -432,35 +573,7 @@ namespace CardShopCoop.Sync
             s_entryMine = CPlayerData.m_IsPlayerRegisteredForTournament
                 && !string.IsNullOrEmpty(me) && s_entryHolder == me;
 
-            // prize catalog: mutate the vanilla 4-slot list in place so screens that
-            // index m_PrizeDataList[i] never see it shorter than they expect
-            if (td.m_PrizeDataList == null)
-                td.m_PrizeDataList = new List<TournamentPrizeDataList>();
-            int lists = message.PrizeSlots.Count;
-            while (td.m_PrizeDataList.Count < lists)
-                td.m_PrizeDataList.Add(new TournamentPrizeDataList { m_PrizeDataList = new List<TournamentPrizeData>() });
-            for (int i = 0; i < lists; i++)
-            {
-                var slot = td.m_PrizeDataList[i];
-                if (slot.m_PrizeDataList == null)
-                    slot.m_PrizeDataList = new List<TournamentPrizeData>();
-                slot.m_PrizeDataList.Clear();
-                var dtoSlot = message.PrizeSlots[i];
-                for (int j = 0; j < dtoSlot.Prizes.Count; j++)
-                {
-                    var pe = dtoSlot.Prizes[j];
-                    var p = new TournamentPrizeData();
-                    if (pe.HasCard)
-                        p.m_CardData = pe.Card;
-                    // host id -> ours (already translated by the DTO deserialize); a prize
-                    // from a pack only the host has becomes EItemType.None and the prize slot
-                    // just shows nothing, which is what an unresolvable prize did before
-                    // translation existed
-                    p.m_ItemType = pe.ItemType;
-                    p.m_Count = pe.Count;
-                    slot.m_PrizeDataList.Add(p);
-                }
-            }
+            ApplyPrizeSlots(td, message.PrizeSlots);
 
             // bracket digest
             int n = message.Bracket.Count;
@@ -524,6 +637,39 @@ namespace CardShopCoop.Sync
                 RefreshHostScreen();
                 CoopPlugin.Log.LogInfo(msg.Registered ? "TournamentSync: entered the host's tournament" : "TournamentSync: withdrew from the host's tournament");
             });
+        }
+
+        /// <summary>Prize catalog: mutate the vanilla 4-slot list in place so screens that
+        /// index m_PrizeDataList[i] never see it shorter than they expect.</summary>
+        private static void ApplyPrizeSlots(TournamentData td, List<TournamentPrizeSlot> slots)
+        {
+            if (td.m_PrizeDataList == null)
+                td.m_PrizeDataList = new List<TournamentPrizeDataList>();
+            int lists = slots != null ? slots.Count : 0;
+            while (td.m_PrizeDataList.Count < lists)
+                td.m_PrizeDataList.Add(new TournamentPrizeDataList { m_PrizeDataList = new List<TournamentPrizeData>() });
+            for (int i = 0; i < lists; i++)
+            {
+                var slot = td.m_PrizeDataList[i];
+                if (slot.m_PrizeDataList == null)
+                    slot.m_PrizeDataList = new List<TournamentPrizeData>();
+                slot.m_PrizeDataList.Clear();
+                var dtoSlot = slots[i];
+                for (int j = 0; j < dtoSlot.Prizes.Count; j++)
+                {
+                    var pe = dtoSlot.Prizes[j];
+                    var p = new TournamentPrizeData();
+                    if (pe.HasCard)
+                        p.m_CardData = pe.Card;
+                    // peer id -> ours (already translated by the DTO deserialize); a prize
+                    // from a pack only the other side has becomes EItemType.None and the prize
+                    // slot just shows nothing, which is what an unresolvable prize did before
+                    // translation existed
+                    p.m_ItemType = pe.ItemType;
+                    p.m_Count = pe.Count;
+                    slot.m_PrizeDataList.Add(p);
+                }
+            }
         }
 
         /// <summary>Client: the pairing board and shelf screen mesh are normally driven
@@ -601,6 +747,35 @@ namespace CardShopCoop.Sync
 
         // ---------------- wire / hash ----------------
 
+        private static List<TournamentPrizeSlot> BuildPrizeSlots(TournamentData td)
+        {
+            var slots = new List<TournamentPrizeSlot>();
+            var lists = td.m_PrizeDataList;
+            int lc = lists != null ? Mathf.Min(lists.Count, 8) : 0;
+            for (int i = 0; i < lc; i++)
+            {
+                var slot = new TournamentPrizeSlot();
+                var inner = lists[i] != null ? lists[i].m_PrizeDataList : null;
+                int ec = inner != null ? Mathf.Min(inner.Count, 64) : 0;
+                for (int j = 0; j < ec; j++)
+                {
+                    var p = inner[j];
+                    bool hasCard = p != null && p.m_CardData != null;
+                    slot.Prizes.Add(new TournamentPrizeEntry
+                    {
+                        HasCard = hasCard,
+                        Card = hasCard ? p.m_CardData : null,
+                        // item prizes are EItemTypes (a modded id space) - the card above
+                        // already goes through the WriteCard chokepoint
+                        ItemType = p != null ? p.m_ItemType : (EItemType)0,
+                        Count = p != null ? p.m_Count : 0,
+                    });
+                }
+                slots.Add(slot);
+            }
+            return slots;
+        }
+
         private static TournamentStateMessage BuildState(TournamentData td)
         {
             var msg = new TournamentStateMessage
@@ -627,29 +802,7 @@ namespace CardShopCoop.Sync
             msg.PlayerCustomerIndex = ptd != null ? ptd.m_TournamentCustomerIndex : 0;
             msg.PlayerSortedIndex = ptd != null ? ptd.m_TournamentCustomerSortedIndex : 0;
 
-            var lists = td.m_PrizeDataList;
-            int lc = lists != null ? Mathf.Min(lists.Count, 8) : 0;
-            for (int i = 0; i < lc; i++)
-            {
-                var slot = new TournamentPrizeSlot();
-                var inner = lists[i] != null ? lists[i].m_PrizeDataList : null;
-                int ec = inner != null ? Mathf.Min(inner.Count, 64) : 0;
-                for (int j = 0; j < ec; j++)
-                {
-                    var p = inner[j];
-                    bool hasCard = p != null && p.m_CardData != null;
-                    slot.Prizes.Add(new TournamentPrizeEntry
-                    {
-                        HasCard = hasCard,
-                        Card = hasCard ? p.m_CardData : null,
-                        // item prizes are EItemTypes (a modded id space) - the card above
-                        // already goes through the WriteCard chokepoint
-                        ItemType = p != null ? p.m_ItemType : (EItemType)0,
-                        Count = p != null ? p.m_Count : 0,
-                    });
-                }
-                msg.PrizeSlots.Add(slot);
-            }
+            msg.PrizeSlots = BuildPrizeSlots(td);
 
             // bracket digest straight from the host's live sorted list (the same list
             // the vanilla pairing board renders from)

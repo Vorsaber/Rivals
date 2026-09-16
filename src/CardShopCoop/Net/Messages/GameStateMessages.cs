@@ -220,6 +220,26 @@ namespace CardShopCoop.Net.Messages
         }
     }
 
+    /// <summary>Client -> host: the guest closed the phone's tournament screen with a changed
+    /// plan - scheduled, cancelled, or a different fee / capacity / prize setup. Applied to the
+    /// host's <c>m_TournamentData</c> and re-mirrored.</summary>
+    [NetworkMessage(MsgType.TournamentPlan, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class TournamentPlanMessage : INetMessage
+    {
+        public bool IsHosting;
+        public float Fee;
+        public float TotalValue;
+        public int MaxPlayerCount;
+        public List<TournamentPrizeSlot> PrizeSlots = new List<TournamentPrizeSlot>();
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.TournamentPlan;
+            }
+        }
+    }
+
     /// <summary>Client -> host: take (<c>Want</c>) or give up the shop's one tournament entry.</summary>
     [NetworkMessage(MsgType.TournamentEntry, Policy = MessagePolicy.HostOnlyInGame)]
     public sealed class TournamentEntryMessage : INetMessage

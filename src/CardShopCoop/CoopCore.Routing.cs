@@ -930,6 +930,15 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<TournamentPlanMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Host || !InGameLevel())
+                    return;
+                if (message is TournamentPlanMessage plan)
+                    _tournament.HostApplyPlan(plan, context.ConnectionId);
+                return;
+            },
+                MessagePolicy.HostOnlyInGame, false);
             _messageRouter.Register<TournamentEntryResultMessage>((context, message) =>
             {
                 if (Role != CoopRole.Client || !InGameLevel())

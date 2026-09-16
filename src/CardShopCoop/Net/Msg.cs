@@ -112,6 +112,7 @@ namespace CardShopCoop.Net
         PvpStart = 114,     // host -> one client: match on - seed, sides, the host's deck
         PvpAction = 115,    // both ways: one human action, replayed on the other PC's enemy set
         PvpEnd = 116,       // both ways: this side left the table
+        TournamentPlan = 117, // client -> host: the guest scheduled / cancelled / re-prized the tournament
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.
