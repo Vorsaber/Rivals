@@ -35,16 +35,6 @@ namespace CardShopCoop
         public static ConfigEntry<int> Port;
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
-        public static ConfigEntry<Sync.DifficultyProfile> DifficultyProfile;
-        public static ConfigEntry<float> DifficultyPerPlayer;
-        public static ConfigEntry<float> DifficultyCustomCap;
-        public static ConfigEntry<float> DifficultyCustomRate;
-        public static ConfigEntry<float> DifficultyCustomWallet;
-        public static ConfigEntry<Sync.EconomyProfile> EconomyProfile;
-        public static ConfigEntry<float> EconomyCustomMargin;
-        public static ConfigEntry<float> EconomyCustomCardValue;
-        public static ConfigEntry<float> EconomyCustomPickiness;
-        public static ConfigEntry<float> EconomyCustomCost;
         public static ConfigEntry<string> LastJoinIP;
         public static ConfigEntry<string> PlayerName;
         public static ConfigEntry<float> SendRateHz;
@@ -92,27 +82,7 @@ namespace CardShopCoop
             MaxCustomers = Config.Bind("Population", "MaxCustomers", 0,
                 "Host only. Cap on customers in the shop at once. 0 = the game's own cap (3-30 by shop level and rooms). Applied through the game's normal spawn pacing; guests see the same crowd.");
             SpawnRateMultiplier = Config.Bind("Population", "SpawnRateMultiplier", 1f,
-                "Host only. Multiplies how often a new customer arrives (2 = twice as often, 0.5 = half). 1 = vanilla. Overrides the Difficulty profile.");
-            DifficultyProfile = Config.Bind("Difficulty", "Profile", Sync.DifficultyProfile.Normal,
-                "Host only. Crowd profile, scaled by how many people are playing. Off = the game's own numbers regardless of player count. Relaxed: fewer, richer customers. Normal: vanilla at one player. Busy / Chaos: more customers arriving faster. Custom: the Custom* multipliers below. Changeable live from the cheat menu.");
-            DifficultyPerPlayer = Config.Bind("Difficulty", "PerPlayerScale", 0.35f,
-                "Host only. How much the crowd grows per EXTRA player: 0.35 = a second player adds 35% more customers arriving 35% faster, a third adds another 35%. 0 = no scaling.");
-            DifficultyCustomCap = Config.Bind("Difficulty", "CustomCustomers", 1f,
-                "Custom profile: multiplier on the customer cap (before the per-player scale).");
-            DifficultyCustomRate = Config.Bind("Difficulty", "CustomArrivalRate", 1f,
-                "Custom profile: multiplier on how often customers arrive (before the per-player scale).");
-            DifficultyCustomWallet = Config.Bind("Difficulty", "CustomWallet", 1f,
-                "Custom profile: multiplier on how much money customers carry.");
-            EconomyProfile = Config.Bind("Economy", "Profile", Sync.EconomyProfile.Vanilla,
-                "Host / single player. Rebases the economy so profit is harder. Vanilla: the game's own numbers (customers accept a 50-200% markup as fair). Tight: half that spread, cards worth 3/4, customers 1.5x as picky about markups, stock costs 10% more. Harsh: a third of the spread, cards worth 60%, customers twice as picky, stock costs 25% more. Custom: the values below. Applies to existing saves immediately and mirrors to guests. Changeable live from the cheat menu.");
-            EconomyCustomMargin = Config.Bind("Economy", "CustomMarginScale", 0.5f,
-                "Custom: scale on the wholesale-to-market spread (1 = vanilla, 0.5 = half the built-in markup, 0 = market price equals cost).");
-            EconomyCustomCardValue = Config.Bind("Economy", "CustomCardValueScale", 0.75f,
-                "Custom: multiplier on card market prices.");
-            EconomyCustomPickiness = Config.Bind("Economy", "CustomPickiness", 1.5f,
-                "Custom: multiplier on how harshly customers judge a price above market (2 = a 10% markup feels like 20%).");
-            EconomyCustomCost = Config.Bind("Economy", "CustomStockCostScale", 1.1f,
-                "Custom: multiplier on what the shop pays to restock.");
+                "Host only. Multiplies how often a new customer arrives (2 = twice as often, 0.5 = half). 1 = vanilla. Overrides the TcgDifficulty profile when that plugin is installed.");
             SendRateHz = Config.Bind("Network", "SendRateHz", 15f,
                 "How many position updates per second to send (8-20 is sensible).");
             if (Mathf.Approximately(SendRateHz.Value, 12f))

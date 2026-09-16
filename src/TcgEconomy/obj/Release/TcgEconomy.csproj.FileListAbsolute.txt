@@ -1,0 +1,7 @@
+C:\Users\danie\projects\cardshopcoop\src\TcgEconomy\bin\Release\TcgEconomy.dll
+C:\Users\danie\projects\cardshopcoop\src\TcgEconomy\obj\Release\TcgEconomy.csproj.AssemblyReference.cache
+C:\Users\danie\projects\cardshopcoop\src\TcgEconomy\obj\Release\TcgEconomy.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\danie\projects\cardshopcoop\src\TcgEconomy\obj\Release\TcgEconomy.AssemblyInfoInputs.cache
+C:\Users\danie\projects\cardshopcoop\src\TcgEconomy\obj\Release\TcgEconomy.AssemblyInfo.cs
+C:\Users\danie\projects\cardshopcoop\src\TcgEconomy\obj\Release\TcgEconomy.csproj.CoreCompileInputs.cache
+C:\Users\danie\projects\cardshopcoop\src\TcgEconomy\obj\Release\TcgEconomy.dll

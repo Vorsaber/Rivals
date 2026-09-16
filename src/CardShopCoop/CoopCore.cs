@@ -191,7 +191,6 @@ namespace CardShopCoop
         private readonly BattleSync _battle = new BattleSync();
         private readonly GuestBattle _guestBattle = new GuestBattle();
         private readonly PvpBattle _pvp = new PvpBattle();
-        private readonly Difficulty _difficulty = new Difficulty();
         private readonly DeckSync _decks = new DeckSync();
         private readonly PlayerIntentBus _intents = new PlayerIntentBus();
         private readonly StaffSync _staff = new StaffSync();
@@ -694,7 +693,7 @@ namespace CardShopCoop
             _tv.SendOp = Send(1);
             _tv.BroadcastState = Broadcast;
             _tv.PeerCount = () => _net == null ? 0 : _net.ConnectionCount;
-            _difficulty.PeerCount = () => _net == null ? 0 : _net.ConnectionCount;
+            WireCompanions();
 
             FurnitureBoxOps.SendOp = Send(1);
             FurnitureBoxOps.IsLocallyCarried = box =>
@@ -1832,7 +1831,6 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(_battle, "battle", 12, 5, Sync.BattleSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_decks, "decks", 13, 6, Sync.DeckSync.ApplyPatches),
                 new Sync.CoopModuleEntry(_pvp, "pvp", 14, 7, Sync.PvpBattle.ApplyPatches),
-                new Sync.CoopModuleEntry(_difficulty, "difficulty", 15, -1, Sync.Difficulty.ApplyPatches),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("join-heal", null, null,
                     () => _priceFullPending = true), "join-heal"),
                 new Sync.CoopModuleEntry(new Sync.DelegateCoopModule("live-hooks",
@@ -1842,7 +1840,6 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(null, "hand-protection", patches: Sync.HandProtection.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "population-tuning", patches: Sync.PopulationTuning.ApplyPatches),
-                new Sync.CoopModuleEntry(null, "economy", patches: Sync.EconomyTuning.ApplyPatches),
             };
         }
 
@@ -1884,6 +1881,7 @@ namespace CardShopCoop
 
         private void ResetAllModules()
         {
+            Util.Companions.Economy.ClearOverride(); // a guest goes back to its own economy config
             _guestBattle.Reset();
             for (int i = 0; i < _allModules.Length; i++)
                 _allModules[i].ResetState();
@@ -3753,8 +3751,23 @@ namespace CardShopCoop
         /// Null-safe: no EventSystem / nothing selected / not editing -> false.</summary>
         // ------------------------------------------------ per-frame
 
+        private bool _companionsWired;
+
+        /// <summary>Standalone companions (TcgDifficulty / TcgEconomy) may load after us;
+        /// keep offering until they are there.</summary>
+        private void WireCompanions()
+        {
+            if (_companionsWired || !Util.Companions.Difficulty.Present)
+                return;
+            _companionsWired = true;
+            Util.Companions.Difficulty.SetProviders(
+                () => 1 + (_net == null ? 0 : _net.ConnectionCount),
+                () => Role != CoopRole.Client);
+        }
+
         private void Update()
         {
+            WireCompanions();
             int actionsRun = 0;
             while (actionsRun++ < MainThreadActionBudget && _mainThread.TryDequeue(out var act))
             {

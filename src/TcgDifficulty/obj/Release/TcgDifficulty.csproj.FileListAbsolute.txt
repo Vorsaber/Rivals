@@ -1,0 +1,7 @@
+C:\Users\danie\projects\cardshopcoop\src\TcgDifficulty\bin\Release\TcgDifficulty.dll
+C:\Users\danie\projects\cardshopcoop\src\TcgDifficulty\obj\Release\TcgDifficulty.csproj.AssemblyReference.cache
+C:\Users\danie\projects\cardshopcoop\src\TcgDifficulty\obj\Release\TcgDifficulty.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\danie\projects\cardshopcoop\src\TcgDifficulty\obj\Release\TcgDifficulty.AssemblyInfoInputs.cache
+C:\Users\danie\projects\cardshopcoop\src\TcgDifficulty\obj\Release\TcgDifficulty.AssemblyInfo.cs
+C:\Users\danie\projects\cardshopcoop\src\TcgDifficulty\obj\Release\TcgDifficulty.csproj.CoreCompileInputs.cache
+C:\Users\danie\projects\cardshopcoop\src\TcgDifficulty\obj\Release\TcgDifficulty.dll

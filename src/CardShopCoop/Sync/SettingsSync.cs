@@ -307,11 +307,9 @@ namespace CardShopCoop.Sync
                     // "no expansion picked yet" - the joiner's own packs are untouched
                     CPlayerData.m_GameEventExpansionType = message.GameEventExpansion;
                     CPlayerData.m_PendingGameEventExpansionType = message.PendingGameEventExpansion;
-                    EconomyTuning.RemoteMargin = message.EconMargin;
-                    EconomyTuning.RemoteCard = message.EconCard;
-                    EconomyTuning.RemotePick = message.EconPick;
-                    EconomyTuning.RemoteCost = message.EconCost;
-                    EconomyTuning.RemoteKnown = true;
+                    // the host's economy applies to everyone; a host without TcgEconomy sends 1s,
+                    // which on a guest WITH it means "vanilla" (the override still applies)
+                    Util.Companions.Economy.SetOverride(message.EconMargin, message.EconCard, message.EconPick, message.EconCost, message.EconBill);
                     int feeCount = message.GameEventPrices.Count;
                     for (int i = 0; i < feeCount; i++)
                     {
@@ -511,7 +509,8 @@ namespace CardShopCoop.Sync
             int fn = Mathf.Min(fees.Count, 255);
             for (int i = 0; i < fn; i++)
                 msg.GameEventPrices.Add(fees[i]);
-            EconomyTuning.LocalFactors(out msg.EconMargin, out msg.EconCard, out msg.EconPick, out msg.EconCost);
+            Util.Companions.Economy.LocalFactors(out msg.EconMargin, out msg.EconCard, out msg.EconPick, out msg.EconCost, out msg.EconBill);
+            msg.EconPresent = Util.Companions.Economy.Present;
             var counters = Sm()?.m_CashierCounterList;
             int cn = counters == null ? 0 : Mathf.Min(counters.Count, 255);
             for (int i = 0; i < cn; i++)
@@ -603,11 +602,12 @@ namespace CardShopCoop.Sync
             h = h * 31 + CPlayerData.m_EquippedCeilingDecoIndexB;
             h = h * 31 + (int)CPlayerData.m_GameEventFormat;
             h = h * 31 + (int)CPlayerData.m_PendingGameEventFormat;
-            EconomyTuning.LocalFactors(out float em, out float ec, out float ep, out float ek);
+            Util.Companions.Economy.LocalFactors(out float em, out float ec, out float ep, out float ek, out float eb);
             h = h * 31 + (int)(em * 1000f);
             h = h * 31 + (int)(ec * 1000f);
             h = h * 31 + (int)(ep * 1000f);
             h = h * 31 + (int)(ek * 1000f);
+            h = h * 31 + (int)(eb * 1000f);
             h = h * 31 + (int)CPlayerData.m_GameEventExpansionType;
             h = h * 31 + (int)CPlayerData.m_PendingGameEventExpansionType;
             var fees = CPlayerData.m_SetGameEventPriceList;

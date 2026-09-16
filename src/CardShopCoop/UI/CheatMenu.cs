@@ -185,12 +185,12 @@ namespace CardShopCoop.UI
                     SpawnFurniture((EObjectType)a);
                     break;
                 case Op.Difficulty:
-                    Sync.Difficulty.SetProfile((Sync.DifficultyProfile)a);
-                    Say("difficulty: " + Sync.Difficulty.Describe());
+                    Util.Companions.Difficulty.SetProfile(a);
+                    Say("difficulty: " + Util.Companions.Difficulty.Describe());
                     break;
                 case Op.Economy:
-                    Sync.EconomyTuning.SetProfile((Sync.EconomyProfile)a);
-                    Say("economy: " + Sync.EconomyTuning.Describe());
+                    Util.Companions.Economy.SetProfile(a);
+                    Say("economy: " + Util.Companions.Economy.Describe());
                     break;
                 default:
                     Say("unknown cheat " + op);
@@ -364,18 +364,26 @@ namespace CardShopCoop.UI
                 Do(Op.Deco, 2);
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
-            GUILayout.Label("Difficulty: " + Sync.Difficulty.Describe());
-            GUILayout.BeginHorizontal();
-            foreach (Sync.DifficultyProfile p in Enum.GetValues(typeof(Sync.DifficultyProfile)))
-                if (GUILayout.Button(p.ToString()))
-                    Do(Op.Difficulty, (int)p);
-            GUILayout.EndHorizontal();
-            GUILayout.Label("Economy: " + Sync.EconomyTuning.Describe());
-            GUILayout.BeginHorizontal();
-            foreach (Sync.EconomyProfile p in Enum.GetValues(typeof(Sync.EconomyProfile)))
-                if (GUILayout.Button(p.ToString()))
-                    Do(Op.Economy, (int)p);
-            GUILayout.EndHorizontal();
+            GUILayout.Label("Difficulty (TcgDifficulty plugin): " + Util.Companions.Difficulty.Describe());
+            if (Util.Companions.Difficulty.Present)
+            {
+                GUILayout.BeginHorizontal();
+                var dp = Util.Companions.Difficulty.Profiles;
+                for (int i = 0; i < dp.Length; i++)
+                    if (GUILayout.Button(dp[i]))
+                        Do(Op.Difficulty, i);
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.Label("Economy (TcgEconomy plugin): " + Util.Companions.Economy.Describe());
+            if (Util.Companions.Economy.Present)
+            {
+                GUILayout.BeginHorizontal();
+                var ep = Util.Companions.Economy.Profiles;
+                for (int i = 0; i < ep.Length; i++)
+                    if (GUILayout.Button(ep[i]))
+                        Do(Op.Economy, i);
+                GUILayout.EndHorizontal();
+            }
             GUILayout.Space(4);
             GUILayout.Label("Play table fee (a new shop has no review rating, so customers read a market fee as 10x market and refuse to sit)");
             GUILayout.BeginHorizontal();
