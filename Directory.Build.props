@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- Single source of truth for the plugin's public/release version. -->
-    <CardShopCoopVersion>1.3.0</CardShopCoopVersion>
+    <CardShopCoopVersion>2.0.0</CardShopCoopVersion>
     <!-- The standalone companion plugins (TcgEconomy, TcgDifficulty). -->
     <TcgToolsVersion>1.0.2</TcgToolsVersion>
     <Deploy>false</Deploy>
