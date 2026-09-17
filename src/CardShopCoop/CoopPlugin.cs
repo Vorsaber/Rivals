@@ -51,6 +51,7 @@ namespace CardShopCoop
         public static ConfigEntry<int> RivalsPerTeam;
         // --- fv-683 leaderboard-v2 begin
         public static ConfigEntry<int> RivalsSeasonDays;
+        public static ConfigEntry<int> RivalsWeekDays;
         // --- fv-683 leaderboard-v2 end
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
@@ -132,6 +133,8 @@ namespace CardShopCoop
             // --- fv-683 leaderboard-v2 begin
             RivalsSeasonDays = Config.Bind("Rivals", "SeasonDays", 0,
                 new ConfigDescription("Lobby host: the season's length in days (the LEAGUE box has +/-). A shop is finished once it closes that day; its shop value (money + stock at market price) then is its final score, and when every shop is finished the lobby names the winner. 0 = endless, no winner.", new AcceptableValueRange<int>(0, 365)));
+            RivalsWeekDays = Config.Bind("Rivals", "WeekDays", 7,
+                new ConfigDescription("Lobby host: declare a winner every this-many days (days 1-7, 8-14, ...) while the league runs on - the shop that GAINED the most shop value over the stretch. 0 = off. Independent of SeasonDays.", new AcceptableValueRange<int>(0, 60)));
             // --- fv-683 leaderboard-v2 end
             MaxPlayers = Config.Bind("Network", "MaxPlayers", 4,
                 new ConfigDescription("Host: players in the shop including you (2-8). Sets the Steam lobby size and refuses LAN joins past it. Everything is relayed through the host, so above 4 expect the host's upload to be the limit.", new AcceptableValueRange<int>(2, 8)));
