@@ -489,6 +489,8 @@ namespace CardShopCoop.Sync
                 return;
             }
             int? busy = RelayTableBusy(table, msg.TableIndex, conn);
+            if (busy == null && GuestBattle.HostIsSeated(conn))
+                busy = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
             if (busy != null)
             {
                 Refuse(conn, msg.TableIndex, busy.Value);
@@ -535,6 +537,8 @@ namespace CardShopCoop.Sync
                 return;
             }
             int? busy = RelayTableBusy(table, tableIndex, bConn);
+            if (busy == null && GuestBattle.HostIsSeated(bConn))
+                busy = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
             if (busy != null)
             {
                 Refuse(bConn, tableIndex, busy.Value);
@@ -547,11 +551,12 @@ namespace CardShopCoop.Sync
                 return;
             }
             var deckA = ResolveDeck(aSit.Deck);
-            if (deckA == null || deckA.Count < GameInstance.GetMaxDeckCardCount())
+            bool aSeated = GuestBattle.HostIsSeated(aConn);
+            if (aSeated || deckA == null || deckA.Count < GameInstance.GetMaxDeckCardCount())
             {
-                // the waiter's deck went bad since they sat (edited meanwhile): drop the wait
+                // the waiter sat down elsewhere, or their deck went bad (edited meanwhile): drop the wait
                 _waiting.Remove(tableIndex);
-                SendToClient?.Invoke(aConn, new PvpWaitMessage { TableIndex = tableIndex, Waiting = false, Text = "Co-op: your selected deck is incomplete - no longer waiting" });
+                SendToClient?.Invoke(aConn, new PvpWaitMessage { TableIndex = tableIndex, Waiting = false, Text = aSeated ? "Co-op: you sat down elsewhere - no longer waiting for a PvP opponent" : "Co-op: your selected deck is incomplete - no longer waiting" });
                 Refuse(bConn, tableIndex, (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer);
                 return;
             }
@@ -642,6 +647,8 @@ namespace CardShopCoop.Sync
 
         /// <summary>Client: the table this guest is waiting at, or -1.</summary>
         public static int ClientWaitingTable => s_clientWaitTable;
+        /// <summary>This PC's current match is against another guest, forwarded by the host.</summary>
+        public static bool IsRelay => Active && s_relay;
         // --- fv-680 guest-vs-guest pvp end
 
         /// <summary>Client: the host wants a stake. A visitor with the money in the bag is asked

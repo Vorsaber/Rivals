@@ -424,6 +424,16 @@ namespace CardShopCoop.Sync
             }
         }
 
+        // --- fv-680 guest-vs-guest pvp begin
+        /// <summary>Host: is this guest sitting at a table in a battle of their own right now?
+        /// (PvpBattle: a guest waiting for a PvP opponent may have sat down meanwhile.)</summary>
+        internal static bool HostIsSeated(int connId)
+        {
+            var me = _active;
+            return me != null && me._guestSeats.ContainsKey(connId);
+        }
+        // --- fv-680 guest-vs-guest pvp end
+
         /// <summary>Host / single player: stand every table down that has a player seat booked
         /// or a player game flagged, and forget every guest seat. The cheat menu's eviction.</summary>
         public static int HostFreeAllTables()
