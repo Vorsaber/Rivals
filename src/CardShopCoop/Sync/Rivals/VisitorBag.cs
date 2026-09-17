@@ -66,6 +66,27 @@ namespace CardShopCoop.Sync.Rivals
             public List<Card> Cards = new List<Card>();
             public List<string> Log = new List<string>();
             public string OpenedAt = "";
+            // --- fv-682 b5-ledger-hardening begin
+            /// <summary>Identity of this trip (8 hex, minted at Open; a piggybacker adopts the
+            /// server's). Every write that could be resent - a deposit, a delivery, a recovery
+            /// from a mirror - is applied once per TripId (<see cref="BagLedger"/>).</summary>
+            public string TripId = "";
+            /// <summary>Guest: handed to the team host (BagDeposit) and not yet acknowledged -
+            /// kept, and resent, until the host's <see cref="Net.Messages.BagDepositAckMessage"/>.</summary>
+            public bool DepositPending;
+            /// <summary>Captain: this came from the lobby's "deliver" - acknowledge it once applied.</summary>
+            public bool Delivered;
+            /// <summary>Server: everyone out with it dropped their connection at this unix time
+            /// (0 = not orphaned); delivered to the captain once the grace runs out.</summary>
+            public long OrphanedAtUnix;
+            /// <summary>Server: sent to this member (conn id, -1 = none) at this unix time and
+            /// waiting for its "delivered"; resent until it comes.</summary>
+            public int DeliverTo = -1;
+            public long DeliverAtUnix;
+            /// <summary>Captain: other delivered trips folded into this bag before it could be
+            /// applied - each is marked applied and acknowledged with it.</summary>
+            public List<string> MergedTrips = new List<string>();
+            // --- fv-682 b5-ledger-hardening end
 
             /// <summary>A detached copy: the lobby server's ledger and its own mirror must
             /// never be the same object (an op would count twice).</summary>
@@ -146,11 +167,13 @@ namespace CardShopCoop.Sync.Rivals
                 MoneyAtDeparture = Math.Max(0, cash),
                 Withdrawn = withdrawn,
                 OpenedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
+                TripId = BagLedger.NewId(),
             };
             // in a league: the lobby keeps ONE bag per team - a teammate already out carries it,
             // we piggyback (same balance, same haul); otherwise ours becomes the team's
-            if (RivalsLobby.ShareBag(Current))
-                Current.Shared = true;
+            Current.Shared = true; // fv-682: before the share - the server's own echo arrives synchronously
+            if (!RivalsLobby.ShareBag(Current))
+                Current.Shared = false;
             Save();
             CoopPlugin.Log.LogInfo($"VisitorBag: opened{(Current.Shared ? " (team bag via the lobby)" : "")} - home {(Current.HomeIsTeam ? "team shop '" + Current.HomeShop + "'" : "slot " + Current.HomeSaveIndex)}, cash {Current.MoneyAtDeparture:0.00}{(Current.Withdrawn ? " (taken from the till)" : "")}, visiting {Current.VisitingShop}");
         }
@@ -165,8 +188,16 @@ namespace CardShopCoop.Sync.Rivals
                 if (IsOpen && Current.Shared)
                 {
                     Current = new State();
+                    s_backPending = false;
                     Save();
                 }
+                return;
+            }
+            if (IsOpen && !Current.Shared)
+            {
+                // ours is a private bag (opened without the lobby, or waiting on a deposit ack):
+                // the team's mirror must not paper over it
+                CoopPlugin.Log.LogInfo($"VisitorBag: team bag state for trip {s.TripId} ignored - holding a private bag (trip {Current.TripId})");
                 return;
             }
             s.Shared = true;
@@ -180,14 +211,67 @@ namespace CardShopCoop.Sync.Rivals
         {
             if (s == null)
                 return;
+            // fv-682: the server resends "deliver" until we say "delivered" - a copy of a trip
+            // we already put into a world is acknowledged again and otherwise ignored
+            if (BagLedger.TripApplied(s.TripId) || (IsOpen && Current.MergedTrips.Contains(s.TripId)))
+            {
+                CoopPlugin.Log.LogInfo($"VisitorBag: trip {s.TripId} delivered again - already {(BagLedger.TripApplied(s.TripId) ? "applied, acknowledging" : "merged into the bag we hold")}");
+                if (BagLedger.TripApplied(s.TripId))
+                    RivalsLobby.SendBagDelivered(s.TripId);
+                return;
+            }
+            s_backPending = false;
             s.Shared = false;
             s.HomeIsTeam = false;
             s.HomeSaveIndex = -1; // any world of our own
             s.Open = true;
-            Current = s;
+            s.Delivered = true;
+            s.DepositPending = false;
+            bool sameTrip = IsOpen && !string.IsNullOrEmpty(s.TripId) && Current.TripId == s.TripId;
+            if (sameTrip)
+            {
+                // the server's copy replaces ours (it may be our still-shared mirror of this very
+                // trip) - but what we already folded into it stays owed an ack
+                foreach (string t in Current.MergedTrips)
+                    if (!s.MergedTrips.Contains(t))
+                        s.MergedTrips.Add(t);
+            }
+            if (!sameTrip && IsOpen && !Current.Shared && !Current.DepositPending)
+            {
+                // a private bag of ours is still unapplied: the delivery rides in with it, one apply
+                CoopPlugin.Log.LogInfo($"VisitorBag: trip {s.TripId} delivered onto our unapplied bag (trip {Current.TripId}) - merged");
+                MergeInto(Current, s);
+                if (Current.Delivered && !string.IsNullOrEmpty(Current.TripId))
+                    Current.MergedTrips.Add(Current.TripId); // an earlier delivery, acked with this one
+                Current.MergedTrips.AddRange(s.MergedTrips);
+                Current.TripId = s.TripId;
+                Current.Delivered = true;
+                Current.HomeIsTeam = false;
+                Current.HomeSaveIndex = -1;
+            }
+            else
+                Current = s;
             Save();
-            CoopPlugin.Log.LogInfo($"VisitorBag: team bag delivered - net {s.Earned - s.Spent:0.00}, {s.Cards.Count} card line(s), {s.Items.Count} item line(s)");
+            CoopPlugin.Log.LogInfo($"VisitorBag: team bag delivered (trip {s.TripId}) - net {s.Earned - s.Spent:0.00}, {s.Cards.Count} card line(s), {s.Items.Count} item line(s)");
             ApplyIfHome();
+        }
+
+        /// <summary>Everything in <paramref name="from"/> goes into <paramref name="into"/>:
+        /// cash, spend, earnings, every card and item line, the log.</summary>
+        public static void MergeInto(State into, State from)
+        {
+            if (from.Withdrawn && from.MoneyAtDeparture > 0)
+            {
+                into.MoneyAtDeparture += from.MoneyAtDeparture;
+                into.Withdrawn = true;
+            }
+            into.Spent += from.Spent;
+            into.Earned += from.Earned;
+            foreach (var it in from.Items)
+                AddItemTo(into, it.ItemType, it.Count, it.Paid);
+            foreach (var c in from.Cards)
+                AddCardTo(into, c.Expansion, c.Index, c.IsDestiny, c.Amount, c.Paid);
+            into.Log.AddRange(from.Log);
         }
 
         public static bool IsOpen => Current != null && Current.Open;
@@ -301,25 +385,23 @@ namespace CardShopCoop.Sync.Rivals
                 // captain when the last of us is
                 if (RivalsLobby.SendBagBack())
                 {
-                    CoopPlugin.Log.LogInfo("VisitorBag: home - told the lobby");
+                    s_backPending = true;
+                    s_backSentAt = Time.unscaledTime;
+                    CoopPlugin.Log.LogInfo($"VisitorBag: home - told the lobby (trip {Current.TripId})");
                     return;
                 }
                 // no lobby: this mirror is the only copy we can be sure of - apply it here and
                 // tell the server on the next connect (it drops any copy it kept)
                 CoopPlugin.Log.LogWarning("VisitorBag: home without the lobby - applying the mirror here");
-                string key = Current.Key ?? "";
-                Current.Shared = false;
                 if (Current.HomeIsTeam)
                 {
-                    DepositToTeam();
-                    if (!IsOpen)
-                    {
-                        Current.AppliedOffline = key;
-                        Save();
-                    }
+                    Current.Shared = false; // ours now: the deposit is retried as a private bag
+                    Save();
+                    DepositToTeam(); // fv-682: the bag stays until acked; the ack records the offline apply
                     return;
                 }
-                // fall through: the owner's own world takes it
+                // fall through: the owner's own world takes it (still Shared until it does, so a
+                // lobby that comes back first can still take it over)
             }
             if (Current.HomeIsTeam)
             {
@@ -337,18 +419,30 @@ namespace CardShopCoop.Sync.Rivals
             }
             if (CoopCore.Role == CoopRole.Client)
                 return; // the rival's world in the scratch slot, not home
-            string appliedKey = Current.Key ?? "";
+            string trip = Current.TripId ?? "";
+            string appliedKey = Current.Shared ? trip : ""; // fv-682: a mirror applied offline is reported by trip on the next connect
+            bool delivered = Current.Delivered;
+            var merged = new List<string>(Current.MergedTrips);
             try
             {
                 ApplyContents(HomeNet(Current), Current.Cards, Current.Items, SafeShopName(), Current.VisitingShop);
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("VisitorBag apply: " + e.Message); }
+            BagLedger.MarkTripApplied(trip); // written with the next game save
+            foreach (string t in merged)
+                BagLedger.MarkTripApplied(t);
             Current = new State { AppliedOffline = appliedKey };
             Save();
+            if (delivered)
+            {
+                RivalsLobby.SendBagDelivered(trip);
+                foreach (string t in merged)
+                    RivalsLobby.SendBagDelivered(t);
+            }
         }
 
         /// <summary>Lobby just connected: if we applied a shared bag while it was unreachable,
-        /// say so, so the server's kept copy is not delivered on top.</summary>
+        /// say so (by trip id), so the server's kept copy is not delivered on top.</summary>
         public static void ReportOfflineApply()
         {
             if (Current == null || string.IsNullOrEmpty(Current.AppliedOffline))
@@ -413,11 +507,17 @@ namespace CardShopCoop.Sync.Rivals
                 CoopPlugin.Log.LogInfo($"VisitorBag: in '{shop}', bag belongs to team shop '{Current.HomeShop}' - waiting");
                 return;
             }
+            if (Current.DepositPending && Time.unscaledTime - s_depositSentAt < DepositRetrySec)
+                return; // sent, waiting for the ack
+            if (string.IsNullOrEmpty(Current.TripId))
+                Current.TripId = BagLedger.NewId(); // a bag from before trips had ids
+            bool resend = Current.DepositPending;
             var dep = new Net.Messages.BagDepositMessage
             {
                 From = CoopCore.Instance.EffectivePlayerName,
                 VisitedShop = Current.VisitingShop,
                 Net = HomeNet(Current),
+                DepositId = Current.TripId,
             };
             foreach (var it in Current.Items)
             {
@@ -432,15 +532,104 @@ namespace CardShopCoop.Sync.Rivals
                 dep.CardAmounts.Add(c.Amount);
             }
             CoopCore.Instance.SendBagDeposit(dep);
-            CoopPlugin.Log.LogInfo($"VisitorBag: handed to the team shop - net {dep.Net:0.00}, {Current.Cards.Count} card line(s), {Current.Items.Count} item line(s)");
+            s_depositSentAt = Time.unscaledTime;
+            // fv-682: the bag stays until the host acknowledges this DepositId - a session that
+            // drops between here and the host's apply used to lose it (the bag was cleared on send)
+            if (!resend)
+            {
+                Current.DepositPending = true;
+                Save();
+                CoopPlugin.Log.LogInfo($"VisitorBag: handed to the team shop (deposit {dep.DepositId}) - net {dep.Net:0.00}, {Current.Cards.Count} card line(s), {Current.Items.Count} item line(s) - waiting for the ack");
+            }
+            else
+                CoopPlugin.Log.LogInfo($"VisitorBag: deposit {dep.DepositId} resent - no ack yet");
+        }
+
+        // --- fv-682 b5-ledger-hardening begin
+        private const float DepositRetrySec = 5f;
+        private const float BackRetrySec = 10f;
+        private static float s_depositSentAt = -100f;
+        private static bool s_backPending;
+        private static float s_backSentAt;
+
+        /// <summary>Guest: the host applied (or had applied) our deposit - now the bag may go.</summary>
+        public static void OnDepositAck(Net.Messages.BagDepositAckMessage ack)
+        {
+            if (ack == null || !IsOpen || !Current.DepositPending)
+                return;
+            if (Current.TripId != ack.DepositId)
+            {
+                CoopPlugin.Log.LogInfo($"VisitorBag: ack for deposit {ack.DepositId} ignored - ours is {Current.TripId}");
+                return;
+            }
+            CoopPlugin.Log.LogInfo($"VisitorBag: deposit {ack.DepositId} acknowledged by the shop{(ack.Applied ? "" : " (not applied)")} - bag closed");
             HostOnlyFeatures.Notice($"Co-op: your bag from {Current.VisitingShop} went to the shop");
-            Current = new State();
+            // a team bag deposited without the lobby: the lobby learns on the next connect that this trip is done
+            Current = new State { AppliedOffline = !string.IsNullOrEmpty(Current.Key) ? ack.DepositId : "" };
             Save();
         }
 
-        /// <summary>Host: a teammate's bag arrives - apply it to this shop.</summary>
-        public static void HostApplyDeposit(Net.Messages.BagDepositMessage dep)
+        /// <summary>Not on the way out and not in a rival's world: "home" for the purposes of
+        /// resending a "back" or a deposit.</summary>
+        private static bool AtHome()
         {
+            return !CoopCore.IsVisiting && !CoopCore.JoiningAsVisitor && !RivalsLobby.Departing;
+        }
+
+        /// <summary>Lobby (re)connected: say what the lobby may have missed - an offline apply,
+        /// a trip we are still out on (rejoin, same TripId), or that we are home.</summary>
+        public static void OnLobbyConnected()
+        {
+            ReportOfflineApply();
+            if (!IsOpen || !Current.Shared)
+                return;
+            if (!AtHome())
+            {
+                if (RivalsLobby.ShareBag(Current))
+                    CoopPlugin.Log.LogInfo($"VisitorBag: lobby back - rejoined trip {Current.TripId}");
+                return;
+            }
+            if (RivalsLobby.SendBagBack())
+            {
+                s_backPending = true;
+                s_backSentAt = Time.unscaledTime;
+                CoopPlugin.Log.LogInfo($"VisitorBag: lobby back - told it we are home (trip {Current.TripId})");
+            }
+        }
+
+        /// <summary>Every tick: a deposit or a "back" the other side has not answered goes again.</summary>
+        private static void TickRetries()
+        {
+            if (!IsOpen)
+            {
+                s_backPending = false;
+                return;
+            }
+            if (Current.DepositPending && !Current.Shared && CoopCore.Role == CoopRole.Client && AtHome())
+            {
+                DepositToTeam(); // rate-limited inside
+                return;
+            }
+            if (s_backPending && Current.Shared && AtHome() && Time.unscaledTime - s_backSentAt >= BackRetrySec)
+            {
+                s_backSentAt = Time.unscaledTime;
+                if (RivalsLobby.SendBagBack())
+                    CoopPlugin.Log.LogInfo($"VisitorBag: 'back' resent for trip {Current.TripId} - no answer yet");
+            }
+        }
+        // --- fv-682 b5-ledger-hardening end
+
+        /// <summary>Host: a teammate's bag arrives - apply it to this shop.</summary>
+        public static void HostApplyDeposit(Net.Messages.BagDepositMessage dep, Action<Net.Messages.BagDepositAckMessage> ack = null)
+        {
+            // fv-682: the guest resends until acknowledged - one apply per DepositId, an ack every time
+            string id = dep.DepositId ?? "";
+            if (BagLedger.DepositApplied(id))
+            {
+                CoopPlugin.Log.LogInfo($"VisitorBag: deposit {id} from {dep.From} arrived again - already applied, acknowledging");
+                ack?.Invoke(new Net.Messages.BagDepositAckMessage { DepositId = id, Applied = true });
+                return;
+            }
             try
             {
                 var cards = new List<Card>();
@@ -458,6 +647,8 @@ namespace CardShopCoop.Sync.Rivals
                 ApplyContents(dep.Net, cards, items, dep.From ?? "a teammate", dep.VisitedShop ?? "a rival");
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("VisitorBag deposit: " + e.Message); }
+            BagLedger.MarkDepositApplied(id); // written with the next game save
+            ack?.Invoke(new Net.Messages.BagDepositAckMessage { DepositId = id, Applied = true });
         }
 
         /// <summary>The save SLOT the game last loaded or saved (CSaveLoad.Load/Save patches).
@@ -493,11 +684,14 @@ namespace CardShopCoop.Sync.Rivals
         {
             if (CoopCore.Role != CoopRole.Client)
                 LastSlot = saveSlotIndex;
+            BagLedger.FlushWithSave(); // fv-682: the applied registers land with the save they describe
         }
 
         /// <summary>Ticked by the lobby MonoBehaviour: once the loaded world is up, apply.</summary>
         public static void Tick()
         {
+            try { TickRetries(); }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("VisitorBag retry: " + e.Message); }
             if (!s_applyPending)
                 return;
             try

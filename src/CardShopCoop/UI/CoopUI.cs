@@ -570,6 +570,12 @@ namespace CardShopCoop.UI
                     : bag.HomeIsTeam ? "goes to your team's shop when you rejoin it"
                     : bag.HomeSaveIndex >= 0 ? $"applied to save slot {bag.HomeSaveIndex} when you load it" : "applied to your shop";
                 GUILayout.Label($"<size=10>carry-out bag: visiting {bag.VisitingShop} - balance {GameInstance.GetPriceString(Sync.Rivals.VisitorBag.Balance)}, {bag.Cards.Count} card line(s), {bag.Items.Count} item line(s). {where}.</size>", CoopTheme.LabelWarn);
+                // --- fv-682 b5-ledger-hardening begin
+                if (bag.DepositPending)
+                    GUILayout.Label($"<size=10>trip {bag.TripId}: handed to the shop - waiting for its acknowledgement (resent every 5 s while you are in the shop)</size>", CoopTheme.LabelDim);
+                else if (bag.Delivered)
+                    GUILayout.Label($"<size=10>trip {bag.TripId}: delivered by the lobby - applied when your shop is loaded</size>", CoopTheme.LabelDim);
+                // --- fv-682 b5-ledger-hardening end
             }
             if (Sync.Rivals.RivalsLobby.MyPriceRank >= 0)
                 GUILayout.Label($"<size=10>your price rank: {Sync.Rivals.RivalsLobby.MyPriceRank + 1} of {shops.Count}  ->  customers x{Sync.Rivals.RivalsLobby.CrowdMultiplier:0.00}</size>", CoopTheme.LabelDim);

@@ -186,6 +186,11 @@ namespace CardShopCoop.Net.Messages
         public List<int> CardIndices = new List<int>();
         public List<bool> CardDestiny = new List<bool>();
         public List<int> CardAmounts = new List<int>();
+        // --- fv-682 b5-ledger-hardening begin
+        /// <summary>The bag's TripId: the host applies a given id once, however many times the
+        /// deposit is resent, and answers every copy with a <see cref="BagDepositAckMessage"/>.</summary>
+        public string DepositId = "";
+        // --- fv-682 b5-ledger-hardening end
         public MsgType Type
         {
             get
@@ -213,6 +218,11 @@ namespace CardShopCoop.Net.Messages
         public int Index;
         public bool IsDestiny;
         public float Paid;
+        // --- fv-682 b5-ledger-hardening begin
+        /// <summary>Which trip an op belongs to (the mirror's TripId) - resolves the bag when
+        /// the sender's connection id has changed; "delivered": the captain applied this trip.</summary>
+        public string TripId = "";
+        // --- fv-682 b5-ledger-hardening end
         public MsgType Type
         {
             get
@@ -415,4 +425,22 @@ namespace CardShopCoop.Net.Messages
         }
     }
     // --- fv-687 prize-entitlement end
+
+    // --- fv-682 b5-ledger-hardening begin
+    /// <summary>Host -> the guest that sent a <see cref="BagDepositMessage"/>: that deposit id is
+    /// applied to the shop (now, or on an earlier copy). The guest clears its bag only on this.</summary>
+    [NetworkMessage(MsgType.BagDepositAck, Policy = MessagePolicy.ClientOnly)]
+    public sealed class BagDepositAckMessage : INetMessage
+    {
+        public string DepositId = "";
+        public bool Applied;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.BagDepositAck;
+            }
+        }
+    }
+    // --- fv-682 b5-ledger-hardening end
 }

@@ -45,6 +45,7 @@ namespace CardShopCoop
         public static ConfigEntry<bool> RivalsConfirmPurchases;
         public static ConfigEntry<float> RivalsPvpAnte;
         public static ConfigEntry<float> RivalsBagMoney;
+        public static ConfigEntry<int> RivalsBagOrphanGraceSec; // fv-682
         public static ConfigEntry<KeyCode> DeckBuilderKey;
         public static ConfigEntry<string> RivalsLeagueId;
         public static ConfigEntry<int> RivalsTeams;
@@ -91,6 +92,7 @@ namespace CardShopCoop
         {
             Log = Logger;
             Sync.Rivals.VisitorBag.Load();
+            Sync.Rivals.BagLedger.Load(); // fv-682: applied/delivered trip ids
             Sync.Rivals.TravelDeck.Load();
             try
             {
@@ -123,6 +125,10 @@ namespace CardShopCoop
                 "Lobby host: how much the price race moves the crowd. 0.3 = the cheapest shop draws 30% more customers, the priciest 30% fewer, linear between. 0 = off.");
             RivalsBagMoney = Config.Bind("Rivals", "BagMoney", 500f,
                 new ConfigDescription("How much cash to take along on a visit (the RIVALS tab has a field). It leaves the till when you go and whatever is unspent comes back with the bag.", new AcceptableValueRange<float>(0f, 1000000f)));
+            // --- fv-682 b5-ledger-hardening begin
+            RivalsBagOrphanGraceSec = Config.Bind("Rivals", "BagOrphanGraceSec", 300,
+                new ConfigDescription("Lobby host: when every teammate out with the team bag has dropped off the lobby, how long to hold the bag for them to reconnect before it goes to the captain's shop. A member who comes back later continues from an empty bag (their cash went home).", new AcceptableValueRange<int>(5, 3600)));
+            // --- fv-682 b5-ledger-hardening end
             RivalsPvpAnte = Config.Bind("Rivals", "PvpAnte", 0f,
                 new ConfigDescription("Host: the stake a VISITOR must put up to play you at a table (each side stakes it, winner takes both; a draw returns them). 0 = free matches. Your stake comes from the till, theirs from their carry-out bag.", new AcceptableValueRange<float>(0f, 100000f)));
             RivalsConfirmPurchases = Config.Bind("Rivals", "ConfirmPurchases", true,

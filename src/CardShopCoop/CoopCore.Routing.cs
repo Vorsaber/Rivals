@@ -1076,7 +1076,7 @@ namespace CardShopCoop
                 if (Role != CoopRole.Host || !InGameLevel())
                     return;
                 if (message is BagDepositMessage dep && !IsVisitorConn(context.ConnectionId))
-                    Sync.Rivals.VisitorBag.HostApplyDeposit(dep);
+                    Sync.Rivals.VisitorBag.HostApplyDeposit(dep, ack => Send(context.ConnectionId, ack)); // fv-682: applied once per id, acked every time
                 return;
             },
                 MessagePolicy.HostOnlyInGame, false);
@@ -1480,6 +1480,17 @@ namespace CardShopCoop
             },
                 MessagePolicy.ClientOnlyInGame, false);
             // --- fv-687 prize-entitlement end
+            // --- fv-682 b5-ledger-hardening begin
+            _messageRouter.Register<BagDepositAckMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client)
+                    return;
+                if (message is BagDepositAckMessage ack)
+                    Sync.Rivals.VisitorBag.OnDepositAck(ack);
+                return;
+            },
+                MessagePolicy.ClientOnly, false);
+            // --- fv-682 b5-ledger-hardening end
         }
     }
 }

@@ -92,6 +92,23 @@ namespace CardShopCoop.Sync.Rivals
         public static bool LeagueStarted;
         /// <summary>Server: one carry-out bag per team, keyed by <see cref="BagKeyFor"/>.</summary>
         private readonly Dictionary<string, VisitorBag.State> _teamBags = new Dictionary<string, VisitorBag.State>();
+        // --- fv-682 b5-ledger-hardening begin
+        /// <summary>Server: bags sent to a captain and not yet acknowledged ("delivered"), by
+        /// TripId. Resent until the ack comes; never re-created from a member's mirror.</summary>
+        private readonly Dictionary<string, VisitorBag.State> _pendingDeliveries = new Dictionary<string, VisitorBag.State>();
+        private float _bagPumpTimer;
+        private const string DeliverPrefix = "deliver:";
+        /// <summary>On the way out to a visit (cash asked for, saving, waiting for the title,
+        /// joining): not "home" yet, whatever the co-op role says.</summary>
+        public static bool Departing
+        {
+            get
+            {
+                var me = Instance;
+                return me != null && (me._pendingVisit >= 0 || me._departShop != null || me._withdrawFor != null);
+            }
+        }
+        // --- fv-682 b5-ledger-hardening end
         /// <summary>Server: the latest end-of-day report per shop (conn id).</summary>
         private readonly Dictionary<int, RivalsDayReport> _dayReports = new Dictionary<int, RivalsDayReport>();
 
@@ -322,6 +339,7 @@ namespace CardShopCoop.Sync.Rivals
             LeagueSession.Tick(); // a live league game keeps going whether or not the lobby is up
             TitleGate.Tick();     // in a lobby: no New/Continue/Load on the title screen
             TickDeparture();      // a visit that is leaving: save + title once the till is debited
+            VisitorBag.Tick();    // fv-682: also without a lobby - the "home without the lobby" apply was unreachable
             if (_net == null || Role == LobbyRole.None)
                 return;
             try
@@ -363,7 +381,6 @@ namespace CardShopCoop.Sync.Rivals
                     _publishTimer = 0f;
                     PublishMyShop();
                 }
-                VisitorBag.Tick();
                 _stateTimer += dt;
                 if (_stateTimer >= 1f)
                 {
@@ -371,6 +388,7 @@ namespace CardShopCoop.Sync.Rivals
                     PumpLeagueState();
                     TryPendingVisit();
                     TryPendingReturn();
+                    PumpBags(); // fv-682: orphan grace, delivery resends
                     TryJoinTeam();
                 }
                 if (Role == LobbyRole.Server)
@@ -440,7 +458,7 @@ namespace CardShopCoop.Sync.Rivals
                     LobbyName = welcome.LobbyName ?? "";
                     Status = $"in lobby '{LobbyName}'";
                     _publishTimer = 10f; // publish now
-                    VisitorBag.ReportOfflineApply();
+                    VisitorBag.OnLobbyConnected(); // fv-682: offline apply, rejoin, or "back"
                     break;
                 case RivalsShopStateMessage state:
                     if (Role != LobbyRole.Server || !_welcomed.Contains(msg.ConnId) || state.Shop == null)
@@ -529,7 +547,69 @@ namespace CardShopCoop.Sync.Rivals
                 _shops[0] = shop;
             else
                 _net.Send(1, new RivalsShopStateMessage { Shop = shop });
+            TagShopLobby(shop.SteamLobby);
         }
+
+        // --- fv-682 b5-ledger-hardening begin (Steam N-host invites)
+        private ulong _taggedLobby;
+
+        /// <summary>Our Steam shop lobby carries the league id and our shop name, so a member
+        /// who accepts an invite to it (from the overlay, the friends list, +connect_lobby)
+        /// can be routed as a visit or a team join even before the board lists us.</summary>
+        private void TagShopLobby(ulong lobby)
+        {
+            if (lobby == 0 || lobby == _taggedLobby)
+                return;
+            var steam = CoopCore.Instance != null ? CoopCore.Instance.Steam : null;
+            if (steam == null)
+                return;
+            steam.SetShopLobbyData("league", LeagueId ?? "");
+            steam.SetShopLobbyData("shop", MyShopName());
+            _taggedLobby = lobby;
+            CoopPlugin.Log.LogInfo($"Rivals: shop lobby {lobby} tagged with league {LeagueId}");
+        }
+
+        /// <summary>An accepted Steam invite to a co-op SHOP lobby while we sit in a league:
+        /// a rival's shop = a visit (the bag opens, the host's allowlist applies), our team
+        /// captain's shop = a team join with the board's password. Returns false when the
+        /// invite is nothing of ours (no league, another league, not a league shop) - the
+        /// caller then joins the ordinary way. Without this an invite to a rival's shop made
+        /// the invitee a full guest of that shop, with its till.</summary>
+        public static bool RouteShopInvite(ulong lobby)
+        {
+            var me = Instance;
+            if (me == null || Role == LobbyRole.None || lobby == 0)
+                return false;
+            var steam = CoopCore.Instance != null ? CoopCore.Instance.Steam : null;
+            var shop = Board != null && Board.Shops != null ? Board.Shops.Find(x => x.SteamLobby == lobby) : null;
+            string league = steam != null ? steam.LobbyData(lobby, "league") : "";
+            if (shop == null && league != LeagueId)
+                return false; // not a shop of this league
+            if (shop == null)
+            {
+                string name = steam != null ? steam.LobbyData(lobby, "shop") : "";
+                Status = $"invite to {(string.IsNullOrEmpty(name) ? "a league shop" : name)} - it is not on the board yet, use Visit in a few seconds";
+                CoopPlugin.Log.LogInfo($"Rivals: shop invite to lobby {lobby} (league {league}) not on the board yet - not joined as a plain guest");
+                return true;
+            }
+            var mine = Roster.Find(x => x.Id == MyId);
+            var owner = Roster.Find(x => x.Name == shop.Name);
+            bool teammate = mine != null && owner != null && mine.Team > 0 && owner.Team == mine.Team;
+            if (teammate)
+            {
+                CoopPlugin.Log.LogInfo($"Rivals: shop invite to teammate {shop.Name} - joining the team");
+                if (CoopCore.Role != CoopRole.None)
+                {
+                    Status = "leave your current session first";
+                    return true;
+                }
+                return JoinShop(shop, "joining " + shop.Name);
+            }
+            CoopPlugin.Log.LogInfo($"Rivals: shop invite to rival {shop.Name} - visiting");
+            Visit(shop);
+            return true;
+        }
+        // --- fv-682 b5-ledger-hardening end
 
         private RivalsShop BuildMyShop()
         {
@@ -910,7 +990,10 @@ namespace CardShopCoop.Sync.Rivals
         {
             try
             {
-                System.IO.File.WriteAllText(TeamBagsPath(), Newtonsoft.Json.JsonConvert.SerializeObject(_teamBags, Newtonsoft.Json.Formatting.Indented));
+                var all = new Dictionary<string, VisitorBag.State>(_teamBags);
+                foreach (var kv in _pendingDeliveries)
+                    all[DeliverPrefix + kv.Key] = kv.Value; // fv-682: same file, same shape
+                System.IO.File.WriteAllText(TeamBagsPath(), Newtonsoft.Json.JsonConvert.SerializeObject(all, Newtonsoft.Json.Formatting.Indented));
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals: team bags save: " + e.Message); }
         }
@@ -918,6 +1001,7 @@ namespace CardShopCoop.Sync.Rivals
         private void LoadTeamBags()
         {
             _teamBags.Clear();
+            _pendingDeliveries.Clear();
             try
             {
                 string p = TeamBagsPath();
@@ -929,11 +1013,20 @@ namespace CardShopCoop.Sync.Rivals
                 foreach (var kv in loaded)
                     if (kv.Value != null && kv.Value.Open)
                     {
+                        if (kv.Key.StartsWith(DeliverPrefix))
+                        {
+                            kv.Value.DeliverTo = -1; // fv-682: the captain's conn id is from the old process
+                            kv.Value.DeliverAtUnix = 0;
+                            _pendingDeliveries[kv.Key.Substring(DeliverPrefix.Length)] = kv.Value;
+                            continue;
+                        }
                         kv.Value.Out.Clear(); // connection ids are from the old process: nobody is "out" until they say so
+                        if (string.IsNullOrEmpty(kv.Value.TripId))
+                            kv.Value.TripId = BagLedger.NewId();
                         _teamBags[kv.Key] = kv.Value;
                     }
-                if (_teamBags.Count > 0)
-                    CoopPlugin.Log.LogInfo($"Rivals: {_teamBags.Count} team bag(s) restored from disk");
+                if (_teamBags.Count > 0 || _pendingDeliveries.Count > 0)
+                    CoopPlugin.Log.LogInfo($"Rivals: {_teamBags.Count} team bag(s) and {_pendingDeliveries.Count} pending deliver(ies) restored from disk");
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals: team bags load: " + e.Message); }
         }
@@ -1343,6 +1436,8 @@ namespace CardShopCoop.Sync.Rivals
             var me = Instance;
             if (me == null || Role == LobbyRole.None || me._net == null)
                 return;
+            if (string.IsNullOrEmpty(msg.TripId) && VisitorBag.Current != null)
+                msg.TripId = VisitorBag.Current.TripId ?? ""; // fv-682: the op names its trip
             if (Role == LobbyRole.Server)
                 me.OnBagMessage(0, msg);
             else
@@ -1359,14 +1454,134 @@ namespace CardShopCoop.Sync.Rivals
             return true;
         }
 
-        public static bool SendBagApplied(string key)
+        public static bool SendBagApplied(string tripId)
         {
             var me = Instance;
             if (me == null || Role == LobbyRole.None || me._net == null)
                 return false;
-            SendBagOp(new RivalsBagMessage { Op = "back", Applied = true, State = new VisitorBag.State { Key = key } });
+            SendBagOp(new RivalsBagMessage { Op = "back", Applied = true, TripId = tripId ?? "" }); // fv-682: by trip, not key
             return true;
         }
+
+        // --- fv-682 b5-ledger-hardening begin
+        /// <summary>Captain: the delivered trip is in our world - the server may forget it.</summary>
+        public static void SendBagDelivered(string tripId)
+        {
+            if (string.IsNullOrEmpty(tripId))
+                return;
+            SendBagOp(new RivalsBagMessage { Op = "delivered", TripId = tripId });
+        }
+
+        private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        private static int OrphanGraceSec => CoopPlugin.RivalsBagOrphanGraceSec != null ? Math.Max(5, CoopPlugin.RivalsBagOrphanGraceSec.Value) : 300;
+
+        /// <summary>Server: the live bag a member's op belongs to - by its TripId first (a
+        /// reconnected member's conn id is new and its team may not be re-stated yet), then by
+        /// the member's key. An op for a trip already delivered gets a fresh bag under that key
+        /// (the trip continues from zero: its cash went home) so nothing the member does is lost.</summary>
+        private VisitorBag.State ResolveBag(int conn, RivalsBagMessage m, out string key, bool continueIfClosed)
+        {
+            key = BagKeyFor(conn);
+            string trip = !string.IsNullOrEmpty(m.TripId) ? m.TripId : (m.State != null ? m.State.TripId : "");
+            if (!string.IsNullOrEmpty(trip))
+            {
+                foreach (var kv in _teamBags)
+                    if (kv.Value.TripId == trip)
+                    {
+                        key = kv.Key;
+                        return kv.Value;
+                    }
+                bool closed = _pendingDeliveries.ContainsKey(trip) || BagLedger.TripDelivered(trip);
+                if (closed && continueIfClosed)
+                {
+                    _teamBags.TryGetValue(key, out var live);
+                    if (live == null || !live.Open)
+                    {
+                        live = new VisitorBag.State
+                        {
+                            Open = true,
+                            Key = key,
+                            Shared = true,
+                            TripId = BagLedger.NewId(),
+                            VisitingShop = m.State != null ? m.State.VisitingShop : "",
+                            OpenedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
+                            Out = new List<int> { conn },
+                        };
+                        live.Log.Add($"trip {trip} was delivered while {NameOf(conn)} was away - continued as trip {live.TripId}");
+                        _teamBags[key] = live;
+                        CoopPlugin.Log.LogInfo($"Rivals: team bag {key} continued for {NameOf(conn)} as trip {live.TripId} (trip {trip} already delivered)");
+                    }
+                    else if (!live.Out.Contains(conn))
+                        live.Out.Add(conn);
+                    return live;
+                }
+                if (closed)
+                    return null;
+            }
+            _teamBags.TryGetValue(key, out var bag);
+            return bag;
+        }
+
+        /// <summary>Server, every second: orphaned bags past their grace go to the captain;
+        /// deliveries nobody acknowledged go again.</summary>
+        private void PumpBags()
+        {
+            if (Role != LobbyRole.Server)
+                return;
+            long now = Now();
+            foreach (string key in new List<string>(_teamBags.Keys))
+            {
+                var bag = _teamBags[key];
+                if (bag.Out.Count > 0)
+                {
+                    bag.OrphanedAtUnix = 0;
+                    continue;
+                }
+                if (bag.OrphanedAtUnix <= 0)
+                {
+                    bag.OrphanedAtUnix = now;
+                    SaveTeamBags();
+                    continue;
+                }
+                if (now - bag.OrphanedAtUnix < OrphanGraceSec)
+                    continue;
+                CoopPlugin.Log.LogInfo($"Rivals: team bag {key} (trip {bag.TripId}) orphaned for {now - bag.OrphanedAtUnix}s - delivering");
+                DeliverBag(key, bag);
+            }
+            foreach (string trip in new List<string>(_pendingDeliveries.Keys))
+            {
+                if (!_pendingDeliveries.TryGetValue(trip, out var bag))
+                    continue;
+                if (now - bag.DeliverAtUnix < 10)
+                    continue;
+                int to = CaptainFor(bag.Key ?? "");
+                if (to < 0)
+                    continue; // held until someone of that team is here
+                bool first = bag.DeliverAtUnix <= 0;
+                bag.DeliverTo = to;
+                bag.DeliverAtUnix = now;
+                CoopPlugin.Log.LogInfo(first ? $"Rivals: held trip {trip} delivered to {NameOf(to)} - waiting for the ack"
+                                             : $"Rivals: deliver of trip {trip} to {NameOf(to)} not acknowledged - resending");
+                SendBagTo(to, new RivalsBagMessage { Op = "deliver", State = bag.Clone(), TripId = trip });
+            }
+        }
+
+        /// <summary>Who takes a key's bag home right now: the team's captain, or the shop's owner (-1 = nobody here).</summary>
+        private int CaptainFor(string key)
+        {
+            if (key.StartsWith("team:"))
+            {
+                int team;
+                if (!int.TryParse(key.Substring(5), out team))
+                    return -1;
+                var cap = Roster.Find(x => x.Team == team && x.Captain);
+                return cap != null ? cap.Id : -1;
+            }
+            var owner = Roster.Find(x => "shop:" + x.Name == key);
+            return owner != null ? owner.Id : -1;
+        }
+        // --- fv-682 b5-ledger-hardening end
 
         private void OnBagMessage(int conn, RivalsBagMessage m)
         {
@@ -1380,32 +1595,69 @@ namespace CardShopCoop.Sync.Rivals
             }
             if (Role != LobbyRole.Server)
                 return;
-            string key = BagKeyFor(conn);
-            _teamBags.TryGetValue(key, out var bag);
+            // fv-682: "delivered" closes a pending delivery; every other op resolves its bag by TripId
+            if (m.Op == "delivered")
+            {
+                if (!string.IsNullOrEmpty(m.TripId) && _pendingDeliveries.Remove(m.TripId))
+                {
+                    BagLedger.MarkTripDelivered(m.TripId);
+                    SaveTeamBags();
+                    CoopPlugin.Log.LogInfo($"Rivals: trip {m.TripId} acknowledged by {NameOf(conn)} - delivery complete");
+                }
+                else if (!string.IsNullOrEmpty(m.TripId) && !BagLedger.TripDelivered(m.TripId))
+                    BagLedger.MarkTripDelivered(m.TripId); // an ack for a trip we no longer hold: remember it anyway
+                return;
+            }
+            string key;
+            var bag = ResolveBag(conn, m, out key, continueIfClosed: m.Op == "spend" || m.Op == "earn" || m.Op == "item" || m.Op == "card");
             switch (m.Op)
             {
                 case "open":
                     if (m.State == null)
                         return;
-                    if (bag != null && bag.Open && bag.Out.Count == 0)
+                    string openTrip = m.State.TripId ?? "";
+                    if (bag != null && bag.Open && !string.IsNullOrEmpty(openTrip) && bag.TripId == openTrip)
                     {
-                        // a bag kept from an earlier trip nobody was home for: deliver it now
-                        DeliverBag(key, bag);
-                        bag = null;
+                        // fv-682: the same trip again (the member reconnected) - back in, no cash added twice
+                        if (!bag.Out.Contains(conn))
+                            bag.Out.Add(conn);
+                        bag.OrphanedAtUnix = 0;
+                        bag.VisitingShop = m.State.VisitingShop;
+                        CoopPlugin.Log.LogInfo($"Rivals: {NameOf(conn)} rejoined trip {openTrip} on team bag {key} ({bag.Out.Count} out)");
+                        BroadcastBag(key, bag);
+                        break;
                     }
+                    if (!string.IsNullOrEmpty(openTrip) && (_pendingDeliveries.ContainsKey(openTrip) || BagLedger.TripDelivered(openTrip)))
+                    {
+                        // fv-682: their trip was delivered while they were away - it continues from zero
+                        bag = ResolveBag(conn, m, out key, continueIfClosed: true);
+                        if (bag != null)
+                            BroadcastBag(key, bag);
+                        break;
+                    }
+                    // fv-682: a live bag with nobody out is one whose members dropped (orphan grace)
+                    // - a teammate opening now piggybacks on it; kept bags live in _pendingDeliveries
                     if (bag == null || !bag.Open)
                     {
                         bag = m.State.Clone(); // never the opener's own object (the server opens too)
                         bag.Key = key;
                         bag.Shared = true;
                         bag.Out = new List<int> { conn };
+                        bag.OrphanedAtUnix = 0;
+                        bag.DeliverTo = -1;
+                        bag.DeliverAtUnix = 0;
+                        bag.Delivered = false;
+                        bag.DepositPending = false;
+                        if (string.IsNullOrEmpty(bag.TripId))
+                            bag.TripId = BagLedger.NewId();
                         _teamBags[key] = bag;
-                        CoopPlugin.Log.LogInfo($"Rivals: team bag {key} opened by {NameOf(conn)} (wallet {bag.MoneyAtDeparture:0.00})");
+                        CoopPlugin.Log.LogInfo($"Rivals: team bag {key} opened by {NameOf(conn)} (trip {bag.TripId}, wallet {bag.MoneyAtDeparture:0.00})");
                     }
                     else
                     {
                         if (!bag.Out.Contains(conn))
                             bag.Out.Add(conn);
+                        bag.OrphanedAtUnix = 0;
                         bag.VisitingShop = m.State.VisitingShop;
                         if (m.State.Withdrawn && m.State.MoneyAtDeparture > 0)
                         {
@@ -1445,14 +1697,45 @@ namespace CardShopCoop.Sync.Rivals
                     BroadcastBag(key, bag);
                     break;
                 case "back":
+                    string backTrip = !string.IsNullOrEmpty(m.TripId) ? m.TripId : (m.State != null ? m.State.TripId ?? "" : "");
                     if (m.Applied)
                     {
                         // they applied their mirror while we were unreachable: our copy would double it
-                        if (bag != null && bag.Out.Count == 0)
+                        // (fv-682: only the copy of THAT trip - and remember the trip as done)
+                        if (!string.IsNullOrEmpty(backTrip))
+                        {
+                            BagLedger.MarkTripDelivered(backTrip);
+                            if (_pendingDeliveries.Remove(backTrip))
+                                SaveTeamBags();
+                        }
+                        if (bag != null && bag.Out.Count == 0 && (string.IsNullOrEmpty(backTrip) || bag.TripId == backTrip))
                         {
                             _teamBags.Remove(key);
-                            CoopPlugin.Log.LogInfo($"Rivals: team bag {key} applied offline by {NameOf(conn)} - server copy dropped");
+                            SaveTeamBags();
+                            CoopPlugin.Log.LogInfo($"Rivals: team bag {key} (trip {bag.TripId}) applied offline by {NameOf(conn)} - server copy dropped");
                         }
+                        return;
+                    }
+                    if (bag != null && !string.IsNullOrEmpty(backTrip) && bag.TripId != backTrip)
+                        bag = null; // fv-682: their mirror is another trip than the key's live bag - recover it on its own
+                    if (!string.IsNullOrEmpty(backTrip) && _pendingDeliveries.TryGetValue(backTrip, out var pending))
+                    {
+                        // fv-682: that trip is on its way to the captain - the captain gets it again, everyone else clears
+                        if (conn == CaptainFor(pending.Key ?? ""))
+                        {
+                            pending.DeliverTo = conn;
+                            pending.DeliverAtUnix = Now();
+                            SendBagTo(conn, new RivalsBagMessage { Op = "deliver", State = pending, TripId = backTrip });
+                        }
+                        else
+                            SendBagTo(conn, new RivalsBagMessage { Op = "state", State = new VisitorBag.State { Key = key } });
+                        return;
+                    }
+                    if (!string.IsNullOrEmpty(backTrip) && BagLedger.TripDelivered(backTrip))
+                    {
+                        // fv-682: a stale mirror of a trip the captain already has - never deliver it twice
+                        CoopPlugin.Log.LogInfo($"Rivals: {NameOf(conn)} is home with a mirror of trip {backTrip}, already delivered - cleared");
+                        SendBagTo(conn, new RivalsBagMessage { Op = "state", State = new VisitorBag.State { Key = key } });
                         return;
                     }
                     if (bag == null)
@@ -1465,7 +1748,9 @@ namespace CardShopCoop.Sync.Rivals
                             bag.Key = key;
                             bag.Shared = true;
                             bag.Out = new List<int>();
-                            CoopPlugin.Log.LogInfo($"Rivals: team bag {key} recovered from {NameOf(conn)}'s mirror (cash {bag.MoneyAtDeparture:0.00}, net {bag.Earned - bag.Spent:0.00})");
+                            if (string.IsNullOrEmpty(bag.TripId))
+                                bag.TripId = BagLedger.NewId();
+                            CoopPlugin.Log.LogInfo($"Rivals: team bag {key} recovered from {NameOf(conn)}'s mirror (trip {bag.TripId}, cash {bag.MoneyAtDeparture:0.00}, net {bag.Earned - bag.Spent:0.00})");
                             DeliverBag(key, bag);
                         }
                         else
@@ -1504,46 +1789,44 @@ namespace CardShopCoop.Sync.Rivals
         private void BroadcastBag(string key, VisitorBag.State bag)
         {
             SaveTeamBags();
-            foreach (var m in Roster)
-                if (BagKeyFor(m.Id) == key && bag.Out.Contains(m.Id))
-                    SendBagTo(m.Id, new RivalsBagMessage { Op = "state", State = bag });
+            // fv-682: Out is the membership (a reconnected member's team may not be re-stated yet)
+            foreach (int id in new List<int>(bag.Out))
+                if (id == 0 || _welcomed.Contains(id))
+                    SendBagTo(id, new RivalsBagMessage { Op = "state", State = bag });
         }
 
         /// <summary>Everyone on the team is home: the captain (save holder) gets the bag; the
         /// team's mirrors clear.</summary>
         private void DeliverBag(string key, VisitorBag.State bag)
         {
-            _teamBags.Remove(key);
+            // fv-682: the bag is HELD under its trip id until the captain says "delivered" -
+            // a delivery that never arrives is resent (PumpBags), never lost; with nobody of
+            // that team here it simply waits there for one (never drop money on a disconnect).
+            // Only the live entry that IS this bag leaves _teamBags (a mirror recovered from a
+            // member is not the key's live bag)
+            if (_teamBags.TryGetValue(key, out var live) && ReferenceEquals(live, bag))
+                _teamBags.Remove(key);
+            if (string.IsNullOrEmpty(bag.TripId))
+                bag.TripId = BagLedger.NewId();
+            int to = CaptainFor(key);
+            bag.Key = key;
+            bag.Out.Clear();
+            bag.OrphanedAtUnix = 0;
+            bag.DeliverTo = to;
+            bag.DeliverAtUnix = to >= 0 ? Now() : 0;
+            _pendingDeliveries[bag.TripId] = bag;
             SaveTeamBags();
-            int to = -1;
-            if (key.StartsWith("team:"))
-            {
-                int team = int.Parse(key.Substring(5));
-                var cap = Roster.Find(x => x.Team == team && x.Captain);
-                if (cap != null)
-                    to = cap.Id;
-            }
-            else
-            {
-                var owner = Roster.Find(x => "shop:" + x.Name == key);
-                if (owner != null)
-                    to = owner.Id;
-            }
             foreach (var m in Roster)
                 if (BagKeyFor(m.Id) == key && m.Id != to)
                     SendBagTo(m.Id, new RivalsBagMessage { Op = "state", State = new VisitorBag.State { Key = key } });
             if (to < 0)
             {
-                // nobody of that team is here to take it: keep it until one comes back (a
-                // reconnecting member's "back"/"open" delivers it) - never drop money on a disconnect
-                bag.Out.Clear();
-                _teamBags[key] = bag;
-                SaveTeamBags();
-                CoopPlugin.Log.LogInfo($"Rivals: team bag {key} has nobody to deliver to right now - kept (cash {bag.MoneyAtDeparture:0.00}, net {bag.Earned - bag.Spent:0.00})");
+                CoopPlugin.Log.LogInfo($"Rivals: team bag {key} (trip {bag.TripId}) has nobody to deliver to right now - held (cash {bag.MoneyAtDeparture:0.00}, net {bag.Earned - bag.Spent:0.00})");
                 return;
             }
-            CoopPlugin.Log.LogInfo($"Rivals: team bag {key} delivered to {NameOf(to)}");
-            SendBagTo(to, new RivalsBagMessage { Op = "deliver", State = bag });
+            CoopPlugin.Log.LogInfo($"Rivals: team bag {key} (trip {bag.TripId}) delivered to {NameOf(to)} - waiting for the ack");
+            // the copy sent is detached: the ack path (the server can be its own captain) must not touch the held one
+            SendBagTo(to, new RivalsBagMessage { Op = "deliver", State = bag.Clone(), TripId = bag.TripId });
         }
 
         private void BagMemberGone(int conn)
@@ -1554,8 +1837,15 @@ namespace CardShopCoop.Sync.Rivals
                 var bag = _teamBags[key];
                 if (!bag.Out.Remove(conn))
                     continue;
+                // fv-682: a dropped connection is not "home" - the bag waits (OrphanGraceSec)
+                // for the member to come back with the same trip; delivering here credited the
+                // captain while the member was still out spending, and their return doubled it
                 if (bag.Out.Count == 0)
-                    DeliverBag(key, bag);
+                {
+                    bag.OrphanedAtUnix = Now();
+                    SaveTeamBags();
+                    CoopPlugin.Log.LogInfo($"Rivals: {NameOf(conn)} dropped while out with team bag {key} (trip {bag.TripId}) - kept for {OrphanGraceSec}s");
+                }
                 else
                     BroadcastBag(key, bag);
             }

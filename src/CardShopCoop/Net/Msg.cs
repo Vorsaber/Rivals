@@ -146,6 +146,9 @@ namespace CardShopCoop.Net
         // --- fv-680 guest-vs-guest pvp begin
         PvpWait = 147,           // host -> one client: you are (or are no longer) waiting at a table for a second player
         // --- fv-680 guest-vs-guest pvp end
+        // --- fv-682 b5-ledger-hardening begin
+        BagDepositAck = 158,     // host -> that client: the bag deposit with this id was applied (or already had been) - the guest may clear it
+        // --- fv-682 b5-ledger-hardening end
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.
