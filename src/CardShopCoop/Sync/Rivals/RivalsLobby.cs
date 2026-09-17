@@ -295,6 +295,7 @@ namespace CardShopCoop.Sync.Rivals
         private void Update()
         {
             LeagueSession.Tick(); // a live league game keeps going whether or not the lobby is up
+            TitleGate.Tick();     // in a lobby: no New/Continue/Load on the title screen
             if (_net == null || Role == LobbyRole.None)
                 return;
             try
