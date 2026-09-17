@@ -396,7 +396,7 @@ namespace CardShopCoop.Sync.Rivals
                 }
                 catch (Exception e) { CoopPlugin.Log.LogWarning($"VisitorBag: item {(EItemType)it.ItemType} could not be delivered: {e.Message}"); }
             }
-            string summary = $"{who} back from {visited}: till {(net >= 0 ? "+" : "")}{net:0.00} (cash back incl.), {nCards} card(s), {nItems} item(s) at the door";
+            string summary = $"{who} back from {visited}: till {(net >= 0 ? "+" : "")}{net:0.00} (cash back incl.), {nCards} card(s) into the collection, {nItems} item(s) in a box at the door";
             CoopPlugin.Log.LogInfo("VisitorBag: applied - " + summary);
             HostOnlyFeatures.Notice("Co-op: " + summary);
         }

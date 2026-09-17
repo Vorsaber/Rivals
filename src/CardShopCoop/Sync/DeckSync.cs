@@ -462,7 +462,10 @@ namespace CardShopCoop.Sync
                 var screen = m.m_DeckListScreen;
                 if (!screen) // Unity's null: a destroyed or never-built screen is NOT open
                     return false;
-                return screen.gameObject.activeInHierarchy;
+                // the screen OBJECT sits active-but-hidden on a fresh shop (2026-09-16: every
+                // owner refused); the game's own open flag is the signal - the same one the F2
+                // "editing decks" status uses
+                return screen.IsScreenOpened();
             }
             catch (Exception e)
             {
