@@ -89,8 +89,9 @@ namespace CardShopCoop.UI
             {
                 GUILayout.BeginHorizontal();
                 for (int i = 0; i < Tabs.Length; i++)
-                    if (GUILayout.Button(Tabs[i].ToUpperInvariant(), i == s_tab ? CoopTheme.TabSelected : CoopTheme.Tab))
+                    if (GUILayout.Button(Tabs[i].ToUpperInvariant(), i == s_tab ? CoopTheme.TabSelected : CoopTheme.Tab, GUILayout.Width(96f)))
                         tab = i;
+                GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
             }
             else
