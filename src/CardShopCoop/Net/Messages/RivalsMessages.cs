@@ -138,6 +138,7 @@ namespace CardShopCoop.Net.Messages
         public int Teams;
         public int PerTeam;
         public List<LeagueMember> Members = new List<LeagueMember>();
+        public bool Started;           // the host has started this league (members may return to their shop)
         // "state"
         public int Team;
         public bool Ready;

@@ -76,8 +76,14 @@ namespace CardShopCoop.Sync.Rivals
         private bool _myReady;
         private string _sentState = "";
         private float _stateTimer;
-        private int _joinCaptain = -1;   // teammate: the captain whose shop to join once it opens
+        private int _joinCaptain = -1;   // teammate: the captain whose shop to join whenever it is open
         private float _lastJoinTry = -100f;
+        private bool _joinedOnce;
+        private int _pendingVisit = -1;  // a visit that waits for the title screen (we saved and left our shop)
+        private float _pendingVisitAt;
+        /// <summary>The host has started this league: members holding its save may return to
+        /// their shop on their own (after a visit) - still only through this lobby.</summary>
+        public static bool LeagueStarted;
 
         private void Awake()
         {
@@ -269,6 +275,8 @@ namespace CardShopCoop.Sync.Rivals
             _myReady = false;
             _sentState = "";
             _joinCaptain = -1;
+            _pendingVisit = -1;
+            LeagueStarted = false;
             Board = new RivalsBoardMessage();
             CrowdMultiplier = 1f;
             MyPriceRank = -1;
@@ -342,6 +350,7 @@ namespace CardShopCoop.Sync.Rivals
                 {
                     _stateTimer = 0f;
                     PumpLeagueState();
+                    TryPendingVisit();
                     TryJoinTeam();
                 }
                 if (Role == LobbyRole.Server)
@@ -637,9 +646,23 @@ namespace CardShopCoop.Sync.Rivals
             var gm = CSingleton<CGameManager>.Instance;
             if (gm != null && gm.m_IsGameLevel)
             {
-                // the bag must know home before the world changes; the join itself needs the title screen
+                // the bag must know home before the world changes; the join itself needs the
+                // title screen: save, close our own session (a captain's teammates rejoin when
+                // we are back), go to the title and finish the visit from there
                 VisitorBag.Open(shop.Name);
-                Status = "bag packed - go to the TITLE SCREEN (save first), then press Visit again";
+                Instance._pendingVisit = shop.Id;
+                Instance._pendingVisitAt = Time.unscaledTime;
+                if (CoopCore.Role == CoopRole.Host)
+                    core.Disconnect();
+                try
+                {
+                    CSingleton<ShelfManager>.Instance.SaveInteractableObjectData();
+                }
+                catch { }
+                gm.SaveGameData(0);
+                gm.LoadMainLevelAsync("Title");
+                Status = "saved - heading to " + shop.Name + "...";
+                CoopPlugin.Log.LogInfo("Rivals: " + Status);
                 return;
             }
             if (!VisitorBag.IsOpen)
@@ -647,6 +670,55 @@ namespace CardShopCoop.Sync.Rivals
             CoopCore.JoiningAsVisitor = true;
             if (!JoinShop(shop, "visiting " + shop.Name))
                 CoopCore.JoiningAsVisitor = false;
+        }
+
+        /// <summary>The visit we saved and left for: join once the title screen is up.</summary>
+        private void TryPendingVisit()
+        {
+            if (_pendingVisit < 0)
+                return;
+            if (Time.unscaledTime - _pendingVisitAt > 90f)
+            {
+                _pendingVisit = -1;
+                Status = "visit gave up - the shop never opened";
+                return;
+            }
+            if (!AtTitle() || CoopCore.Role != CoopRole.None)
+                return;
+            var shop = Board.Shops.Find(s => s.Id == _pendingVisit);
+            if (shop == null || !shop.Visitable)
+                return;
+            _pendingVisit = -1;
+            Visit(shop);
+        }
+
+        /// <summary>A league member back at the title (after a visit, a crash, a quit) returns
+        /// to their own league shop - only with the lobby up and the league started.</summary>
+        public static string CannotReturnHome()
+        {
+            if (Role == LobbyRole.None)
+                return "not in the league lobby";
+            if (!LeagueStarted)
+                return "the host has not started the league";
+            if (LeagueSession.Active)
+                return "already in the league";
+            if (!LeagueSession.HasSave(LeagueId))
+                return "you hold no save for league " + LeagueId;
+            if (!AtTitle() || CoopCore.Role != CoopRole.None)
+                return "go to the title screen first";
+            return "";
+        }
+
+        public static void ReturnHome()
+        {
+            var me = Instance;
+            if (me == null || CannotReturnHome().Length > 0)
+                return;
+            me._pendingVisit = -1;
+            if (LeagueSession.Begin(LeagueId, LobbyName, true, me._viaSteam))
+                Status = LeagueSession.Status;
+            else
+                Status = "return home: " + LeagueSession.Status;
         }
 
         /// <summary>Join a shop's co-op session the way it published itself (Steam lobby or LAN
@@ -709,6 +781,7 @@ namespace CardShopCoop.Sync.Rivals
             if (me == null || Role != LobbyRole.Server)
                 return;
             MintLeagueId();
+            LeagueStarted = false;
             foreach (var m in me._members.Values)
             {
                 m.Ready = false;
@@ -836,7 +909,7 @@ namespace CardShopCoop.Sync.Rivals
                 if (cap != null)
                     cap.Captain = true;
             }
-            var msg = new RivalsLeagueMessage { Op = "setup", LeagueId = LeagueId, Name = LobbyName, Teams = LeagueTeams, PerTeam = LeaguePerTeam, Members = list };
+            var msg = new RivalsLeagueMessage { Op = "setup", LeagueId = LeagueId, Name = LobbyName, Teams = LeagueTeams, PerTeam = LeaguePerTeam, Members = list, Started = LeagueStarted };
             Roster.Clear();
             Roster.AddRange(list);
             _net.Broadcast(msg);
@@ -865,6 +938,7 @@ namespace CardShopCoop.Sync.Rivals
                     Roster.Clear();
                     if (m.Members != null)
                         Roster.AddRange(m.Members);
+                    LeagueStarted = m.Started;
                     if (_myTeam > LeagueTeams)
                         _myTeam = 0;
                     if (newId)
@@ -915,8 +989,9 @@ namespace CardShopCoop.Sync.Rivals
                 Status = "can't start: " + why;
                 return;
             }
+            LeagueStarted = true;
             me.SendSetup(); // captains final
-            var msg = new RivalsLeagueMessage { Op = "start", LeagueId = LeagueId, Name = LobbyName, Teams = LeagueTeams, PerTeam = LeaguePerTeam, Members = new List<LeagueMember>(Roster) };
+            var msg = new RivalsLeagueMessage { Op = "start", LeagueId = LeagueId, Name = LobbyName, Teams = LeagueTeams, PerTeam = LeaguePerTeam, Members = new List<LeagueMember>(Roster), Started = true };
             me._net.Broadcast(msg);
             PushChat("lobby", "league " + LeagueId + " STARTED");
             me._net.Broadcast(new RivalsChatMessage { From = "lobby", Text = "league " + LeagueId + " STARTED" });
@@ -936,6 +1011,7 @@ namespace CardShopCoop.Sync.Rivals
             }
             _myReady = false;
             _sentState = "";
+            LeagueStarted = true;
             if (!LeagueSession.Begin(m.LeagueId, m.Name, me.Captain, _viaSteam))
             {
                 Status = "league start: " + LeagueSession.Status;
@@ -950,22 +1026,24 @@ namespace CardShopCoop.Sync.Rivals
             {
                 var cap = Roster.Find(x => x.Team == me.Team && x.Captain);
                 _joinCaptain = cap != null ? cap.Id : -1;
+                _joinedOnce = false;
                 _lastJoinTry = -100f;
                 Status = cap != null ? "waiting for " + cap.Name + "'s shop to open..." : "your team has no captain";
             }
         }
 
         /// <summary>Teammate: the captain's shop shows up on the board as visitable - join it
-        /// as a regular co-op guest (the team shares the shop).</summary>
+        /// as a regular co-op guest (the team shares the shop). Stays armed for the whole
+        /// league: when the captain goes visiting and comes back, the team rejoins.</summary>
         private void TryJoinTeam()
         {
-            if (_joinCaptain < 0)
+            if (_joinCaptain < 0 || _pendingVisit >= 0)
                 return;
             if (CoopCore.Role != CoopRole.None)
             {
-                if (CoopCore.Role == CoopRole.Client)
+                if (CoopCore.Role == CoopRole.Client && !_joinedOnce)
                 {
-                    _joinCaptain = -1;
+                    _joinedOnce = true;
                     Status = "joined your team's shop";
                 }
                 return;

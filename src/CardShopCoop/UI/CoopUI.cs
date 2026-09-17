@@ -213,8 +213,12 @@ namespace CardShopCoop.UI
             // content, and the scroll offset all agree.
             if (_tab == CoopTab.Character && CoopCore.Role == CoopRole.None)
                 _tab = CoopTab.Session;
+            // in a league lobby the plain co-op tab is gone: sessions are the lobby's business
+            bool inLeague = Sync.Rivals.RivalsLobby.Role != Sync.Rivals.RivalsLobby.LobbyRole.None;
+            if (inLeague && _tab == CoopTab.Session)
+                _tab = CoopTab.Rivals;
 
-            DrawTabs(core);
+            DrawTabs(core, inLeague);
             core.SetCharacterPreview(_tab == CoopTab.Character && CoopCore.Role != CoopRole.None);
 
             // The window height is set on GUILayout.Window itself, so nothing here measures the
@@ -380,12 +384,12 @@ namespace CardShopCoop.UI
             return Mathf.Clamp(Screen.height * 0.72f, min, max);
         }
 
-        private void DrawTabs(CoopCore core)
+        private void DrawTabs(CoopCore core, bool inLeague)
         {
             GUILayout.BeginHorizontal();
             GUI.enabled = _tab != CoopTab.Session;
-            if (GUILayout.Button("SESSION", _tab == CoopTab.Session ? CoopTheme.TabSelected : CoopTheme.Tab,
-                GUILayout.Width(88f)))
+            if (!inLeague && GUILayout.Button("OG CO-OP", _tab == CoopTab.Session ? CoopTheme.TabSelected : CoopTheme.Tab,
+                GUILayout.Width(96f)))
                 _tab = CoopTab.Session;
             GUI.enabled = CoopCore.Role != CoopRole.None && _tab != CoopTab.Character;
             if (GUILayout.Button("CHARACTER", _tab == CoopTab.Character ? CoopTheme.TabSelected : CoopTheme.Tab,
@@ -473,8 +477,11 @@ namespace CardShopCoop.UI
                 GUILayout.BeginHorizontal();
                 GUILayout.Label($"{i + 1}. {s.Name}{team} - lvl {s.Level}, {GameInstance.GetPriceString(s.Money)}, day {s.Day}", CoopTheme.Label);
                 bool mine = s.Id == Sync.Rivals.RivalsLobby.MyId;
-                if (!mine && s.Visitable && CoopCore.Role == CoopRole.None
-                    && GUILayout.Button("Visit", CoopTheme.ButtonSecondary, GUILayout.Width(60f)))
+                var gmv = CSingleton<CGameManager>.Instance;
+                bool inGame = gmv != null && gmv.m_IsGameLevel;
+                // a co-op guest's home is the shop it stands in; owners (solo or hosting) may go
+                if (!mine && s.Visitable && CoopCore.Role != CoopRole.Client
+                    && GUILayout.Button(inGame ? "Save & visit" : "Visit", CoopTheme.ButtonSecondary, GUILayout.Width(inGame ? 90f : 60f)))
                     Sync.Rivals.RivalsLobby.Visit(s);
                 GUILayout.EndHorizontal();
                 string open = s.Visitable ? "  open to visitors" : "  not hosting (can't be visited)";
@@ -598,6 +605,18 @@ namespace CardShopCoop.UI
             else if (CoopCore.Role != CoopRole.None)
                 GUILayout.Label("leave your co-op session to ready up", CoopTheme.LabelDim);
             GUILayout.EndHorizontal();
+
+            // back from a visit (or a quit): my own league shop again
+            if (!Sync.Rivals.LeagueSession.Active && Sync.Rivals.RivalsLobby.LeagueStarted && Sync.Rivals.LeagueSession.HasSave(Sync.Rivals.RivalsLobby.LeagueId))
+            {
+                string whyNot = Sync.Rivals.RivalsLobby.CannotReturnHome();
+                GUI.enabled = whyNot.Length == 0;
+                if (GUILayout.Button("Return to my league shop", CoopTheme.ButtonPrimary))
+                    Sync.Rivals.RivalsLobby.ReturnHome();
+                GUI.enabled = true;
+                if (whyNot.Length > 0)
+                    GUILayout.Label("<size=10>" + whyNot + "</size>", CoopTheme.LabelDim);
+            }
 
             // host: START
             if (server)
