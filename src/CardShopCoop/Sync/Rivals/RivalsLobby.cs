@@ -426,6 +426,7 @@ namespace CardShopCoop.Sync.Rivals
                     LobbyName = welcome.LobbyName ?? "";
                     Status = $"in lobby '{LobbyName}'";
                     _publishTimer = 10f; // publish now
+                    VisitorBag.ReportOfflineApply();
                     break;
                 case RivalsShopStateMessage state:
                     if (Role != LobbyRole.Server || !_welcomed.Contains(msg.ConnId) || state.Shop == null)
@@ -1150,7 +1151,17 @@ namespace CardShopCoop.Sync.Rivals
             var me = Instance;
             if (me == null || Role == LobbyRole.None || me._net == null)
                 return false;
-            SendBagOp(new RivalsBagMessage { Op = "back" });
+            // the mirror rides along: if the server lost the bag, this copy is what gets delivered
+            SendBagOp(new RivalsBagMessage { Op = "back", State = VisitorBag.Current });
+            return true;
+        }
+
+        public static bool SendBagApplied(string key)
+        {
+            var me = Instance;
+            if (me == null || Role == LobbyRole.None || me._net == null)
+                return false;
+            SendBagOp(new RivalsBagMessage { Op = "back", Applied = true, State = new VisitorBag.State { Key = key } });
             return true;
         }
 
@@ -1173,6 +1184,12 @@ namespace CardShopCoop.Sync.Rivals
                 case "open":
                     if (m.State == null)
                         return;
+                    if (bag != null && bag.Open && bag.Out.Count == 0)
+                    {
+                        // a bag kept from an earlier trip nobody was home for: deliver it now
+                        DeliverBag(key, bag);
+                        bag = null;
+                    }
                     if (bag == null || !bag.Open)
                     {
                         bag = m.State.Clone(); // never the opener's own object (the server opens too)
@@ -1225,10 +1242,31 @@ namespace CardShopCoop.Sync.Rivals
                     BroadcastBag(key, bag);
                     break;
                 case "back":
+                    if (m.Applied)
+                    {
+                        // they applied their mirror while we were unreachable: our copy would double it
+                        if (bag != null && bag.Out.Count == 0)
+                        {
+                            _teamBags.Remove(key);
+                            CoopPlugin.Log.LogInfo($"Rivals: team bag {key} applied offline by {NameOf(conn)} - server copy dropped");
+                        }
+                        return;
+                    }
                     if (bag == null)
                     {
-                        // nothing to hand over: clear the member's stale mirror
-                        SendBagTo(conn, new RivalsBagMessage { Op = "state", State = new VisitorBag.State { Key = key } });
+                        // the server has no copy (it restarted, or the member dropped and came
+                        // back): the member's own mirror is the truth - deliver THAT, don't wipe it
+                        if (m.State != null && m.State.Open)
+                        {
+                            bag = m.State.Clone();
+                            bag.Key = key;
+                            bag.Shared = true;
+                            bag.Out = new List<int>();
+                            CoopPlugin.Log.LogInfo($"Rivals: team bag {key} recovered from {NameOf(conn)}'s mirror (cash {bag.MoneyAtDeparture:0.00}, net {bag.Earned - bag.Spent:0.00})");
+                            DeliverBag(key, bag);
+                        }
+                        else
+                            SendBagTo(conn, new RivalsBagMessage { Op = "state", State = new VisitorBag.State { Key = key } });
                         return;
                     }
                     bag.Out.Remove(conn);
@@ -1291,7 +1329,11 @@ namespace CardShopCoop.Sync.Rivals
                     SendBagTo(m.Id, new RivalsBagMessage { Op = "state", State = new VisitorBag.State { Key = key } });
             if (to < 0)
             {
-                CoopPlugin.Log.LogWarning($"Rivals: team bag {key} has nobody to deliver to - dropped (net {bag.Earned - bag.Spent:0.00})");
+                // nobody of that team is here to take it: keep it until one comes back (a
+                // reconnecting member's "back"/"open" delivers it) - never drop money on a disconnect
+                bag.Out.Clear();
+                _teamBags[key] = bag;
+                CoopPlugin.Log.LogInfo($"Rivals: team bag {key} has nobody to deliver to right now - kept (cash {bag.MoneyAtDeparture:0.00}, net {bag.Earned - bag.Spent:0.00})");
                 return;
             }
             CoopPlugin.Log.LogInfo($"Rivals: team bag {key} delivered to {NameOf(to)}");

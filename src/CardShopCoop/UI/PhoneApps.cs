@@ -54,6 +54,9 @@ namespace CardShopCoop.UI
             // the phone went away under us
             if (Current != App.None && s_onPhone && !PhoneIsUp())
                 Close();
+            // Esc always closes the app (the phone's own close is held off while it is open)
+            if (Current != App.None && Input.GetKeyDown(KeyCode.Escape))
+                Close();
         }
 
         private static bool TypingSomewhere()
@@ -236,25 +239,40 @@ namespace CardShopCoop.UI
             GUILayout.Space(34f);
             GUILayout.BeginVertical(CoopTheme.ContentPanel);
             s_scroll = GUILayout.BeginScrollView(s_scroll);
-            var core = CoopCore.Instance;
-            if (Current == App.Trade)
+            // an exception inside a panel used to leave IMGUI's layout stack unbalanced: the
+            // phone then drew nothing and could not be closed (2026-09-16, DECKS > New deck as a
+            // visitor). Catch it, close the app cleanly, and say so.
+            try
             {
-                if (core == null || CoopCore.Role == CoopRole.None)
-                    GUILayout.Label("Trading happens in a co-op session: a visitor with the shop they're in (RIVALS league). Nobody to trade with right now.", CoopTheme.LabelDim);
-                else
+                var core = CoopCore.Instance;
+                if (Current == App.Trade)
                 {
-                    bool visitor = CoopCore.Role == CoopRole.Client && CoopCore.IsVisiting;
-                    if (CoopCore.Role == CoopRole.Host && core.Visitors().Count == 0 && !Sync.Rivals.TradeSync.Open)
-                        GUILayout.Label("No visitor in the shop right now. When a rival drops in, pick them here to trade.", CoopTheme.LabelDim);
-                    else if (CoopCore.Role == CoopRole.Client && !visitor)
-                        GUILayout.Label("You share this shop's till and album - nothing to trade with your own team. Visit a rival to trade.", CoopTheme.LabelDim);
-                    TradePanel.Draw(core, w - 24f);
+                    if (core == null || CoopCore.Role == CoopRole.None)
+                        GUILayout.Label("Trading happens in a co-op session: a visitor with the shop they're in (RIVALS league). Nobody to trade with right now.", CoopTheme.LabelDim);
+                    else
+                    {
+                        bool visitor = CoopCore.Role == CoopRole.Client && CoopCore.IsVisiting;
+                        if (CoopCore.Role == CoopRole.Host && core.Visitors().Count == 0 && !Sync.Rivals.TradeSync.Open)
+                            GUILayout.Label("No visitor in the shop right now. When a rival drops in, pick them here to trade.", CoopTheme.LabelDim);
+                        else if (CoopCore.Role == CoopRole.Client && !visitor)
+                            GUILayout.Label("You share this shop's till and album - nothing to trade with your own team. Visit a rival to trade.", CoopTheme.LabelDim);
+                        TradePanel.Draw(core, w - 24f);
+                    }
+                }
+                else if (Current == App.Decks)
+                    DeckPanel.Draw(w - 24f);
+                else
+                    ShopPanel.Draw(w - 24f);
+            }
+            catch (Exception e)
+            {
+                if (Event.current.type != EventType.Layout)
+                {
+                    CoopPlugin.Log.LogWarning("PhoneApps: " + Current + " app threw - closing it: " + e);
+                    Sync.HostOnlyFeatures.Notice("That app hit a snag and closed");
+                    Close();
                 }
             }
-            else if (Current == App.Decks)
-                DeckPanel.Draw(w - 24f);
-            else
-                ShopPanel.Draw(w - 24f);
             GUILayout.EndScrollView();
             GUILayout.EndVertical();
             GUILayout.EndArea();

@@ -185,6 +185,7 @@ namespace CardShopCoop.Net.Messages
     {
         public string Op = "";
         public CardShopCoop.Sync.Rivals.VisitorBag.State State;
+        public bool Applied;    // "back": the member already applied this bag offline - drop the server's copy
         public double Amount;
         public string What = "";
         public int ItemType;

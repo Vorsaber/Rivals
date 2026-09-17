@@ -49,6 +49,9 @@ namespace CardShopCoop.Sync.Rivals
             /// Ops go to the server, the server's state comes back.</summary>
             public bool Shared;
             public string Key = "";
+            /// <summary>A shared bag we applied at home WITHOUT the lobby: told to the server on
+            /// the next connect so it drops any copy it kept.</summary>
+            public string AppliedOffline = "";
             public List<int> Out = new List<int>();   // server: members currently out with it
             public string HomeShop = "";
             public string VisitingShop = "";
@@ -293,16 +296,26 @@ namespace CardShopCoop.Sync.Rivals
                 // the team's bag lives on the lobby: tell it we are home; it delivers to the
                 // captain when the last of us is
                 if (RivalsLobby.SendBagBack())
-                    CoopPlugin.Log.LogInfo("VisitorBag: home - told the lobby");
-                else
                 {
-                    // no lobby to report to: the server delivers on its own when it saw us
-                    // leave; a mirror of the team's bag must not be applied a second time here
-                    CoopPlugin.Log.LogWarning("VisitorBag: home without the lobby - dropping the mirror of the team bag (the lobby delivers it)");
-                    Current = new State();
-                    Save();
+                    CoopPlugin.Log.LogInfo("VisitorBag: home - told the lobby");
+                    return;
                 }
-                return;
+                // no lobby: this mirror is the only copy we can be sure of - apply it here and
+                // tell the server on the next connect (it drops any copy it kept)
+                CoopPlugin.Log.LogWarning("VisitorBag: home without the lobby - applying the mirror here");
+                string key = Current.Key ?? "";
+                Current.Shared = false;
+                if (Current.HomeIsTeam)
+                {
+                    DepositToTeam();
+                    if (!IsOpen)
+                    {
+                        Current.AppliedOffline = key;
+                        Save();
+                    }
+                    return;
+                }
+                // fall through: the owner's own world takes it
             }
             if (Current.HomeIsTeam)
             {
@@ -320,13 +333,27 @@ namespace CardShopCoop.Sync.Rivals
             }
             if (CoopCore.Role == CoopRole.Client)
                 return; // the rival's world in the scratch slot, not home
+            string appliedKey = Current.Key ?? "";
             try
             {
                 ApplyContents(HomeNet(Current), Current.Cards, Current.Items, SafeShopName(), Current.VisitingShop);
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("VisitorBag apply: " + e.Message); }
-            Current = new State();
+            Current = new State { AppliedOffline = appliedKey };
             Save();
+        }
+
+        /// <summary>Lobby just connected: if we applied a shared bag while it was unreachable,
+        /// say so, so the server's kept copy is not delivered on top.</summary>
+        public static void ReportOfflineApply()
+        {
+            if (Current == null || string.IsNullOrEmpty(Current.AppliedOffline))
+                return;
+            if (RivalsLobby.SendBagApplied(Current.AppliedOffline))
+            {
+                Current.AppliedOffline = "";
+                Save();
+            }
         }
 
         /// <summary>What the till gets back: the cash taken along (if it left the till) less

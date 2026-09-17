@@ -171,6 +171,11 @@ namespace CardShopCoop.Sync
         public static bool BeginRemoteEdit(Action granted)
         {
             var self = s_instance;
+            if (CoopCore.IsVisiting)
+            {
+                HostOnlyFeatures.Notice("Visit: you can't edit a rival's decks (your travel deck is the one marked ✈)");
+                return false;
+            }
             if (InBattle())
             {
                 HostOnlyFeatures.Notice("Decks can't change mid-battle");
@@ -179,11 +184,6 @@ namespace CardShopCoop.Sync
             if (IsDeckListOpen())
             {
                 HostOnlyFeatures.Notice("Close the workbench deck list first");
-                return false;
-            }
-            if (CoopCore.IsVisiting)
-            {
-                HostOnlyFeatures.Notice("Visit: you can't edit a rival's decks (your travel deck is the one marked ✈)");
                 return false;
             }
             if (self == null || CoopCore.Role == CoopRole.None)

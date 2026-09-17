@@ -70,7 +70,7 @@ namespace CardShopCoop.UI
                 GUILayout.BeginHorizontal(i % 2 == 0 ? CoopTheme.RowEven : CoopTheme.RowOdd);
                 GUILayout.Label($"{(active ? "<color=#7CFC00>*</color> " : "")}{d.deckName}  <size=10>{count}/{max}{(count < max ? " (incomplete)" : "")}</size>", CoopTheme.Label);
                 GUILayout.FlexibleSpace();
-                if (GUILayout.Button("Edit", CoopTheme.ButtonSecondary, GUILayout.Width(50f)))
+                if (!CoopCore.IsVisiting && GUILayout.Button("Edit", CoopTheme.ButtonSecondary, GUILayout.Width(50f)))
                     OpenDeck(i);
                 GUI.enabled = !active && count >= max;
                 if (GUILayout.Button("Use", CoopTheme.ButtonPrimary, GUILayout.Width(46f)))
@@ -79,7 +79,9 @@ namespace CardShopCoop.UI
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndScrollView();
-            if (decks.Count < 30 && GUILayout.Button("+ New deck", CoopTheme.ButtonSecondary))
+            if (CoopCore.IsVisiting)
+                GUILayout.Label("<size=10>Visiting: these are the shop's decks (read-only). Yours is the one marked \u2708 - pick it with Use.</size>", CoopTheme.LabelDim);
+            else if (decks.Count < 30 && GUILayout.Button("+ New deck", CoopTheme.ButtonSecondary))
                 NewDeck();
             GUILayout.Label("<size=10>* = the deck you battle with. A deck needs all " + max + " cards before it can be used.</size>", CoopTheme.LabelDim);
         }
@@ -177,8 +179,12 @@ namespace CardShopCoop.UI
             int max = GameInstance.GetMaxDeckCardCount();
             int total = d.GetTotalCardCount();
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("< decks", CoopTheme.ButtonSecondary, GUILayout.Width(70f)))
+            bool back = GUILayout.Button("< decks", CoopTheme.ButtonSecondary, GUILayout.Width(70f));
+            if (back)
             {
+                // finish this row's group before leaving: an early return here unbalanced
+                // IMGUI's layout stack and blanked the phone (2026-09-16)
+                GUILayout.EndHorizontal();
                 s_deck = -1;
                 s_picker = false;
                 return;

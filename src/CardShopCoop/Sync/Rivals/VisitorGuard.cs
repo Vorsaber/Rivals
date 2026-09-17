@@ -67,6 +67,8 @@ namespace CardShopCoop.Sync.Rivals
                 foreach (string m in new[] { "OnMouseButtonUp", "OnRightMouseButtonUp" })
                     n += Patch(h, t, m, block);
 
+            // a play table's tournament number
+            n += Patch(h, typeof(SetPlayerTableNumberScreen), "OpenSetPlayTableNumberScreen", block);
             // staff
             n += Patch(h, typeof(WorkerCollider), "OnMousePress", block);
             n += Patch(h, typeof(WorkerCollider), "OnRightMousePress", block);
