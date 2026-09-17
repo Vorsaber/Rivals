@@ -57,6 +57,10 @@ namespace CardShopCoop.UI
             new Knob("CustomCustomers", "customers", 0.1f, 5f),
             new Knob("CustomArrivalRate", "arrivals", 0.1f, 5f),
             new Knob("CustomWallet", "wallets", 0.1f, 5f),
+            // fv-681 (Difficulty v2) keys: absent on an older TcgDifficulty, so the row just does not draw
+            new Knob("CustomPatience", "patience", 0.25f, 4f),
+            new Knob("CustomDriftSpeed", "price drift speed", 0f, 5f),
+            new Knob("CustomAiStrength", "AI strength", 0.25f, 4f),
         };
 
         public static void Draw(CoopCore core, float width)
