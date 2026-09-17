@@ -208,6 +208,7 @@ namespace CardShopCoop.Net.Messages
     public sealed class VisitorCardBuyMessage : INetMessage
     {
         public int Key;
+        public bool Prize;   // off the tournament prize shelf, by the entrant: no charge
         public MsgType Type
         {
             get

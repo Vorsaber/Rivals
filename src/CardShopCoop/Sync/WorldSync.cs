@@ -347,10 +347,16 @@ namespace CardShopCoop.Sync
                     // ApplyTransferResult). Nothing else touches the shop: no stocking, no
                     // container moves. Refuse those - and a take the bag cannot cover - closed.
                     string refuse = null;
+                    // the tournament's prize shelf (kind 14): the entrant's winnings are free
+                    bool prize = (key >> 24) == 14 && TournamentSync.ClientPrizeFree();
                     if (delta > 0)
                         refuse = "visitors can't stock the shelves";
                     else if (!escrowTake)
                         refuse = "visitors can't move stock around";
+                    else if (prize)
+                    {
+                        // nothing to check or confirm: it is theirs
+                    }
                     else
                     {
                         double cost = VisitorUnitPrice(transferType) * -delta;
@@ -359,7 +365,7 @@ namespace CardShopCoop.Sync
                         else if (Rivals.VisitorBag.Balance < cost)
                             refuse = $"your bag can't cover {GameInstance.GetPriceString(cost)} (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})";
                     }
-                    if (refuse == null && UI.PurchaseConfirm.Enabled)
+                    if (refuse == null && !prize && UI.PurchaseConfirm.Enabled)
                     {
                         // ask first: the item waits in the hand; Y sends the take (= the
                         // purchase), N rolls it back like any refused take
@@ -593,7 +599,12 @@ namespace CardShopCoop.Sync
                     if (actual.HasValue)
                         (authoritative ?? (authoritative = new List<Entry>())).Add(actual.Value);
                     if (visitor && _lastAccepted < 0)
-                        VisitorPaid(connId, _lastAcceptedType, -_lastAccepted);
+                    {
+                        if ((e.Key >> 24) == 14 && TournamentSync.HostPrizeFree(connId))
+                            CoopPlugin.Log.LogInfo($"rivals: {(CoopCore.Instance != null ? CoopCore.Instance.PeerNameFor(connId) : "visitor")} collected a tournament prize ({-_lastAccepted} x {(_lastAcceptedType >= 0 ? ((EItemType)_lastAcceptedType).ToString() : "item")})");
+                        else
+                            VisitorPaid(connId, _lastAcceptedType, -_lastAccepted);
+                    }
                 }
                 else
                 {
@@ -813,13 +824,17 @@ namespace CardShopCoop.Sync
                     CoopPlugin.Log.LogInfo($"WorldSync transfer key={pending.Target:X} take token={pending.EscrowToken} accepted={accepted} rejected={Mathf.Max(0, -rejected)}");
                     if (purchase && accepted > 0)
                     {
-                        double unit = VisitorUnitPrice(pending.TransferType);
-                        double cost = unit * accepted;
                         string what = pending.TransferType >= 0 ? ((EItemType)pending.TransferType).ToString() : "item";
-                        Rivals.VisitorBag.TrySpend(cost, $"{accepted} x {what}", true);
+                        bool prize = (pending.Target >> 24) == 14 && TournamentSync.ClientPrizeFree();
+                        double cost = prize ? 0 : VisitorUnitPrice(pending.TransferType) * accepted;
+                        if (cost > 0)
+                            Rivals.VisitorBag.TrySpend(cost, $"{accepted} x {what}", true);
                         if (pending.TransferType >= 0 && pending.TransferType != (int)EItemType.None)
                             Rivals.VisitorBag.AddItem((EItemType)pending.TransferType, accepted, (float)cost);
-                        HostOnlyFeatures.Notice($"Bought {accepted} x {what} for {GameInstance.GetPriceString(cost)} - in your bag (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})");
+                        if (prize)
+                            HostOnlyFeatures.Notice($"Tournament prize: {accepted} x {what} - in your bag");
+                        else
+                            HostOnlyFeatures.Notice($"Bought {accepted} x {what} for {GameInstance.GetPriceString(cost)} - in your bag (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})");
                     }
                 }
                 else if (rejected > 0)

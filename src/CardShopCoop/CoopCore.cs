@@ -1207,10 +1207,10 @@ namespace CardShopCoop
         }
 
         /// <summary>Visitor: I took this displayed card - charge me, clear it there.</summary>
-        internal void SendVisitorCardBuy(int key)
+        internal void SendVisitorCardBuy(int key, bool prize = false)
         {
             if (Role == CoopRole.Client && _net != null)
-                Send(1, new VisitorCardBuyMessage { Key = key });
+                Send(1, new VisitorCardBuyMessage { Key = key, Prize = prize });
         }
 
         /// <summary>Client: hand the carry-out bag to the shop we play in (our team's).</summary>

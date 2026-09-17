@@ -1009,7 +1009,8 @@ namespace CardShopCoop
                     return;
                 if (message is VisitorCardBuyMessage buy && IsVisitorConn(context.ConnectionId))
                 {
-                    var echo = _cardShelves.HostSellToVisitor(buy.Key, PeerNameFor(context.ConnectionId));
+                    bool free = buy.Prize && (buy.Key >> 24) == 14 && Sync.TournamentSync.HostPrizeFree(context.ConnectionId);
+                    var echo = _cardShelves.HostSellToVisitor(buy.Key, PeerNameFor(context.ConnectionId), free);
                     if (echo != null && echo.Count > 0)
                         Broadcast(new CardShelfDeltaMessage { Echo = true, Entries = echo });
                 }

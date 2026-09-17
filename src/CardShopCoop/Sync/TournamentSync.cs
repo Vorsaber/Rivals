@@ -229,6 +229,29 @@ namespace CardShopCoop.Sync
             return s_entryMine;
         }
 
+        private static bool TournamentOver()
+        {
+            try
+            {
+                var td = CPlayerData.m_TournamentData;
+                return td != null && td.m_IsTournamentDayOver;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Host: this visitor played the tournament and it is over - what they take
+        /// off the PRIZE shelf is their winnings, not a purchase.</summary>
+        public static bool HostPrizeFree(int conn)
+        {
+            return GuestHoldsEntry(conn) && TournamentOver();
+        }
+
+        /// <summary>Visitor: same test from this side (mirrored entry + day over).</summary>
+        public static bool ClientPrizeFree()
+        {
+            return s_entryMine && TournamentOver();
+        }
+
         private void HostSetEntry(int conn)
         {
             _entryConn = conn;

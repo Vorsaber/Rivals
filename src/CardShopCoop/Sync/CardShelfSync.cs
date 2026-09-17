@@ -509,14 +509,28 @@ namespace CardShopCoop.Sync
                 price = CPlayerData.GetCardPrice(card);
             }
             catch { }
-            if (comp.m_ItemNotForSale)
-                refuse = "that card is not for sale";
-            else if (!Rivals.VisitorBag.IsOpen)
+            int key = 0;
+            bool keyed = TryKeyOf(comp, out key);
+            // the tournament prize shelf (kind 14): the entrant's winnings are free
+            bool prize = keyed && (key >> 24) == 14 && TournamentSync.ClientPrizeFree();
+            if (!Rivals.VisitorBag.IsOpen)
                 refuse = "no carry-out bag open";
+            else if (!keyed)
+                refuse = "that display isn't synced yet - try again in a moment";
+            else if (prize)
+            {
+                string pname = card.monsterType + (card.isFoil ? " (foil)" : "");
+                Rivals.VisitorBag.AddCard(card, 1, 0f);
+                self.ApplyRemote(new List<Entry> { new Entry { Key = key, Occupied = false } });
+                CoopCore.Instance?.SendVisitorCardBuy(key, true);
+                HostOnlyFeatures.Notice($"Tournament prize: {pname} - in your bag");
+                CoopPlugin.Log.LogInfo($"rivals: prize card {pname} (key {key:X})");
+                return false;
+            }
+            else if (comp.m_ItemNotForSale)
+                refuse = "that card is not for sale";
             else if (Rivals.VisitorBag.Balance < price)
                 refuse = $"your bag can't cover {GameInstance.GetPriceString(price)} (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})";
-            else if (!TryKeyOf(comp, out int key))
-                refuse = "that display isn't synced yet - try again in a moment";
             else if (UI.PurchaseConfirm.Pending)
                 refuse = "answer the purchase you have open first (Y / N)";
             else
@@ -568,7 +582,7 @@ namespace CardShopCoop.Sync
         /// <summary>HOST: a visitor bought the card on this display slot - clear it, take the
         /// money, and return the empty slot to echo to everyone. Null when there was nothing to
         /// sell (already gone: the visitor's view heals on the next delta).</summary>
-        internal List<Entry> HostSellToVisitor(int key, string who)
+        internal List<Entry> HostSellToVisitor(int key, string who, bool prize = false)
         {
             var sm = Sm();
             var comp = sm != null ? Resolve(sm, key) : null;
@@ -577,14 +591,14 @@ namespace CardShopCoop.Sync
             CardData card;
             try
             {
-                if (!TryReadSlot(comp, out card) || card == null || comp.m_ItemNotForSale)
+                if (!TryReadSlot(comp, out card) || card == null || (comp.m_ItemNotForSale && !prize))
                     return null;
             }
             catch { return null; }
             double price = 0;
             try
             {
-                price = CPlayerData.GetCardPrice(card);
+                price = prize ? 0 : CPlayerData.GetCardPrice(card);
             }
             catch { }
             string name = card.monsterType + (card.isFoil ? " (foil)" : "");
@@ -596,8 +610,16 @@ namespace CardShopCoop.Sync
                     CEventManager.QueueEvent(new CEventPlayer_AddCoin((float)price));
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("CardShelfSync visitor sale: " + e.Message); }
-            CoopPlugin.Log.LogInfo($"rivals: {who} bought card {name} for {price:0.00}");
-            HostOnlyFeatures.Notice($"{who} (visiting) bought {name} for {GameInstance.GetPriceString(price)}");
+            if (prize)
+            {
+                CoopPlugin.Log.LogInfo($"rivals: {who} collected prize card {name}");
+                HostOnlyFeatures.Notice($"{who} collected their tournament prize: {name}");
+            }
+            else
+            {
+                CoopPlugin.Log.LogInfo($"rivals: {who} bought card {name} for {price:0.00}");
+                HostOnlyFeatures.Notice($"{who} (visiting) bought {name} for {GameInstance.GetPriceString(price)}");
+            }
             return ReadEntries(entries);
         }
 
