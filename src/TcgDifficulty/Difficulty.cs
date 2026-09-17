@@ -188,15 +188,11 @@ namespace TcgDifficulty
         /// used so every shop in the league grows the same way.</summary>
         public static float Curve(DifficultyProfile p, int players, int day)
         {
-            float slope = PerPlayerScale;
-            if (!s_override)
-            {
-                var c = Plugin.CurveFor(p);
-                if (c != null && c.PerPlayer.Value >= 0f)
-                    slope = c.PerPlayer.Value;
-            }
-            float crowd = 1f + Mathf.Clamp(slope, 0f, 2f) * Mathf.Max(0, players - 1);
             var curve = Plugin.CurveFor(p);
+            float slope = PerPlayerScale;
+            if (!s_override && curve != null && curve.PerPlayer.Value >= 0f)
+                slope = curve.PerPlayer.Value;
+            float crowd = 1f + Mathf.Clamp(slope, 0f, 2f) * Mathf.Max(0, players - 1);
             if (curve != null && curve.DayRamp.Value > 0f && day > 1)
             {
                 float ramp = Mathf.Min(curve.DayRamp.Value * (day - 1), Mathf.Max(0f, curve.DayRampCap.Value));

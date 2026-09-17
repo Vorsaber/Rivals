@@ -169,9 +169,8 @@ namespace TcgDifficulty
                                 break;
                         }
                     }
-                    if (t == null)
-                        return false; // not loaded (yet): look again next time
-                    s_pvpActive = t.GetProperty("Active", BindingFlags.Public | BindingFlags.Static);
+                    // a battle starts long after the chainloader finished: one look is enough
+                    s_pvpActive = t != null ? t.GetProperty("Active", BindingFlags.Public | BindingFlags.Static) : null;
                     s_pvpResolved = true;
                 }
                 return s_pvpActive != null && (bool)s_pvpActive.GetValue(null, null);
