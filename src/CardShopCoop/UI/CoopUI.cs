@@ -40,6 +40,7 @@ namespace CardShopCoop.UI
         private Vector2 _rivalsScroll;
         private string _rivalsAddress;
         private string _rivalsChat = "";
+        private string _anteText;
         private CoopTab _tab = CoopTab.Session;
         private Vector2 _sessionScroll;
         private Vector2 _characterScroll;
@@ -493,6 +494,24 @@ namespace CardShopCoop.UI
                 var gm = CSingleton<CGameManager>.Instance;
                 if (gm != null && gm.m_IsGameLevel && GUILayout.Button("Open my shop to visitors  (host a LAN session)", CoopTheme.ButtonSecondary))
                     Sync.Rivals.RivalsLobby.OpenShopForVisitors();
+            }
+            if (CoopPlugin.RivalsPvpAnte != null && CoopCore.Role != CoopRole.Client)
+            {
+                // the stake a visitor plays you for at a table (right-click a table to wait)
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("PvP ante for visitors", CoopTheme.Label, GUILayout.Width(150f));
+                if (_anteText == null)
+                    _anteText = CoopPlugin.RivalsPvpAnte.Value.ToString("0.##");
+                GUI.SetNextControlName("coop_rivals_ante");
+                _anteText = GUILayout.TextField(_anteText, 8, GUILayout.Width(80f));
+                if (GUILayout.Button("Set", CoopTheme.ButtonSecondary, GUILayout.Width(50f)))
+                {
+                    if (float.TryParse(_anteText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float a))
+                        CoopPlugin.RivalsPvpAnte.Value = Mathf.Clamp(a, 0f, 100000f);
+                    _anteText = CoopPlugin.RivalsPvpAnte.Value.ToString("0.##");
+                }
+                GUILayout.Label($"<size=10>{(CoopPlugin.RivalsPvpAnte.Value > 0 ? "each side stakes " + GameInstance.GetPriceString(CoopPlugin.RivalsPvpAnte.Value) + ", winner takes both" : "free matches")}</size>", CoopTheme.LabelDim);
+                GUILayout.EndHorizontal();
             }
             if (Sync.Rivals.VisitorBag.IsOpen)
             {

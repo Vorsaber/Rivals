@@ -34,6 +34,13 @@ namespace CardShopCoop.Sync
         public Action<INetMessage> SendToHost;              // client
         public Action<int, INetMessage> SendToClient;       // host
         public Func<int, string> PeerName;                  // host
+        public Func<int, bool> IsVisitor;                   // host: a Rivals visitor (plays for an ante)
+
+        // ---- ante (host authoritative): both stakes sit in s_pot until the result
+        public static double HostAnte => CoopPlugin.RivalsPvpAnte != null ? Math.Max(0, CoopPlugin.RivalsPvpAnte.Value) : 0;
+        private static double s_ante, s_pot;
+        private static bool s_settled;
+        public static double CurrentAnte => Active ? s_ante : 0;
 
         public static bool Active
         {
@@ -119,6 +126,9 @@ namespace CardShopCoop.Sync
                 prefix: new HarmonyMethod(typeof(PvpBattle), nameof(ConfirmSearchPrefix)));
             Try(h, typeof(PlayTableGame), "ConfirmQuitGame",
                 prefix: new HarmonyMethod(typeof(PvpBattle), nameof(QuitPrefix)));
+            // the ante pot follows the result (host only)
+            Try(h, typeof(PlayTableGame), "ReportWinner",
+                postfix: new HarmonyMethod(typeof(PvpBattle), nameof(ReportWinnerPostfix)));
             // no gift packs in PvP (each engine would roll its own)
             Try(h, typeof(PlayTableGame), "EvaluateEndGameGift",
                 postfix: new HarmonyMethod(typeof(PvpBattle), nameof(NoGiftPostfix)));
@@ -244,10 +254,38 @@ namespace CardShopCoop.Sync
                     SendToClient?.Invoke(conn, new BattleSitResultMessage { TableIndex = msg.TableIndex, Granted = false, Reason = (int)ENotEnoughResourceText.DeckIncomplete });
                     return;
                 }
-                int seed = unchecked(Environment.TickCount * 31 + msg.TableIndex * 7 + (int)(Time.realtimeSinceStartup * 1000f));
                 string name = PeerName?.Invoke(conn);
+                // a VISITOR plays for the ante (a teammate shares the till, so there is nothing
+                // to stake): first sit gets the offer, a sit carrying the ante accepts it
+                double ante = 0;
+                bool visitor = IsVisitor != null && IsVisitor(conn);
+                if (visitor && HostAnte > 0)
+                {
+                    ante = Math.Round(HostAnte, 2);
+                    if (msg.Ante < ante - 0.005)
+                    {
+                        SendToClient?.Invoke(conn, new PvpOfferMessage { TableIndex = msg.TableIndex, Ante = ante });
+                        HostOnlyFeatures.Notice($"Co-op: offered {name} a match for a {GameInstance.GetPriceString(ante)} ante");
+                        return;
+                    }
+                    if (CPlayerData.m_CoinAmountDouble < ante)
+                    {
+                        HostOnlyFeatures.Notice($"Co-op: the till can't cover your own {GameInstance.GetPriceString(ante)} ante");
+                        SendToClient?.Invoke(conn, new BattleSitResultMessage { TableIndex = msg.TableIndex, Granted = false, Reason = (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer });
+                        return;
+                    }
+                }
+                int seed = unchecked(Environment.TickCount * 31 + msg.TableIndex * 7 + (int)(Time.realtimeSinceStartup * 1000f));
                 _hostWaitingTable = -1;
                 _peerConn = conn;
+                if (ante > 0)
+                {
+                    CEventManager.QueueEvent(new CEventPlayer_ReduceCoin((float)ante));
+                    s_ante = ante;
+                    s_pot = ante * 2;
+                    s_settled = false;
+                    CoopPlugin.Log.LogInfo($"PvpBattle: ante {ante:0.00} each - pot {s_pot:0.00} held by the host");
+                }
                 SendToClient?.Invoke(conn, new PvpStartMessage
                 {
                     TableIndex = msg.TableIndex,
@@ -255,8 +293,11 @@ namespace CardShopCoop.Sync
                     HostSideA = true,
                     HostDeck = SelectedDeckEntry(),
                     HostName = CoopCore.Instance != null ? CoopCore.Instance.EffectivePlayerName : "host",
+                    Ante = ante,
                 });
                 Begin(true, seed, msg.TableIndex, remote, string.IsNullOrEmpty(name) ? "guest" : name);
+                if (ante > 0)
+                    HostOnlyFeatures.Notice($"Ante match: {GameInstance.GetPriceString(ante)} each, winner takes {GameInstance.GetPriceString(s_pot)}");
                 // the host's own seat, then the guest's (a puppet on this PC)
                 GuestBattle.BookSeat(table, 0, true);
                 GuestBattle.BookSeat(table, 1, true);
@@ -266,6 +307,62 @@ namespace CardShopCoop.Sync
                     CoopPlugin.Log.LogWarning("PvpBattle: SetPlayTable refused on the host");
                     Abort("host could not sit");
                 }
+            });
+        }
+
+        /// <summary>Client: the host wants a stake. A visitor with the money in the bag is asked
+        /// (Y sits again with the ante); anyone else is told why not.</summary>
+        public void ClientApplyOffer(PvpOfferMessage msg)
+        {
+            Guarded("offer", () =>
+            {
+                if (Active)
+                    return;
+                if (!Rivals.VisitorBag.IsOpen)
+                {
+                    HostOnlyFeatures.Notice("Co-op: this table plays for an ante - only a visitor with a carry-out bag can stake");
+                    return;
+                }
+                if (Rivals.VisitorBag.Balance < msg.Ante)
+                {
+                    HostOnlyFeatures.Notice($"Co-op: the ante is {GameInstance.GetPriceString(msg.Ante)} - your bag holds {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)}");
+                    return;
+                }
+                var deck = SelectedDeckEntry();
+                if (deck == null)
+                    return;
+                byte table = msg.TableIndex;
+                double ante = msg.Ante;
+                Action accept = () =>
+                {
+                    if (Active || SendToHost == null)
+                        return;
+                    SendToHost(new PvpSitMessage { TableIndex = table, Deck = deck, Ante = ante });
+                    HostOnlyFeatures.Notice($"Co-op: staking {GameInstance.GetPriceString(ante)} - asking the host for the match...");
+                };
+                if (UI.PurchaseConfirm.Enabled)
+                {
+                    if (!UI.PurchaseConfirm.Ask(
+                        $"Play for a {GameInstance.GetPriceString(ante)} ante?",
+                        $"Both stake {GameInstance.GetPriceString(ante)} - winner takes {GameInstance.GetPriceString(ante * 2)}, a draw returns them. Leaving mid-match forfeits. Bag balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)}.",
+                        accept, null))
+                        HostOnlyFeatures.Notice("Co-op: answer the question you have open first (Y / N)");
+                }
+                else
+                    accept();
+            });
+        }
+
+        /// <summary>Client (visitor): the pot, or the ante back, into the bag.</summary>
+        public void ClientApplySettle(PvpSettleMessage msg)
+        {
+            Guarded("settle", () =>
+            {
+                if (msg.Amount <= 0)
+                    return;
+                Rivals.VisitorBag.Earn(msg.Amount, msg.Reason ?? "PvP");
+                HostOnlyFeatures.Notice($"{msg.Reason}: {GameInstance.GetPriceString(msg.Amount)} into your bag (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})");
+                CoopPlugin.Log.LogInfo($"PvpBattle: settled {msg.Amount:0.00} into the bag ({msg.Reason})");
             });
         }
 
@@ -283,6 +380,13 @@ namespace CardShopCoop.Sync
                     return;
                 }
                 Begin(false, msg.Seed, msg.TableIndex, remote, string.IsNullOrEmpty(msg.HostName) ? "host" : msg.HostName);
+                if (msg.Ante > 0)
+                {
+                    // the stake leaves the bag now; the host holds the pot and settles
+                    s_ante = msg.Ante;
+                    Rivals.VisitorBag.TrySpend(msg.Ante, "PvP ante vs " + s_opponent, true);
+                    HostOnlyFeatures.Notice($"Ante match: {GameInstance.GetPriceString(msg.Ante)} staked from your bag - winner takes {GameInstance.GetPriceString(msg.Ante * 2)}");
+                }
                 GuestBattle.BookSeat(table, 0, true);
                 GuestBattle.BookSeat(table, 1, true);
                 ptg.SetPlayTable(table, !msg.HostSideA);
@@ -312,6 +416,8 @@ namespace CardShopCoop.Sync
             s_hashTimer = 0f;
             s_queueStuckSince = -1f;
             s_endSent = false;
+            if (!hostPc)
+                s_ante = 0; // the host set its stake before Begin; the guest learns it from the start message
             CoopPlugin.Log.LogInfo($"PvpBattle: match vs {opponent} at table {table}, seed {seed}, {(hostPc ? "host" : "guest")} PC");
             HostOnlyFeatures.Notice("Co-op: match vs " + opponent + " (experimental)");
         }
@@ -322,8 +428,57 @@ namespace CardShopCoop.Sync
             End();
         }
 
+        /// <summary>Host: the result is in - the pot goes where it belongs, once. 0 = draw,
+        /// 1 = host, 2 = guest.</summary>
+        private static void Settle(int outcome, string how)
+        {
+            if (!s_isHostPc || s_pot <= 0 || s_settled)
+                return;
+            s_settled = true;
+            var self = s_instance;
+            double pot = s_pot, ante = s_ante;
+            s_pot = 0;
+            try
+            {
+                switch (outcome)
+                {
+                    case 1:
+                        CEventManager.QueueEvent(new CEventPlayer_AddCoin((float)pot));
+                        HostOnlyFeatures.Notice($"You won the ante match ({how}): {GameInstance.GetPriceString(pot)} to the till");
+                        break;
+                    case 2:
+                        if (self != null && self._peerConn >= 0)
+                            self.SendToClient?.Invoke(self._peerConn, new PvpSettleMessage { Amount = pot, Reason = "Won the ante match" });
+                        HostOnlyFeatures.Notice($"{s_opponent} won the ante match ({how}): {GameInstance.GetPriceString(pot)} to their bag");
+                        break;
+                    default:
+                        CEventManager.QueueEvent(new CEventPlayer_AddCoin((float)ante));
+                        if (self != null && self._peerConn >= 0)
+                            self.SendToClient?.Invoke(self._peerConn, new PvpSettleMessage { Amount = ante, Reason = how });
+                        HostOnlyFeatures.Notice($"Ante match {how}: {GameInstance.GetPriceString(ante)} back to each side");
+                        break;
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("PvpBattle.Settle: " + e.Message); }
+            CoopPlugin.Log.LogInfo($"PvpBattle: settled pot {pot:0.00} -> {(outcome == 1 ? "host" : outcome == 2 ? "guest" : "split")} ({how})");
+        }
+
+        /// <summary>Host: every way a match resolves comes through here - a knockout, either
+        /// side's quit dialog (ConfirmQuitGame reports the quitter's loss), the guest leaving or
+        /// dropping (OpponentLeft reports a host win).</summary>
+        public static void ReportWinnerPostfix(bool isPlayerWin, bool isDraw)
+        {
+            if (!Active || !s_isHostPc)
+                return;
+            Settle(isDraw ? 0 : isPlayerWin ? 1 : 2, isDraw ? "draw" : "result");
+        }
+
         private static void End()
         {
+            // a match that never produced a result (aborted start) returns the stakes
+            Settle(0, "match aborted");
+            s_ante = 0;
+            s_pot = 0;
             Active = false;
             s_table = -1;
             s_remoteDeck = null;

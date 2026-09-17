@@ -130,6 +130,8 @@ namespace CardShopCoop.Net
         BagDeposit = 137,   // co-op: a teammate back from a visit hands the bag to the shop (client -> host)
         RivalsBag = 138,    // league: the TEAM's carry-out bag, kept by the lobby server (open/spend/earn/item/card/back/state/deliver)
         VisitorCardBuy = 139, // co-op: a visitor takes a displayed card = buys it (client -> host)
+        PvpOffer = 140,      // host -> one client: this table plays for an ante - accept by sitting again with it
+        PvpSettle = 141,     // host -> one client: the ante pot (or a refund) for the visitor's bag
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

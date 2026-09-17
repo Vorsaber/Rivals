@@ -686,6 +686,7 @@ namespace CardShopCoop
             _pvp.SendToHost = Send(1);
             _pvp.SendToClient = Send;
             _pvp.PeerName = PeerNameFor;
+            _pvp.IsVisitor = IsVisitorConn;
             _social.SendToHost = Send(1);
             _social.Broadcast = Broadcast;
             _social.PeerName = PeerNameFor;

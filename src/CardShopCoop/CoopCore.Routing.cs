@@ -893,6 +893,24 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.ClientOnlyInGame, false);
+            _messageRouter.Register<PvpOfferMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client || !InGameLevel())
+                    return;
+                if (message is PvpOfferMessage offer)
+                    _pvp.ClientApplyOffer(offer);
+                return;
+            },
+                MessagePolicy.ClientOnlyInGame, false);
+            _messageRouter.Register<PvpSettleMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client || !InGameLevel())
+                    return;
+                if (message is PvpSettleMessage settle)
+                    _pvp.ClientApplySettle(settle);
+                return;
+            },
+                MessagePolicy.ClientOnlyInGame, false);
             _messageRouter.Register<PvpActionMessage>((context, message) =>
             {
                 if (!InGameLevel())

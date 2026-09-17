@@ -10,6 +10,7 @@ namespace CardShopCoop.Net.Messages
     {
         public byte TableIndex;
         public DeckEntry Deck = new DeckEntry();
+        public double Ante;              // the ante the sitter accepts (0 = a free match)
         public MsgType Type
         {
             get
@@ -29,6 +30,7 @@ namespace CardShopCoop.Net.Messages
         public bool HostSideA;
         public DeckEntry HostDeck = new DeckEntry();
         public string HostName = "";
+        public double Ante;              // each side's stake; the guest's comes out of its bag now
         public MsgType Type
         {
             get
@@ -88,6 +90,37 @@ namespace CardShopCoop.Net.Messages
             get
             {
                 return MsgType.PvpEnd;
+            }
+        }
+    }
+
+    /// <summary>Host -> the sitter: this table plays for money. A visitor accepts by sending
+    /// PvpSit again carrying the ante; anything else and the host keeps waiting.</summary>
+    [NetworkMessage(MsgType.PvpOffer, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class PvpOfferMessage : INetMessage
+    {
+        public byte TableIndex;
+        public double Ante;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.PvpOffer;
+            }
+        }
+    }
+
+    /// <summary>Host -> the visitor: money for the carry-out bag - the pot, or the ante back.</summary>
+    [NetworkMessage(MsgType.PvpSettle, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class PvpSettleMessage : INetMessage
+    {
+        public double Amount;
+        public string Reason = "";
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.PvpSettle;
             }
         }
     }
