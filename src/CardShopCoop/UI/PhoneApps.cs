@@ -16,7 +16,7 @@ namespace CardShopCoop.UI
     {
         public enum App
         {
-            None, Trade, Decks
+            None, Trade, Decks, Shop
         }
 
         public static App Current
@@ -32,6 +32,7 @@ namespace CardShopCoop.UI
 
         private const string TradeId = "CoopTrade";
         private const string DecksId = "CoopDecks";
+        private const string ShopId = "CoopShop";
 
         private void Update()
         {
@@ -101,8 +102,9 @@ namespace CardShopCoop.UI
                 }
                 register.Invoke(registry, new[] { MakeSpec(specType, TradeId, "Trade", () => Open(App.Trade, true)) });
                 register.Invoke(registry, new[] { MakeSpec(specType, DecksId, "Decks", () => Open(App.Decks, true)) });
+                register.Invoke(registry, new[] { MakeSpec(specType, ShopId, "Shop", () => Open(App.Shop, true)) });
                 s_registered = true;
-                CoopPlugin.Log.LogInfo("PhoneApps: registered Trade and Decks on the phone");
+                CoopPlugin.Log.LogInfo("PhoneApps: registered Trade, Decks and Shop on the phone");
             }
             catch (Exception e)
             {
@@ -223,7 +225,7 @@ namespace CardShopCoop.UI
             CoopTheme.DrawWindowShadow(rect);
             GUI.Box(rect, GUIContent.none, CoopTheme.Window);
             GUILayout.BeginArea(rect);
-            string title = Current == App.Trade ? "TRADE" : "DECKS";
+            string title = Current == App.Trade ? "TRADE" : Current == App.Decks ? "DECKS" : "SHOP";
             CoopTheme.DrawWindowChrome(new Rect(0f, 0f, w, h), title, "");
             if (GUI.Button(new Rect(w - 74f, 4f, 66f, 22f), "Back", CoopTheme.ButtonSecondary))
             {
@@ -249,8 +251,10 @@ namespace CardShopCoop.UI
                     TradePanel.Draw(core, w - 24f);
                 }
             }
-            else
+            else if (Current == App.Decks)
                 DeckPanel.Draw(w - 24f);
+            else
+                ShopPanel.Draw(w - 24f);
             GUILayout.EndScrollView();
             GUILayout.EndVertical();
             GUILayout.EndArea();

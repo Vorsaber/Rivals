@@ -42,6 +42,7 @@ namespace CardShopCoop.UI
         private string _rivalsChat = "";
         private string _anteText;
         private string _bagMoneyText;
+        private string _shopNameText;
         private CoopTab _tab = CoopTab.Session;
         private Vector2 _sessionScroll;
         private Vector2 _characterScroll;
@@ -499,6 +500,25 @@ namespace CardShopCoop.UI
             if (CoopPlugin.RivalsBagMoney != null && !CoopCore.IsVisiting)
             {
                 var gmb = CSingleton<CGameManager>.Instance;
+                if (gmb != null && gmb.m_IsGameLevel && CoopCore.Role != CoopRole.Client)
+                {
+                    // the shop's name (the billboard rename sometimes never shows on a league save)
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label("Shop name", CoopTheme.Label, GUILayout.Width(150f));
+                    if (_shopNameText == null)
+                    {
+                        try
+                        {
+                            _shopNameText = CPlayerData.PlayerName ?? "";
+                        }
+                        catch { _shopNameText = ""; }
+                    }
+                    GUI.SetNextControlName("coop_rivals_shopname");
+                    _shopNameText = GUILayout.TextField(_shopNameText, 40, GUILayout.Width(200f));
+                    if (GUILayout.Button("Rename", CoopTheme.ButtonSecondary, GUILayout.Width(70f)))
+                        ShopPanel.SetShopName(_shopNameText);
+                    GUILayout.EndHorizontal();
+                }
                 if (gmb != null && gmb.m_IsGameLevel)
                 {
                     // cash for the trip: leaves the till when you go, the unspent part comes back
