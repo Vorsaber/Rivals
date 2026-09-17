@@ -42,6 +42,9 @@ namespace CardShopCoop.UI
                 // --- fv-683 leaderboard-v2 end
                 GUILayout.Label($"<size=10>   sales {s.SalesToday}, customers {s.CustomersToday}  |  {price}{crowd}{(s.TournamentToday ? "  TOURNAMENT TODAY" : "")}</size>", CoopTheme.LabelDim);
             }
+            // --- fv-683 leaderboard-v2 begin
+            SeasonPanel.DrawWeeks(RivalsLobby.Board, 3);
+            // --- fv-683 leaderboard-v2 end
             GUILayout.EndVertical();
 
             DrawDayTable(width, true);

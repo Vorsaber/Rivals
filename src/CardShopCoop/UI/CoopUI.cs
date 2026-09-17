@@ -641,6 +641,7 @@ namespace CardShopCoop.UI
             SeasonPanel.DrawSetting(server);
             if (Sync.Rivals.RivalsLobby.Board.SeasonOver)
                 SeasonPanel.DrawStatus(Sync.Rivals.RivalsLobby.Board);
+            SeasonPanel.DrawWeeks(Sync.Rivals.RivalsLobby.Board, 5);
             // --- fv-683 leaderboard-v2 end
 
             // roster
