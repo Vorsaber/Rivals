@@ -59,7 +59,7 @@ namespace CardShopCoop.UI
         {
             int selected = CPlayerData.m_CurrentSelectedDeckIndex;
             int max = GameInstance.GetMaxDeckCardCount();
-            s_scroll = GUILayout.BeginScrollView(s_scroll);
+            bool visiting = CoopCore.IsVisiting;
             for (int i = 0; i < decks.Count; i++)
             {
                 var d = decks[i];
@@ -70,15 +70,19 @@ namespace CardShopCoop.UI
                 GUILayout.BeginHorizontal(i % 2 == 0 ? CoopTheme.RowEven : CoopTheme.RowOdd);
                 GUILayout.Label($"{(active ? "<color=#7CFC00>*</color> " : "")}{d.deckName}  <size=10>{count}/{max}{(count < max ? " (incomplete)" : "")}</size>", CoopTheme.Label);
                 GUILayout.FlexibleSpace();
-                if (!CoopCore.IsVisiting && GUILayout.Button("Edit", CoopTheme.ButtonSecondary, GUILayout.Width(50f)))
+                if (!visiting && GUILayout.Button("Edit", CoopTheme.ButtonSecondary, GUILayout.Width(50f)))
                     OpenDeck(i);
-                GUI.enabled = !active && count >= max;
-                if (GUILayout.Button("Use", CoopTheme.ButtonPrimary, GUILayout.Width(46f)))
-                    SetActive(i);
-                GUI.enabled = true;
+                // a visitor battles with its own travel deck only (the plane); the shop's decks are its album's
+                bool travel = (d.deckName ?? "").StartsWith("\u2708");
+                if (!visiting || travel)
+                {
+                    GUI.enabled = !active && count >= max;
+                    if (GUILayout.Button("Use", CoopTheme.ButtonPrimary, GUILayout.Width(46f)))
+                        SetActive(i);
+                    GUI.enabled = true;
+                }
                 GUILayout.EndHorizontal();
             }
-            GUILayout.EndScrollView();
             if (CoopCore.IsVisiting)
                 GUILayout.Label("<size=10>Visiting: these are the shop's decks (read-only). Yours is the one marked \u2708 - pick it with Use.</size>", CoopTheme.LabelDim);
             else if (decks.Count < 30 && GUILayout.Button("+ New deck", CoopTheme.ButtonSecondary))
@@ -101,6 +105,7 @@ namespace CardShopCoop.UI
 
         private static void OpenDeck(int index)
         {
+            CoopPlugin.Log.LogInfo("DeckPanel: Edit deck " + index);
             if (TournamentFrozen(index))
             {
                 s_status = "that deck is in a tournament right now";
@@ -144,10 +149,12 @@ namespace CardShopCoop.UI
             CPlayerData.m_CurrentSelectedDeckIndex = index;
             DeckSync.RememberSelection();
             s_status = "battling with " + decks[index].deckName;
+            CoopPlugin.Log.LogInfo("DeckPanel: Use '" + decks[index].deckName + "' (index " + index + ")");
         }
 
         private static void NewDeck()
         {
+            CoopPlugin.Log.LogInfo("DeckPanel: New deck" + (s_locked ? "" : " (asking for the editor)"));
             if (!s_locked)
             {
                 bool ok = DeckSync.BeginRemoteEdit(() =>
@@ -199,7 +206,6 @@ namespace CardShopCoop.UI
             GUILayout.Label($"<b>{total}/{max}</b>", CoopTheme.Label);
             GUILayout.EndHorizontal();
 
-            s_scroll = GUILayout.BeginScrollView(s_scroll);
             var lines = d.compactCardDataAmountList;
             for (int i = 0; lines != null && i < lines.Count; i++)
             {
@@ -223,7 +229,6 @@ namespace CardShopCoop.UI
             }
             if (lines == null || lines.Count == 0)
                 GUILayout.Label("<size=10>empty - add cards from your album below</size>", CoopTheme.LabelDim);
-            GUILayout.EndScrollView();
 
             if (GUILayout.Button(s_picker ? "close album" : "+ add from album", CoopTheme.ButtonSecondary))
                 s_picker = !s_picker;
@@ -332,6 +337,7 @@ namespace CardShopCoop.UI
 
         private static void Delete(int index)
         {
+            CoopPlugin.Log.LogInfo("DeckPanel: Delete deck " + index);
             var decks = Decks;
             if (index < 0 || index >= decks.Count)
                 return;

@@ -677,13 +677,23 @@ namespace CardShopCoop.UI
             // back from a visit (or a quit): my own league shop again
             if (!Sync.Rivals.LeagueSession.Active && Sync.Rivals.RivalsLobby.LeagueStarted && Sync.Rivals.LeagueSession.HasSave(Sync.Rivals.RivalsLobby.LeagueId))
             {
-                string whyNot = Sync.Rivals.RivalsLobby.CannotReturnHome();
-                GUI.enabled = whyNot.Length == 0;
-                if (GUILayout.Button("Return to my league shop", CoopTheme.ButtonPrimary))
-                    Sync.Rivals.RivalsLobby.ReturnHome();
-                GUI.enabled = true;
-                if (whyNot.Length > 0)
-                    GUILayout.Label("<size=10>" + whyNot + "</size>", CoopTheme.LabelDim);
+                if (CoopCore.IsVisiting)
+                {
+                    // one press from inside the rival's shop: leave, pass the title, load home
+                    if (GUILayout.Button("Leave the visit & return to my league shop", CoopTheme.ButtonPrimary))
+                        Sync.Rivals.RivalsLobby.ReturnHomeFromVisit();
+                    GUILayout.Label("<size=10>your bag comes with you and is applied when your shop loads</size>", CoopTheme.LabelDim);
+                }
+                else
+                {
+                    string whyNot = Sync.Rivals.RivalsLobby.CannotReturnHome();
+                    GUI.enabled = whyNot.Length == 0;
+                    if (GUILayout.Button("Return to my league shop", CoopTheme.ButtonPrimary))
+                        Sync.Rivals.RivalsLobby.ReturnHome();
+                    GUI.enabled = true;
+                    if (whyNot.Length > 0)
+                        GUILayout.Label("<size=10>" + whyNot + "</size>", CoopTheme.LabelDim);
+                }
             }
 
             // host: START

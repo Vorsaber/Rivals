@@ -29,6 +29,8 @@ namespace CardShopCoop.UI
         private static int s_tries;
         private static Vector2 s_scroll;
         private static MethodInfo s_raycast;
+        private static float s_lastGoodRepaint = -1f;   // watchdog: an app that stops drawing gets closed
+        private static float s_lastGuiError = -100f;
 
         private const string TradeId = "CoopTrade";
         private const string DecksId = "CoopDecks";
@@ -59,6 +61,14 @@ namespace CardShopCoop.UI
             // Esc always closes the app (the phone's own close is held off while it is open)
             if (Current != App.None && Input.GetKeyDown(KeyCode.Escape))
                 Close();
+            // watchdog: if the app has not completed a repaint for 2 s (a layout fault, an
+            // exception outside the guarded region), close it rather than hold the phone
+            if (Current != App.None && s_lastGoodRepaint >= 0f && Time.unscaledTime - s_lastGoodRepaint > 2f)
+            {
+                CoopPlugin.Log.LogWarning("PhoneApps: " + Current + " app stopped drawing - closed by the watchdog");
+                Sync.HostOnlyFeatures.Notice("That app stopped responding and was closed");
+                Close();
+            }
         }
 
         private static bool TypingSomewhere()
@@ -169,6 +179,8 @@ namespace CardShopCoop.UI
             Current = app;
             s_onPhone = onPhone && PhoneIsUp();
             s_scroll = Vector2.zero;
+            s_lastGoodRepaint = Time.unscaledTime;
+            CoopPlugin.Log.LogInfo("PhoneApps: opened " + app + (s_onPhone ? " (phone)" : ""));
             if (s_onPhone)
             {
                 try
@@ -185,15 +197,26 @@ namespace CardShopCoop.UI
         {
             if (Current == App.None)
                 return;
-            if (Current == App.Decks)
-                DeckPanel.Close();
+            var was = Current;
             Current = App.None;
+            try
+            {
+                if (was == App.Decks)
+                    DeckPanel.Close();
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("PhoneApps close " + was + ": " + e.Message); }
+            // the phone is released FIRST and unconditionally - whatever else fails
             if (s_onPhone)
             {
                 s_onPhone = false;
-                PhoneManager.SetCanClosePhone(true);
+                try
+                {
+                    PhoneManager.SetCanClosePhone(true);
+                }
+                catch { }
                 PhoneTiles(true);
             }
+            CoopPlugin.Log.LogInfo("PhoneApps: closed " + was);
         }
 
         /// <summary>The phone closed (Esc / the close key): our app goes with it.</summary>
@@ -262,9 +285,42 @@ namespace CardShopCoop.UI
 
         private void OnGUI()
         {
-            DrawDayOverlay();
+            try
+            {
+                DrawDayOverlay();
+            }
+            catch (Exception e)
+            {
+                if (Event.current.type == EventType.Repaint && Time.unscaledTime - s_lastGuiError > 5f)
+                {
+                    s_lastGuiError = Time.unscaledTime;
+                    CoopPlugin.Log.LogWarning("LeagueDay overlay: " + e.Message);
+                }
+            }
             if (Current == App.None)
                 return;
+            try
+            {
+                DrawApp();
+                if (Event.current.type == EventType.Repaint)
+                    s_lastGoodRepaint = Time.unscaledTime;
+            }
+            catch (Exception e)
+            {
+                // anything that escapes the panel guard (a group left open, a chrome fault):
+                // close the app so the phone is never held - and say what happened
+                if (Time.unscaledTime - s_lastGuiError > 5f)
+                {
+                    s_lastGuiError = Time.unscaledTime;
+                    CoopPlugin.Log.LogWarning("PhoneApps: " + Current + " frame threw (" + Event.current.type + ") - closing: " + e);
+                }
+                Sync.HostOnlyFeatures.Notice("That app hit a snag and closed");
+                Close();
+            }
+        }
+
+        private void DrawApp()
+        {
             CoopTheme.EnsureBuilt();
             float w = Mathf.Min(560f, Screen.width - 32f);
             float h = Mathf.Min(s_onPhone ? Screen.height * 0.8f : 760f, Screen.height - 40f);

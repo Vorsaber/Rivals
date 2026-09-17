@@ -85,6 +85,8 @@ namespace CardShopCoop.Sync.Rivals
         private float _departAt;
         private RivalsShop _withdrawFor;  // teammate: waiting for the host to hand over travel cash
         private float _withdrawAt;
+        private bool _pendingReturn;      // leaving a visit for home: return once the title is up
+        private float _pendingReturnAt;
         /// <summary>The host has started this league: members holding its save may return to
         /// their shop on their own (after a visit) - still only through this lobby.</summary>
         public static bool LeagueStarted;
@@ -365,6 +367,7 @@ namespace CardShopCoop.Sync.Rivals
                     _stateTimer = 0f;
                     PumpLeagueState();
                     TryPendingVisit();
+                    TryPendingReturn();
                     TryJoinTeam();
                 }
                 if (Role == LobbyRole.Server)
@@ -801,6 +804,41 @@ namespace CardShopCoop.Sync.Rivals
             if (!AtTitle() || CoopCore.Role != CoopRole.None)
                 return "go to the title screen first";
             return "";
+        }
+
+        /// <summary>From inside a visit: leave the rival's shop and go home in one press - the
+        /// title screen is passed through automatically.</summary>
+        public static void ReturnHomeFromVisit()
+        {
+            var me = Instance;
+            var core = CoopCore.Instance;
+            var gm = CSingleton<CGameManager>.Instance;
+            if (me == null || core == null || gm == null || !gm.m_IsGameLevel || !CoopCore.IsVisiting)
+                return;
+            me._pendingReturn = true;
+            me._pendingReturnAt = Time.unscaledTime;
+            me._pendingVisit = -1;
+            core.Disconnect();
+            gm.LoadMainLevelAsync("Title");
+            Status = "leaving the visit - your shop loads from the title screen";
+            CoopPlugin.Log.LogInfo("Rivals: " + Status);
+        }
+
+        private void TryPendingReturn()
+        {
+            if (!_pendingReturn)
+                return;
+            if (Time.unscaledTime - _pendingReturnAt > 60f)
+            {
+                _pendingReturn = false;
+                return;
+            }
+            if (!AtTitle() || CoopCore.Role != CoopRole.None)
+                return;
+            if (CannotReturnHome().Length > 0)
+                return; // the LEAGUE box says why; the button is there
+            _pendingReturn = false;
+            ReturnHome();
         }
 
         public static void ReturnHome()
