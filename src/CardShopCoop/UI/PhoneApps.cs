@@ -17,6 +17,9 @@ namespace CardShopCoop.UI
         public enum App
         {
             None, Trade, Decks, Shop, Coop, League
+            // --- fv-684 econ-app begin
+            , Econ
+            // --- fv-684 econ-app end
         }
 
         public static App Current
@@ -37,6 +40,9 @@ namespace CardShopCoop.UI
         private const string ShopId = "CoopShop";
         private const string CoopId = "CoopTeam";
         private const string LeagueId = "CoopLeague";
+        // --- fv-684 econ-app begin
+        private const string EconId = "CoopEcon";
+        // --- fv-684 econ-app end
 
         private void Update()
         {
@@ -120,6 +126,9 @@ namespace CardShopCoop.UI
                 register.Invoke(registry, new[] { MakeSpec(specType, ShopId, "Shop", () => Open(App.Shop, true)) });
                 register.Invoke(registry, new[] { MakeSpec(specType, CoopId, "Co-op", () => Open(App.Coop, true)) });
                 register.Invoke(registry, new[] { MakeSpec(specType, LeagueId, "League", () => Open(App.League, true)) });
+                // --- fv-684 econ-app begin
+                register.Invoke(registry, new[] { MakeSpec(specType, EconId, "Tuning", () => Open(App.Econ, true)) });
+                // --- fv-684 econ-app end
                 s_registered = true;
                 CoopPlugin.Log.LogInfo("PhoneApps: registered Trade, Decks, Shop, Co-op and League on the phone");
             }
@@ -203,6 +212,10 @@ namespace CardShopCoop.UI
             {
                 if (was == App.Decks)
                     DeckPanel.Close();
+                // --- fv-684 econ-app begin
+                if (was == App.Econ)
+                    EconPanel.Close();
+                // --- fv-684 econ-app end
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("PhoneApps close " + was + ": " + e.Message); }
             // the phone is released FIRST and unconditionally - whatever else fails
@@ -335,6 +348,10 @@ namespace CardShopCoop.UI
             GUI.Box(rect, GUIContent.none, CoopTheme.Window);
             GUILayout.BeginArea(rect);
             string title = Current == App.Trade ? "TRADE" : Current == App.Decks ? "DECKS" : Current == App.Shop ? "SHOP" : Current == App.Coop ? "CO-OP" : "LEAGUE";
+            // --- fv-684 econ-app begin
+            if (Current == App.Econ)
+                title = "TUNING";
+            // --- fv-684 econ-app end
             CoopTheme.DrawWindowChrome(new Rect(0f, 0f, w, h), title, "");
             if (GUI.Button(new Rect(w - 74f, 4f, 66f, 22f), "Back", CoopTheme.ButtonSecondary))
             {
@@ -371,8 +388,12 @@ namespace CardShopCoop.UI
                     ShopPanel.Draw(w - 24f);
                 else if (Current == App.Coop)
                     CoopPanel.Draw(core, w - 24f);
-                else
+                else if (Current == App.League)
                     LeaguePanel.Draw(w - 24f);
+                // --- fv-684 econ-app begin
+                else if (Current == App.Econ)
+                    EconPanel.Draw(core, w - 24f);
+                // --- fv-684 econ-app end
             }
             catch (Exception e)
             {
