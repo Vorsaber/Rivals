@@ -15,13 +15,29 @@ namespace TcgDifficulty
         Custom = 5,   // the Difficulty.Custom* multipliers
     }
 
+    /// <summary>The six multipliers a profile sets, all 1 = vanilla.</summary>
+    public struct ProfileValues
+    {
+        public float Cap;       // customer cap (m_CustomerCountMax)
+        public float Rate;      // arrival cadence (m_TimePerCustomer, inverted)
+        public float Wallet;    // customer wallet (m_CustomerMaxMoney)
+        public float Patience;  // failed find-something attempts a customer tolerates before walking out
+        public float Drift;     // size of the day-start market price swings (PriceChangeManager)
+        public float Ai;        // NPC opponent toughness in card battles (damage it takes is divided by this)
+    }
+
     /// <summary>
-    /// A PROFILE of multipliers over the three crowd knobs the game computes in
+    /// A PROFILE of multipliers over the crowd knobs the game computes in
     /// <c>CustomerManager.EvaluateMaxCustomerCount</c> - the customer cap
     /// (<c>m_CustomerCountMax</c>), the arrival cadence (<c>m_TimePerCustomer</c>) and the
     /// customer wallet (<c>m_CustomerMaxMoney</c>) - WEIGHTED BY HOW MANY PEOPLE ARE PLAYING.
     /// Two pairs of hands clear a queue twice as fast, so the crowd grows with the player
     /// count (<c>PerPlayerScale</c> per extra player) and the profile sets where it starts.
+    ///
+    /// v1.1 adds three more knobs per profile - customer PATIENCE (how many failed attempts to
+    /// find something before they walk out), market DRIFT speed (the size of each day-start
+    /// price swing) and NPC AI strength in card battles - and a CURVE per profile: its own
+    /// per-extra-player slope and an optional ramp per in-game day (see <see cref="Curve"/>).
     ///
     /// Standalone the player count is 1. CardShopCoop, when installed, sets
     /// <see cref="PlayerCountProvider"/> (host + guests) and <see cref="AuthorityProvider"/>
@@ -34,6 +50,10 @@ namespace TcgDifficulty
         public static Func<int> PlayerCountProvider;
         /// <summary>Set by CardShopCoop: false on a guest (the host simulates the crowd).</summary>
         public static Func<bool> AuthorityProvider;
+        /// <summary>Set by another mod: true while the card battle on this PC is against a
+        /// HUMAN (co-op PvP), so the AI-strength knob leaves it alone. When null the plugin
+        /// looks for CardShopCoop's <c>PvpBattle.Active</c> by reflection.</summary>
+        public static Func<bool> HumanOpponentProvider;
 
         // Set by another mod (CardShopCoop's Rivals league): the league host's settings apply
         // here instead of this PC's config. -1 / negative = not overridden.
@@ -104,6 +124,8 @@ namespace TcgDifficulty
             }
         }
 
+        /// <summary>The global per-extra-player slope (the league host's under an override).
+        /// A profile's curve may replace it - see <see cref="Curve"/>.</summary>
         public static float PerPlayerScale => s_override ? s_oPerPlayer : (Plugin.PerPlayer != null ? Plugin.PerPlayer.Value : 0.35f);
         public static float StaffCostPerPlayerValue => s_override ? s_oStaff : (Plugin.StaffCostPerPlayer != null ? Plugin.StaffCostPerPlayer.Value : 1f);
 
@@ -115,47 +137,114 @@ namespace TcgDifficulty
             ApplyStaffCosts();
         }
 
-        /// <summary>Base multipliers at ONE player: cap, arrival rate, wallet.</summary>
-        private static void Base(DifficultyProfile p, out float cap, out float rate, out float wallet)
+        /// <summary>Base multipliers at ONE player, day 1.</summary>
+        public static ProfileValues Base(DifficultyProfile p)
         {
+            var v = new ProfileValues { Cap = 1f, Rate = 1f, Wallet = 1f, Patience = 1f, Drift = 1f, Ai = 1f };
             switch (p)
             {
                 case DifficultyProfile.Relaxed:
-                    cap = 0.7f;
-                    rate = 0.7f;
-                    wallet = 1.25f;
+                    v.Cap = 0.7f;
+                    v.Rate = 0.7f;
+                    v.Wallet = 1.25f;
+                    v.Patience = 1.5f;  // they browse longer before giving up
+                    v.Drift = 0.7f;     // a calmer market
+                    v.Ai = 0.8f;
                     break;
                 case DifficultyProfile.Busy:
-                    cap = 1.5f;
-                    rate = 1.5f;
-                    wallet = 1.0f;
+                    v.Cap = 1.5f;
+                    v.Rate = 1.5f;
+                    v.Wallet = 1.0f;
+                    v.Patience = 0.8f;
+                    v.Drift = 1.25f;
+                    v.Ai = 1.2f;
                     break;
                 case DifficultyProfile.Chaos:
-                    cap = 2.5f;
-                    rate = 2.5f;
-                    wallet = 0.8f;
+                    v.Cap = 2.5f;
+                    v.Rate = 2.5f;
+                    v.Wallet = 0.8f;
+                    v.Patience = 0.6f;  // empty shelf, they are gone
+                    v.Drift = 1.75f;
+                    v.Ai = 1.5f;
                     break;
                 case DifficultyProfile.Custom:
-                    cap = Plugin.CustomCap != null ? Plugin.CustomCap.Value : 1f;
-                    rate = Plugin.CustomRate != null ? Plugin.CustomRate.Value : 1f;
-                    wallet = Plugin.CustomWallet != null ? Plugin.CustomWallet.Value : 1f;
+                    v.Cap = Plugin.CustomCap != null ? Plugin.CustomCap.Value : 1f;
+                    v.Rate = Plugin.CustomRate != null ? Plugin.CustomRate.Value : 1f;
+                    v.Wallet = Plugin.CustomWallet != null ? Plugin.CustomWallet.Value : 1f;
+                    v.Patience = Plugin.CustomPatience != null ? Plugin.CustomPatience.Value : 1f;
+                    v.Drift = Plugin.CustomDrift != null ? Plugin.CustomDrift.Value : 1f;
+                    v.Ai = Plugin.CustomAi != null ? Plugin.CustomAi.Value : 1f;
                     break;
-                default:
-                    cap = 1f;
-                    rate = 1f;
-                    wallet = 1f;
-                    break;
+            }
+            return v;
+        }
+
+        // ---------------------------------------------------------------- curves
+
+        /// <summary>The crowd multiplier's growth for a profile: 1 + slope x (players - 1),
+        /// then x (1 + ramp x (day - 1)) capped at (1 + rampCap). Slope comes from the profile's
+        /// own <c>[Curve.X] PerPlayerScale</c> when set (&gt;= 0), else the global
+        /// <see cref="PerPlayerScale"/>; under a league override the host's global slope is
+        /// used so every shop in the league grows the same way.</summary>
+        public static float Curve(DifficultyProfile p, int players, int day)
+        {
+            float slope = PerPlayerScale;
+            if (!s_override)
+            {
+                var c = Plugin.CurveFor(p);
+                if (c != null && c.PerPlayer.Value >= 0f)
+                    slope = c.PerPlayer.Value;
+            }
+            float crowd = 1f + Mathf.Clamp(slope, 0f, 2f) * Mathf.Max(0, players - 1);
+            var curve = Plugin.CurveFor(p);
+            if (curve != null && curve.DayRamp.Value > 0f && day > 1)
+            {
+                float ramp = Mathf.Min(curve.DayRamp.Value * (day - 1), Mathf.Max(0f, curve.DayRampCap.Value));
+                crowd *= 1f + ramp;
+            }
+            return crowd;
+        }
+
+        /// <summary>The in-game day, 1-based (the ramp axis). 1 outside a loaded game.</summary>
+        public static int Day
+        {
+            get
+            {
+                try { return Mathf.Max(1, CPlayerData.m_CurrentDay + 1); }
+                catch { return 1; }
             }
         }
 
-        private static void Effective(DifficultyProfile p, int players, out float cap, out float rate, out float wallet)
+        /// <summary>The multipliers in force for a profile, player count and day: cap and
+        /// rate follow the curve, the other four are the profile's base values.</summary>
+        public static ProfileValues Effective(DifficultyProfile p, int players, int day)
         {
-            Base(p, out cap, out rate, out wallet);
-            float per = PerPlayerScale;
-            float crowd = 1f + Mathf.Clamp(per, 0f, 2f) * Mathf.Max(0, players - 1);
-            cap *= crowd;
-            rate *= crowd;
+            var v = Base(p);
+            float crowd = Curve(p, players, day);
+            v.Cap *= crowd;
+            v.Rate *= crowd;
+            return v;
         }
+
+        /// <summary>The knobs in force right now (1 = vanilla everywhere when Off).</summary>
+        public static ProfileValues Current
+        {
+            get
+            {
+                var p = Profile;
+                if (p == DifficultyProfile.Off)
+                    return new ProfileValues { Cap = 1f, Rate = 1f, Wallet = 1f, Patience = 1f, Drift = 1f, Ai = 1f };
+                return Effective(p, Players, Day);
+            }
+        }
+
+        /// <summary>Patience multiplier now: >1 customers try longer before walking out, &lt;1 they
+        /// give up sooner. Clamped 0.25..4.</summary>
+        public static float Patience => Mathf.Clamp(Current.Patience, 0.25f, 4f);
+        /// <summary>Market drift speed now: 0 freezes the day-start price swings, 2 doubles them. Clamped 0..5.</summary>
+        public static float DriftSpeed => Mathf.Clamp(Current.Drift, 0f, 5f);
+        /// <summary>NPC battle strength now: the damage the AI opponent takes is divided by this. Clamped 0.25..4.</summary>
+        public static float AiStrength => Mathf.Clamp(Current.Ai, 0.25f, 4f);
 
         /// <summary>The multipliers in force right now.</summary>
         public static string Describe()
@@ -166,8 +255,14 @@ namespace TcgDifficulty
             string src = s_override ? " [league]" : "";
             if (p == DifficultyProfile.Off)
                 return "Off (vanilla)" + staff + src;
-            Effective(p, n, out float cap, out float rate, out float wallet);
-            return $"{p}, {n} player{(n == 1 ? "" : "s")}: customers x{cap:0.00}, arrivals x{rate:0.00}, wallets x{wallet:0.00}{staff}{src}";
+            int day = Day;
+            var v = Effective(p, n, day);
+            string ramp = "";
+            var c = Plugin.CurveFor(p);
+            if (c != null && c.DayRamp.Value > 0f)
+                ramp = $" (day {day} ramp)";
+            string ai = Plugin.AiTournamentOnly != null && Plugin.AiTournamentOnly.Value ? "tournament AI" : "AI";
+            return $"{p}, {n} player{(n == 1 ? "" : "s")}{ramp}: customers x{v.Cap:0.00}, arrivals x{v.Rate:0.00}, wallets x{v.Wallet:0.00}, patience x{v.Patience:0.00}, drift x{v.Drift:0.00}, {ai} x{v.Ai:0.00}{staff}{src}";
         }
 
         // ---------------------------------------------------------------- staff costs
@@ -225,6 +320,7 @@ namespace TcgDifficulty
             // Priority.High: an explicit cap from another mod's postfix (CardShopCoop's
             // Population.MaxCustomers) runs after and still wins
             h.Patch(MiEvaluate, postfix: new HarmonyMethod(typeof(Difficulty), nameof(EvaluatePostfix)) { priority = Priority.High });
+            Knobs.ApplyPatches(h);
         }
 
         public static void EvaluatePostfix(CustomerManager __instance)
@@ -237,14 +333,14 @@ namespace TcgDifficulty
                 if (p == DifficultyProfile.Off)
                     return;
                 s_players = Players;
-                Effective(p, s_players, out float cap, out float rate, out float wallet);
-                __instance.m_CustomerCountMax = Mathf.Clamp(Mathf.RoundToInt(__instance.m_CustomerCountMax * cap), 3, 300);
-                if (rate > 0f)
-                    __instance.m_TimePerCustomer = Mathf.Max(0.5f, __instance.m_TimePerCustomer / Mathf.Clamp(rate, 0.1f, 10f));
-                if (FiMaxMoney != null && wallet > 0f)
+                var v = Effective(p, s_players, Day);
+                __instance.m_CustomerCountMax = Mathf.Clamp(Mathf.RoundToInt(__instance.m_CustomerCountMax * v.Cap), 3, 300);
+                if (v.Rate > 0f)
+                    __instance.m_TimePerCustomer = Mathf.Max(0.5f, __instance.m_TimePerCustomer / Mathf.Clamp(v.Rate, 0.1f, 10f));
+                if (FiMaxMoney != null && v.Wallet > 0f)
                 {
                     float money = (float)FiMaxMoney.GetValue(__instance);
-                    FiMaxMoney.SetValue(__instance, Mathf.Clamp(money * wallet, 50f, 60000f));
+                    FiMaxMoney.SetValue(__instance, Mathf.Clamp(money * v.Wallet, 50f, 60000f));
                 }
             }
             catch (Exception e) { Plugin.Log.LogWarning("Difficulty: " + e.Message); }
