@@ -118,6 +118,11 @@ namespace CardShopCoop.Sync
                 }
                 if (CoopCore.Role == CoopRole.Client)
                 {
+                    if (CoopCore.IsVisiting)
+                    {
+                        HostOnlyFeatures.Notice("Visit: you can't edit a rival's decks (your travel deck is the one marked ✈)");
+                        return false;
+                    }
                     if (self._editing)
                         return true; // lock granted: the re-press from ClientApplyEditResult
                     if (!self._requestPending)
@@ -174,6 +179,11 @@ namespace CardShopCoop.Sync
             if (IsDeckListOpen())
             {
                 HostOnlyFeatures.Notice("Close the workbench deck list first");
+                return false;
+            }
+            if (CoopCore.IsVisiting)
+            {
+                HostOnlyFeatures.Notice("Visit: you can't edit a rival's decks (your travel deck is the one marked ✈)");
                 return false;
             }
             if (self == null || CoopCore.Role == CoopRole.None)
@@ -458,6 +468,7 @@ namespace CardShopCoop.Sync
             var decks = CPlayerData.m_DeckCompactCardDataList;
             if (decks == null)
                 CPlayerData.m_DeckCompactCardDataList = decks = new List<DeckCompactCardDataList>();
+            Rivals.TravelDeck.BeforeApply();
             decks.Clear();
             for (int i = 0; i < entries.Count; i++)
             {
@@ -487,6 +498,8 @@ namespace CardShopCoop.Sync
                 CPlayerData.m_CurrentSelectedDeckIndex = 0;
             if (CoopCore.Role == CoopRole.Client)
                 ClientRestoreSelection(decks);
+            // a visitor's own deck rides on the end of the rival's list
+            Rivals.TravelDeck.Inject(decks);
         }
 
         /// <summary>Client: honour a pending "select this" from the host, else on the first

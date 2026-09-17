@@ -656,6 +656,7 @@ namespace CardShopCoop.Sync.Rivals
                 // title screen: save, close our own session (a captain's teammates rejoin when
                 // we are back), go to the title and finish the visit from there
                 VisitorBag.Open(shop.Name); // a co-op guest's bag comes home to the team's shop
+                TravelDeck.Pack();          // the deck we battle with comes along
                 Instance._pendingVisit = shop.Id;
                 Instance._pendingVisitAt = Time.unscaledTime;
                 bool guest = CoopCore.Role == CoopRole.Client;

@@ -81,6 +81,7 @@ namespace CardShopCoop
         {
             Log = Logger;
             Sync.Rivals.VisitorBag.Load();
+            Sync.Rivals.TravelDeck.Load();
             try
             {
                 Assembly.Load("Newtonsoft.Json");
