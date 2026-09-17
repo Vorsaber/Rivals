@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CardShopCoop.Net.Messages;
 using CardShopCoop.Sync.Rivals;
 using UnityEngine;
 
@@ -68,14 +69,49 @@ namespace CardShopCoop.UI
             }
         }
 
-        /// <summary>The end-of-day comparison: every shop's latest day, ranked per KPI and
-        /// overall. <paramref name="boxed"/> wraps it in a section box.</summary>
+        // --- fv-686 standings-v2 begin
+        private enum View { Today, Window, Season }
+        private static View s_view = View.Today;
+        private static bool s_scoring;
+
+        /// <summary>The end-of-day comparison: every shop ranked per KPI and overall - today's
+        /// reports, the last N days summed, or the whole season; the lobby host can weight and
+        /// toggle the KPIs here. <paramref name="boxed"/> wraps it in a section box.</summary>
         public static void DrawDayTable(float width, bool boxed)
         {
-            var ranked = LeagueDay.Compute(LeagueDay.Reports);
             if (boxed)
                 GUILayout.BeginVertical(CoopTheme.SectionBox);
+            bool host = RivalsLobby.Role == RivalsLobby.LobbyRole.Server;
+            int kept = LeagueDay.DaysKept();
+            if (s_view != View.Today && kept == 0)
+                s_view = View.Today;
+
+            GUILayout.BeginHorizontal();
             GUILayout.Label("END OF DAY - LEAGUE STANDINGS", CoopTheme.SectionHeader);
+            GUILayout.FlexibleSpace();
+            ViewButton(View.Today, "Today");
+            ViewButton(View.Window, $"Last {LeagueDay.HistoryDays} days");
+            ViewButton(View.Season, kept > 1 ? $"Season ({kept} days)" : "Season");
+            if (host && GUILayout.Button(s_scoring ? "Scoring \u25B4" : "Scoring \u25BE", CoopTheme.ButtonSecondary, GUILayout.Width(84f)))
+                s_scoring = !s_scoring;
+            GUILayout.EndHorizontal();
+
+            if (host && s_scoring)
+                DrawScoring();
+
+            List<LeagueDay.Ranked> ranked;
+            switch (s_view)
+            {
+                case View.Window:
+                    ranked = LeagueDay.ComputeWindow(LeagueDay.HistoryDays);
+                    break;
+                case View.Season:
+                    ranked = LeagueDay.ComputeWindow(0);
+                    break;
+                default:
+                    ranked = LeagueDay.Compute(LeagueDay.Reports);
+                    break;
+            }
             if (ranked.Count == 0)
             {
                 GUILayout.Label("No day reports yet - they arrive as each shop closes its day.", CoopTheme.LabelDim);
@@ -85,35 +121,93 @@ namespace CardShopCoop.UI
             }
             string me = RivalsLobby.MyShopNameForLeague();
             int n = ranked.Count;
+            bool window = s_view != View.Today;
             // header
             float nameW = Mathf.Clamp(width * 0.22f, 90f, 180f);
             float colW = Mathf.Max(54f, (width - nameW - 40f) / LeagueDay.Kpis.Length);
             GUILayout.BeginHorizontal();
             GUILayout.Label("<size=10>#  shop / day</size>", CoopTheme.LabelDim, GUILayout.Width(nameW + 40f));
-            foreach (var (_, label, _, _) in LeagueDay.Kpis)
-                GUILayout.Label("<size=10>" + label + "</size>", CoopTheme.LabelDim, GUILayout.Width(colW));
+            foreach (var (key, label, _, _) in LeagueDay.Kpis)
+            {
+                bool on = LeagueDay.IsEnabled(key);
+                float w = LeagueDay.WeightOf(key);
+                string tag = !on ? " (off)" : Mathf.Approximately(w, 1f) ? "" : $" x{w:0.##}";
+                GUILayout.Label($"<size=10>{(on ? "" : "<color=#777777>")}{label}{tag}{(on ? "" : "</color>")}</size>", CoopTheme.LabelDim, GUILayout.Width(colW));
+            }
             GUILayout.EndHorizontal();
             for (int i = 0; i < ranked.Count; i++)
             {
                 var row = ranked[i];
                 var r = row.Report;
                 bool mine = r.Name == me;
+                string sub = window ? $"d{r.Day} \u00B7 {row.Days} day{(row.Days == 1 ? "" : "s")} \u00B7 {row.Points:0.#} pts" : $"d{r.Day} \u00B7 {row.Points:0.#} pts";
                 GUILayout.BeginHorizontal(i % 2 == 0 ? CoopTheme.RowEven : CoopTheme.RowOdd);
-                GUILayout.Label($"{(mine ? "<b>" : "")}{Medal(row.Overall)} {r.Name}{(mine ? "</b>" : "")} <size=10>d{r.Day} · {row.Points} pts</size>", CoopTheme.Label, GUILayout.Width(nameW + 40f));
+                GUILayout.Label($"{(mine ? "<b>" : "")}{Medal(row.Overall)} {r.Name}{(mine ? "</b>" : "")} <size=10>{sub}</size>", CoopTheme.Label, GUILayout.Width(nameW + 40f));
                 foreach (var (key, _, get, money) in LeagueDay.Kpis)
                 {
                     double v = get(r);
                     string text = money ? GameInstance.GetPriceString(v) : key == "satisfaction" ? $"{v:0}%" : $"{v:0}";
                     int rank = row.Rank.TryGetValue(key, out int rk) ? rk : n;
-                    string col = rank == 0 ? "#7CFC00" : rank == n - 1 && n > 1 ? "#ff8a80" : "#ffffff";
+                    string col = !LeagueDay.IsEnabled(key) ? "#777777" : rank == 0 ? "#7CFC00" : rank == n - 1 && n > 1 ? "#ff8a80" : "#ffffff";
                     GUILayout.Label($"<size=11><color={col}>{text}</color></size>", CoopTheme.Label, GUILayout.Width(colW));
                 }
                 GUILayout.EndHorizontal();
             }
-            GUILayout.Label("<size=10>green = best of the league on that measure, red = last; points = sum of placings; costs include rent, bills, wages, stock and upgrades</size>", CoopTheme.LabelDim);
+            string note = window
+                ? "green = best of the window on that measure, red = last; points = each day's placings summed (weighted, (off) columns do not score); money and level are the latest; costs include rent, bills, wages, stock and upgrades"
+                : "green = best of the league on that measure, red = last; points = sum of placings, weighted by the host's scoring ((off) columns do not score); costs include rent, bills, wages, stock and upgrades";
+            GUILayout.Label("<size=10>" + note + "</size>", CoopTheme.LabelDim);
             if (boxed)
                 GUILayout.EndVertical();
         }
+
+        private static void ViewButton(View v, string text)
+        {
+            if (GUILayout.Button(text, s_view == v ? CoopTheme.TabSelected : CoopTheme.Tab))
+                s_view = v;
+        }
+
+        /// <summary>Host only: weight and toggle each KPI, and the history window. Every change
+        /// is written to config and the board is resent so all members re-rank at once.</summary>
+        private static void DrawScoring()
+        {
+            var settings = LeagueDay.HostSettings();
+            GUILayout.BeginVertical(CoopTheme.SectionBox);
+            GUILayout.Label("<size=10>SCORING - a KPI's weight multiplies its placings; off = shown but not scored. Everyone in the league ranks by these.</size>", CoopTheme.LabelDim);
+            foreach (var (key, label, _, _) in LeagueDay.Kpis)
+            {
+                RivalsKpiSetting st = null;
+                foreach (var x in settings)
+                    if (x.Key == key)
+                        st = x;
+                if (st == null)
+                    continue;
+                GUILayout.BeginHorizontal();
+                bool on = GUILayout.Toggle(st.Enabled, " " + label, CoopTheme.Toggle, GUILayout.Width(130f));
+                if (on != st.Enabled)
+                    LeagueDay.HostSet(key, null, on);
+                GUILayout.Label($"<size=11>weight {st.Weight:0.##}</size>", st.Enabled ? CoopTheme.Label : CoopTheme.LabelDim, GUILayout.Width(80f));
+                if (GUILayout.Button("-", CoopTheme.ButtonSecondary, GUILayout.Width(24f)))
+                    LeagueDay.HostSet(key, Mathf.Max(0f, st.Weight - 0.5f), null);
+                if (GUILayout.Button("+", CoopTheme.ButtonSecondary, GUILayout.Width(24f)))
+                    LeagueDay.HostSet(key, st.Weight + 0.5f, null);
+                if (!Mathf.Approximately(st.Weight, 1f) && GUILayout.Button("1", CoopTheme.ButtonSecondary, GUILayout.Width(24f)))
+                    LeagueDay.HostSet(key, 1f, null);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.BeginHorizontal();
+            int days = LeagueDay.HostHistoryDays();
+            GUILayout.Label($"<size=11>Last N days window: {days}</size>", CoopTheme.Label, GUILayout.Width(180f));
+            if (GUILayout.Button("-", CoopTheme.ButtonSecondary, GUILayout.Width(24f)))
+                LeagueDay.HostSetHistoryDays(days - 1);
+            if (GUILayout.Button("+", CoopTheme.ButtonSecondary, GUILayout.Width(24f)))
+                LeagueDay.HostSetHistoryDays(days + 1);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
+        }
+        // --- fv-686 standings-v2 end
 
         private static string Medal(int overall)
         {

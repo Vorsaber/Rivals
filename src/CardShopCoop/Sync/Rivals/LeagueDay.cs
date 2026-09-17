@@ -341,8 +341,8 @@ namespace CardShopCoop.Sync.Rivals
             History.Clear();
             if (board.History != null)
                 History.AddRange(board.History);
-            else
-                History.AddRange(Reports); // an older lobby: today is all the history there is
+            if (History.Count == 0)
+                History.AddRange(Reports); // a lobby without history: today is all there is
             Settings.Clear();
             if (board.Kpis != null)
                 Settings.AddRange(board.Kpis);
