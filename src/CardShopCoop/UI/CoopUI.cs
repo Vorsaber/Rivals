@@ -41,6 +41,7 @@ namespace CardShopCoop.UI
         private string _rivalsAddress;
         private string _rivalsChat = "";
         private string _anteText;
+        private string _bagMoneyText;
         private CoopTab _tab = CoopTab.Session;
         private Vector2 _sessionScroll;
         private Vector2 _characterScroll;
@@ -494,6 +495,28 @@ namespace CardShopCoop.UI
                 var gm = CSingleton<CGameManager>.Instance;
                 if (gm != null && gm.m_IsGameLevel && GUILayout.Button("Open my shop to visitors  (host a LAN session)", CoopTheme.ButtonSecondary))
                     Sync.Rivals.RivalsLobby.OpenShopForVisitors();
+            }
+            if (CoopPlugin.RivalsBagMoney != null && !CoopCore.IsVisiting)
+            {
+                var gmb = CSingleton<CGameManager>.Instance;
+                if (gmb != null && gmb.m_IsGameLevel)
+                {
+                    // cash for the trip: leaves the till when you go, the unspent part comes back
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label("Take with you", CoopTheme.Label, GUILayout.Width(150f));
+                    if (_bagMoneyText == null)
+                        _bagMoneyText = CoopPlugin.RivalsBagMoney.Value.ToString("0.##");
+                    GUI.SetNextControlName("coop_rivals_bagmoney");
+                    _bagMoneyText = GUILayout.TextField(_bagMoneyText, 10, GUILayout.Width(80f));
+                    if (GUILayout.Button("Set", CoopTheme.ButtonSecondary, GUILayout.Width(50f)))
+                    {
+                        if (float.TryParse(_bagMoneyText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float b))
+                            CoopPlugin.RivalsBagMoney.Value = Mathf.Clamp(b, 0f, 1000000f);
+                        _bagMoneyText = CoopPlugin.RivalsBagMoney.Value.ToString("0.##");
+                    }
+                    GUILayout.Label($"<size=10>cash for the trip: {GameInstance.GetPriceString(CoopPlugin.RivalsBagMoney.Value)} leaves the till when you visit (till {GameInstance.GetPriceString(CPlayerData.m_CoinAmountDouble)}); the rest comes home with the bag</size>", CoopTheme.LabelDim);
+                    GUILayout.EndHorizontal();
+                }
             }
             if (CoopPlugin.RivalsPvpAnte != null && CoopCore.Role != CoopRole.Client)
             {

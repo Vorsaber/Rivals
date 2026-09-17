@@ -989,6 +989,32 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.ClientOnlyInGame, false);
+            _messageRouter.Register<BagWithdrawMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Host || !InGameLevel())
+                    return;
+                if (message is BagWithdrawMessage w && !IsVisitorConn(context.ConnectionId))
+                {
+                    double amt = Math.Max(0, Math.Min(Math.Round(w.Amount, 2), CPlayerData.m_CoinAmountDouble));
+                    if (amt > 0.005)
+                        CEventManager.QueueEvent(new CEventPlayer_ReduceCoin((float)amt));
+                    Send(context.ConnectionId, new BagWithdrawResultMessage { Amount = amt });
+                    CoopPlugin.Log.LogInfo($"rivals: {PeerNameFor(context.ConnectionId)} took {amt:0.00} from the till for a trip");
+                    if (amt > 0.005)
+                        Sync.HostOnlyFeatures.Notice($"{PeerNameFor(context.ConnectionId)} took {GameInstance.GetPriceString(amt)} from the till for a trip");
+                }
+                return;
+            },
+                MessagePolicy.HostOnlyInGame, false);
+            _messageRouter.Register<BagWithdrawResultMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client)
+                    return;
+                if (message is BagWithdrawResultMessage r)
+                    Sync.Rivals.RivalsLobby.OnWithdrawResult(r.Amount);
+                return;
+            },
+                MessagePolicy.ClientOnly, false);
             _messageRouter.Register<TradeMessage>((context, message) =>
             {
                 if (!InGameLevel() || !(message is TradeMessage trade))

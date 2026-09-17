@@ -202,6 +202,34 @@ namespace CardShopCoop.Net.Messages
         }
     }
 
+    /// <summary>A co-op guest about to leave on a visit asks the shop for travel money; the
+    /// host takes it from the till and answers with the amount (clamped to what was there).</summary>
+    [NetworkMessage(MsgType.BagWithdraw, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class BagWithdrawMessage : INetMessage
+    {
+        public double Amount;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.BagWithdraw;
+            }
+        }
+    }
+
+    [NetworkMessage(MsgType.BagWithdrawResult, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class BagWithdrawResultMessage : INetMessage
+    {
+        public double Amount;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.BagWithdrawResult;
+            }
+        }
+    }
+
     /// <summary>A visitor took a card off a display: buy it. The host clears the slot, takes
     /// the card's set price into the till and echoes the empty slot to everyone.</summary>
     [NetworkMessage(MsgType.VisitorCardBuy, Policy = MessagePolicy.HostOnlyInGame)]

@@ -252,7 +252,15 @@ namespace CardShopCoop.UI
             if (CoopPlugin.CheatsEnabled == null || !CoopPlugin.CheatsEnabled.Value)
                 return;
             var key = CoopPlugin.CheatMenuKey != null ? CoopPlugin.CheatMenuKey.Value : KeyCode.F4;
-            if (key != KeyCode.None && Input.GetKeyDown(key))
+            if (CoopCore.IsVisiting)
+            {
+                // a visitor's cheat requests are dropped by the host anyway; don't tease
+                if (_visible)
+                    _visible = false;
+                if (key != KeyCode.None && Input.GetKeyDown(key))
+                    Sync.HostOnlyFeatures.Notice("Visit: no cheats in a rival's shop");
+            }
+            else if (key != KeyCode.None && Input.GetKeyDown(key))
                 _visible = !_visible;
             SyncUIMode();
         }

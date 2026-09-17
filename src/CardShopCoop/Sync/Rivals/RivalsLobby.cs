@@ -81,6 +81,10 @@ namespace CardShopCoop.Sync.Rivals
         private bool _joinedOnce;
         private int _pendingVisit = -1;  // a visit that waits for the title screen (we saved and left our shop)
         private float _pendingVisitAt;
+        private RivalsShop _departShop;  // leaving: save + title once the till has been debited
+        private float _departAt;
+        private RivalsShop _withdrawFor;  // teammate: waiting for the host to hand over travel cash
+        private float _withdrawAt;
         /// <summary>The host has started this league: members holding its save may return to
         /// their shop on their own (after a visit) - still only through this lobby.</summary>
         public static bool LeagueStarted;
@@ -278,6 +282,8 @@ namespace CardShopCoop.Sync.Rivals
             _sentState = "";
             _joinCaptain = -1;
             _pendingVisit = -1;
+            _departShop = null;
+            _withdrawFor = null;
             LeagueStarted = false;
             Board = new RivalsBoardMessage();
             CrowdMultiplier = 1f;
@@ -306,6 +312,7 @@ namespace CardShopCoop.Sync.Rivals
         {
             LeagueSession.Tick(); // a live league game keeps going whether or not the lobby is up
             TitleGate.Tick();     // in a lobby: no New/Continue/Load on the title screen
+            TickDeparture();      // a visit that is leaving: save + title once the till is debited
             if (_net == null || Role == LobbyRole.None)
                 return;
             try
@@ -652,28 +659,24 @@ namespace CardShopCoop.Sync.Rivals
             var gm = CSingleton<CGameManager>.Instance;
             if (gm != null && gm.m_IsGameLevel)
             {
-                // the bag must know home before the world changes; the join itself needs the
-                // title screen: save, close our own session (a captain's teammates rejoin when
-                // we are back), go to the title and finish the visit from there
-                VisitorBag.Open(shop.Name); // a co-op guest's bag comes home to the team's shop
-                TravelDeck.Pack();          // the deck we battle with comes along
-                Instance._pendingVisit = shop.Id;
-                Instance._pendingVisitAt = Time.unscaledTime;
-                bool guest = CoopCore.Role == CoopRole.Client;
-                if (CoopCore.Role != CoopRole.None)
-                    core.Disconnect();
-                if (!guest)
+                var me = Instance;
+                if (me._departShop != null || me._withdrawFor != null)
+                    return; // already on the way out
+                double want = CoopPlugin.RivalsBagMoney != null ? Math.Max(0, CoopPlugin.RivalsBagMoney.Value) : 0;
+                if (CoopCore.Role == CoopRole.Client)
                 {
-                    try
-                    {
-                        CSingleton<ShelfManager>.Instance.SaveInteractableObjectData();
-                    }
-                    catch { }
-                    gm.SaveGameData(0);
+                    // a teammate's travel cash comes out of the team's till: ask the host first
+                    me._withdrawFor = shop;
+                    me._withdrawAt = Time.unscaledTime;
+                    core.SendBagWithdraw(want);
+                    Status = $"asking the shop for {GameInstance.GetPriceString(want)} travel cash...";
+                    return;
                 }
-                gm.LoadMainLevelAsync("Title");
-                Status = "saved - heading to " + shop.Name + "...";
-                CoopPlugin.Log.LogInfo("Rivals: " + Status);
+                double cash = Math.Min(want, Math.Max(0, CPlayerData.m_CoinAmountDouble));
+                cash = Math.Round(cash, 2);
+                if (cash > 0.005)
+                    CEventManager.QueueEvent(new CEventPlayer_ReduceCoin((float)cash));
+                me.Leave(shop, cash);
                 return;
             }
             if (CoopCore.Role != CoopRole.None)
@@ -686,6 +689,63 @@ namespace CardShopCoop.Sync.Rivals
             CoopCore.JoiningAsVisitor = true;
             if (!JoinShop(shop, "visiting " + shop.Name))
                 CoopCore.JoiningAsVisitor = false;
+        }
+
+        /// <summary>Teammate: the host handed over the travel cash (or none) - go.</summary>
+        public static void OnWithdrawResult(double amount)
+        {
+            var me = Instance;
+            if (me == null || me._withdrawFor == null)
+                return;
+            var shop = me._withdrawFor;
+            me._withdrawFor = null;
+            me.Leave(shop, Math.Max(0, amount));
+        }
+
+        /// <summary>Open the bag with the cash, pack the deck, and leave a beat later (the
+        /// ReduceCoin is a queued event: the save must see the till after it).</summary>
+        private void Leave(RivalsShop shop, double cash)
+        {
+            VisitorBag.Open(shop.Name, cash, cash > 0.005); // a co-op guest's bag comes home to the team's shop
+            TravelDeck.Pack();                              // the deck we battle with comes along
+            _pendingVisit = shop.Id;
+            _pendingVisitAt = Time.unscaledTime;
+            _departShop = shop;
+            _departAt = Time.unscaledTime + 0.3f;
+            Status = $"packing {GameInstance.GetPriceString(cash)} - heading to {shop.Name}...";
+        }
+
+        /// <summary>The beat is over: close our session, save (owners), title.</summary>
+        private void TickDeparture()
+        {
+            if (_withdrawFor != null && Time.unscaledTime - _withdrawAt > 8f)
+            {
+                _withdrawFor = null;
+                Status = "the shop didn't answer about travel cash - try again";
+            }
+            if (_departShop == null || Time.unscaledTime < _departAt)
+                return;
+            var shop = _departShop;
+            _departShop = null;
+            var core = CoopCore.Instance;
+            var gm = CSingleton<CGameManager>.Instance;
+            if (core == null || gm == null || !gm.m_IsGameLevel)
+                return;
+            bool guest = CoopCore.Role == CoopRole.Client;
+            if (CoopCore.Role != CoopRole.None)
+                core.Disconnect();
+            if (!guest)
+            {
+                try
+                {
+                    CSingleton<ShelfManager>.Instance.SaveInteractableObjectData();
+                }
+                catch { }
+                gm.SaveGameData(0);
+            }
+            gm.LoadMainLevelAsync("Title");
+            Status = "saved - heading to " + shop.Name + "...";
+            CoopPlugin.Log.LogInfo("Rivals: " + Status);
         }
 
         /// <summary>The visit we saved and left for: join once the title screen is up.</summary>
@@ -1127,6 +1187,12 @@ namespace CardShopCoop.Sync.Rivals
                         if (!bag.Out.Contains(conn))
                             bag.Out.Add(conn);
                         bag.VisitingShop = m.State.VisitingShop;
+                        if (m.State.Withdrawn && m.State.MoneyAtDeparture > 0)
+                        {
+                            // the newcomer's travel cash joins the team's pot
+                            bag.MoneyAtDeparture += m.State.MoneyAtDeparture;
+                            bag.Withdrawn = true;
+                        }
                         bag.Log.Add(NameOf(conn) + " joined the trip");
                         CoopPlugin.Log.LogInfo($"Rivals: {NameOf(conn)} piggybacks on team bag {key} ({bag.Out.Count} out)");
                     }

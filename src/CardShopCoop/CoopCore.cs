@@ -1185,6 +1185,12 @@ namespace CardShopCoop
         }
 
         /// <summary>Team host: the Rivals board goes down to the guests over the co-op session.</summary>
+        internal void SendBagWithdraw(double amount)
+        {
+            if (Role == CoopRole.Client && _net != null)
+                Send(1, new BagWithdrawMessage { Amount = amount });
+        }
+
         internal void SendTrade(TradeMessage msg)
         {
             if (Role == CoopRole.Client && _net != null)
@@ -1968,6 +1974,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(null, "league-save", patches: Sync.Rivals.LeagueSession.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "title-gate", patches: Sync.Rivals.TitleGate.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "phone-apps", patches: UI.PhoneApps.ApplyPatches),
+                new Sync.CoopModuleEntry(null, "visitor-guard", patches: Sync.Rivals.VisitorGuard.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "population-tuning", patches: Sync.PopulationTuning.ApplyPatches),
             };

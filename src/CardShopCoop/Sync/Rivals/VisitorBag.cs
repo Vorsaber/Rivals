@@ -52,7 +52,10 @@ namespace CardShopCoop.Sync.Rivals
             public List<int> Out = new List<int>();   // server: members currently out with it
             public string HomeShop = "";
             public string VisitingShop = "";
+            /// <summary>The cash carried. With <see cref="Withdrawn"/> it LEFT the till at
+            /// departure and comes back (less what was spent, plus what was earned) at home.</summary>
             public double MoneyAtDeparture;
+            public bool Withdrawn;
             public double Spent;
             public double Earned;
             public List<Item> Items = new List<Item>();
@@ -107,10 +110,22 @@ namespace CardShopCoop.Sync.Rivals
         /// replaces the scratch slot): remember whose save this is and what they had.</summary>
         public static void Open(string visitingShop)
         {
+            Open(visitingShop, 0, false);
+        }
+
+        /// <summary>Leave with <paramref name="cash"/> in the bag. Withdrawn = it has already
+        /// left the till (the owner queued the ReduceCoin, or the host did for a teammate).</summary>
+        public static void Open(string visitingShop, double cash, bool withdrawn)
+        {
             if (Current.Open)
             {
                 CoopPlugin.Log.LogWarning("VisitorBag: opening a new bag over an unapplied one - keeping the old contents");
                 Current.VisitingShop = visitingShop ?? "";
+                if (withdrawn && cash > 0)
+                {
+                    Current.MoneyAtDeparture += cash;
+                    Current.Withdrawn = true;
+                }
                 Save();
                 return;
             }
@@ -121,7 +136,8 @@ namespace CardShopCoop.Sync.Rivals
                 HomeIsTeam = CoopCore.Role == CoopRole.Client,
                 HomeShop = SafeShopName(),
                 VisitingShop = visitingShop ?? "",
-                MoneyAtDeparture = SafeMoney(),
+                MoneyAtDeparture = Math.Max(0, cash),
+                Withdrawn = withdrawn,
                 OpenedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
             };
             // in a league: the lobby keeps ONE bag per team - a teammate already out carries it,
@@ -129,7 +145,7 @@ namespace CardShopCoop.Sync.Rivals
             if (RivalsLobby.ShareBag(Current))
                 Current.Shared = true;
             Save();
-            CoopPlugin.Log.LogInfo($"VisitorBag: opened{(Current.Shared ? " (team bag via the lobby)" : "")} - home {(Current.HomeIsTeam ? "team shop '" + Current.HomeShop + "'" : "slot " + Current.HomeSaveIndex)}, wallet {Current.MoneyAtDeparture:0.00}, visiting {Current.VisitingShop}");
+            CoopPlugin.Log.LogInfo($"VisitorBag: opened{(Current.Shared ? " (team bag via the lobby)" : "")} - home {(Current.HomeIsTeam ? "team shop '" + Current.HomeShop + "'" : "slot " + Current.HomeSaveIndex)}, cash {Current.MoneyAtDeparture:0.00}{(Current.Withdrawn ? " (taken from the till)" : "")}, visiting {Current.VisitingShop}");
         }
 
         /// <summary>The lobby's copy of the team bag arrived: mirror it (Open=false clears).</summary>
@@ -306,11 +322,18 @@ namespace CardShopCoop.Sync.Rivals
                 return; // the rival's world in the scratch slot, not home
             try
             {
-                ApplyContents(Current.Earned - Current.Spent, Current.Cards, Current.Items, SafeShopName(), Current.VisitingShop);
+                ApplyContents(HomeNet(Current), Current.Cards, Current.Items, SafeShopName(), Current.VisitingShop);
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("VisitorBag apply: " + e.Message); }
             Current = new State();
             Save();
+        }
+
+        /// <summary>What the till gets back: the cash taken along (if it left the till) less
+        /// what was spent, plus what was earned.</summary>
+        public static double HomeNet(State s)
+        {
+            return (s.Withdrawn ? s.MoneyAtDeparture : 0) + s.Earned - s.Spent;
         }
 
         /// <summary>Put a bag's contents into the running world: the wallet takes the net,
@@ -342,7 +365,7 @@ namespace CardShopCoop.Sync.Rivals
                 }
                 catch (Exception e) { CoopPlugin.Log.LogWarning($"VisitorBag: item {(EItemType)it.ItemType} could not be delivered: {e.Message}"); }
             }
-            string summary = $"{who} back from {visited}: wallet {(net >= 0 ? "+" : "")}{net:0.00}, {nCards} card(s), {nItems} item(s) at the door";
+            string summary = $"{who} back from {visited}: till {(net >= 0 ? "+" : "")}{net:0.00} (cash back incl.), {nCards} card(s), {nItems} item(s) at the door";
             CoopPlugin.Log.LogInfo("VisitorBag: applied - " + summary);
             HostOnlyFeatures.Notice("Co-op: " + summary);
         }
@@ -363,7 +386,7 @@ namespace CardShopCoop.Sync.Rivals
             {
                 From = CoopCore.Instance.EffectivePlayerName,
                 VisitedShop = Current.VisitingShop,
-                Net = Current.Earned - Current.Spent,
+                Net = HomeNet(Current),
             };
             foreach (var it in Current.Items)
             {

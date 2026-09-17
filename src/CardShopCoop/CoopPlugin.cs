@@ -44,6 +44,7 @@ namespace CardShopCoop
         public static ConfigEntry<int> RivalsSaveSlot;
         public static ConfigEntry<bool> RivalsConfirmPurchases;
         public static ConfigEntry<float> RivalsPvpAnte;
+        public static ConfigEntry<float> RivalsBagMoney;
         public static ConfigEntry<KeyCode> DeckBuilderKey;
         public static ConfigEntry<string> RivalsLeagueId;
         public static ConfigEntry<int> RivalsTeams;
@@ -111,6 +112,8 @@ namespace CardShopCoop
                 "Lobby host: the lobby host's TcgDifficulty and TcgEconomy settings apply to every shop in the league (each shop still counts its own players).");
             RivalsPriceEffect = Config.Bind("Rivals", "PriceEffect", 0.3f,
                 "Lobby host: how much the price race moves the crowd. 0.3 = the cheapest shop draws 30% more customers, the priciest 30% fewer, linear between. 0 = off.");
+            RivalsBagMoney = Config.Bind("Rivals", "BagMoney", 500f,
+                new ConfigDescription("How much cash to take along on a visit (the RIVALS tab has a field). It leaves the till when you go and whatever is unspent comes back with the bag.", new AcceptableValueRange<float>(0f, 1000000f)));
             RivalsPvpAnte = Config.Bind("Rivals", "PvpAnte", 0f,
                 new ConfigDescription("Host: the stake a VISITOR must put up to play you at a table (each side stakes it, winner takes both; a draw returns them). 0 = free matches. Your stake comes from the till, theirs from their carry-out bag.", new AcceptableValueRange<float>(0f, 100000f)));
             RivalsConfirmPurchases = Config.Bind("Rivals", "ConfirmPurchases", true,
