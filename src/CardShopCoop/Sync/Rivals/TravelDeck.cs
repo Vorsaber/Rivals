@@ -75,10 +75,20 @@ namespace CardShopCoop.Sync.Rivals
             {
                 var decks = CPlayerData.m_DeckCompactCardDataList;
                 int sel = CPlayerData.m_CurrentSelectedDeckIndex;
-                if (decks == null || sel < 0 || sel >= decks.Count || decks[sel] == null)
+                if (decks == null || decks.Count == 0)
                 {
-                    CoopPlugin.Log.LogInfo("TravelDeck: no selected deck to pack");
+                    CoopPlugin.Log.LogInfo("TravelDeck: no decks to pack");
                     return;
+                }
+                if (sel < 0 || sel >= decks.Count || decks[sel] == null)
+                {
+                    // nothing selected: the first complete deck, else the first deck
+                    sel = decks.FindIndex(d => d != null && d.GetTotalCardCount() >= GameInstance.GetMaxDeckCardCount());
+                    if (sel < 0)
+                        sel = decks.FindIndex(d => d != null);
+                    if (sel < 0)
+                        return;
+                    CoopPlugin.Log.LogInfo("TravelDeck: no deck selected - packing '" + decks[sel].deckName + "'");
                 }
                 var d = decks[sel];
                 var e = new DeckEntry { Name = d.deckName ?? "deck", DeckBox = d.deckBoxIndex, Playmat = d.playmatIndex };

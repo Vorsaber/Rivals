@@ -6,6 +6,29 @@ namespace CardShopCoop.Util
     /// "Finish the tutorial" and a fresh league game (tutorial off by design).</summary>
     internal static class TutorialSkip
     {
+        public static void ApplyPatches(HarmonyLib.Harmony h)
+        {
+            try
+            {
+                var m = HarmonyLib.AccessTools.Method(typeof(TutorialManager), "OnGameDataFinishLoaded");
+                if (m != null)
+                    h.Patch(m, postfix: new HarmonyLib.HarmonyMethod(typeof(TutorialSkip), nameof(LoadedPostfix)));
+            }
+            catch (System.Exception e) { CoopPlugin.Log.LogWarning("TutorialSkip patch: " + e.Message); }
+        }
+
+        /// <summary>Every load: the save's own "finished" flag persists, but the manager
+        /// reopens panels from the task values regardless - honour the flag.</summary>
+        public static void LoadedPostfix()
+        {
+            try
+            {
+                if (CPlayerData.m_HasFinishedTutorial || CPlayerData.m_TutorialIndex >= 99)
+                    Finish();
+            }
+            catch (System.Exception e) { CoopPlugin.Log.LogWarning("TutorialSkip on load: " + e.Message); }
+        }
+
         public static void Finish()
         {
             CPlayerData.m_HasFinishedTutorial = true;
