@@ -46,6 +46,12 @@ namespace CardShopCoop.Sync
         // client
         private bool _requestPending;
         private bool _editing;
+        private Action _remoteGranted;   // the phone deck builder waiting for the lock
+        /// <summary>The phone deck builder holds the editor (host or client).</summary>
+        public static bool RemoteEditing
+        {
+            get; private set;
+        }
         private float _upTimer;
         private int _upHash;
 
@@ -149,6 +155,83 @@ namespace CardShopCoop.Sync
                 }
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("DeckSync.CloseDeckListPostfix: " + e.Message); }
+        }
+
+        // ================================================================ remote editor (phone)
+
+        /// <summary>The phone deck builder wants the editor: same lock as the workbench, no
+        /// workbench. Solo: always. Host: unless a guest holds it. Client: asks the host and
+        /// runs <paramref name="granted"/> when the answer is yes. Returns false when refused
+        /// outright (a notice says why).</summary>
+        public static bool BeginRemoteEdit(Action granted)
+        {
+            var self = s_instance;
+            if (InBattle())
+            {
+                HostOnlyFeatures.Notice("Decks can't change mid-battle");
+                return false;
+            }
+            if (IsDeckListOpen())
+            {
+                HostOnlyFeatures.Notice("Close the workbench deck list first");
+                return false;
+            }
+            if (self == null || CoopCore.Role == CoopRole.None)
+            {
+                RemoteEditing = true;
+                granted?.Invoke();
+                return true;
+            }
+            if (CoopCore.Role == CoopRole.Host)
+            {
+                if (self._editorConn != NoEditor && self._editorConn != HostEditor)
+                {
+                    HostOnlyFeatures.Notice("Co-op: " + self.NameOf(self._editorConn) + " is editing the decks");
+                    return false;
+                }
+                self._editorConn = HostEditor;
+                RemoteEditing = true;
+                granted?.Invoke();
+                return true;
+            }
+            if (self._editing)
+            {
+                RemoteEditing = true;
+                granted?.Invoke();
+                return true;
+            }
+            if (self._requestPending)
+                return false;
+            self._requestPending = true;
+            self._remoteGranted = granted;
+            self.SendToHost?.Invoke(new DeckEditRequestMessage { Want = true });
+            return true;
+        }
+
+        public static void EndRemoteEdit()
+        {
+            var self = s_instance;
+            if (!RemoteEditing)
+                return;
+            RemoteEditing = false;
+            if (self == null)
+                return;
+            try
+            {
+                if (CoopCore.Role == CoopRole.Host)
+                {
+                    if (self._editorConn == HostEditor)
+                        self._editorConn = NoEditor;
+                }
+                else if (CoopCore.Role == CoopRole.Client && self._editing)
+                {
+                    self.ClientSendUp(final: true);
+                    self._editing = false;
+                    self.SendToHost?.Invoke(new DeckEditRequestMessage { Want = false });
+                    CoopPlugin.Log.LogInfo("DeckSync: phone deck builder closed, lock released");
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("DeckSync.EndRemoteEdit: " + e.Message); }
         }
 
         // ================================================================ host
@@ -301,7 +384,21 @@ namespace CardShopCoop.Sync
                 _requestPending = false;
                 if (!msg.Granted)
                 {
+                    _remoteGranted = null;
                     HostOnlyFeatures.Notice("Co-op: " + (string.IsNullOrEmpty(msg.Holder) ? "someone" : msg.Holder) + " is editing the decks");
+                    return;
+                }
+                if (_remoteGranted != null)
+                {
+                    // the phone deck builder asked, not the workbench
+                    var cb = _remoteGranted;
+                    _remoteGranted = null;
+                    _editing = true;
+                    _upTimer = 0f;
+                    _upHash = Hash(CPlayerData.m_DeckCompactCardDataList ?? new List<DeckCompactCardDataList>());
+                    RemoteEditing = true;
+                    CoopPlugin.Log.LogInfo("DeckSync: deck editor lock granted to the phone deck builder");
+                    cb();
                     return;
                 }
                 var wb = UnityEngine.Object.FindObjectOfType<WorkbenchUIScreen>();

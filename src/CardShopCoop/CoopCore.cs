@@ -1967,6 +1967,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(null, "visitor-bag", patches: Sync.Rivals.VisitorBag.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "league-save", patches: Sync.Rivals.LeagueSession.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "title-gate", patches: Sync.Rivals.TitleGate.ApplyPatches),
+                new Sync.CoopModuleEntry(null, "phone-apps", patches: UI.PhoneApps.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "population-tuning", patches: Sync.PopulationTuning.ApplyPatches),
             };

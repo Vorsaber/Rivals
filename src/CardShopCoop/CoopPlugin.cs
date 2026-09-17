@@ -44,6 +44,7 @@ namespace CardShopCoop
         public static ConfigEntry<int> RivalsSaveSlot;
         public static ConfigEntry<bool> RivalsConfirmPurchases;
         public static ConfigEntry<float> RivalsPvpAnte;
+        public static ConfigEntry<KeyCode> DeckBuilderKey;
         public static ConfigEntry<string> RivalsLeagueId;
         public static ConfigEntry<int> RivalsTeams;
         public static ConfigEntry<int> RivalsPerTeam;
@@ -151,6 +152,8 @@ namespace CardShopCoop
                 UiToggleKey.Value = KeyCode.F2; // migrate configs saved by early builds
             ChatKey = Config.Bind("Keys", "ChatKey", KeyCode.T,
                 "Opens the chat line (Enter sends, Esc cancels). Chat also lives on the co-op window.");
+            DeckBuilderKey = Config.Bind("Keys", "DeckBuilderKey", KeyCode.F7,
+                "Opens the deck builder anywhere (no workbench). It is also the DECKS app on the phone with Phone Overhaul installed.");
             PingKey = Config.Bind("Keys", "PingKey", KeyCode.H,
                 "Tells the other players you need them, naming the nearest thing to you (register, workbench, play table N, warehouse door).");
             EmoteKey = Config.Bind("Keys", "EmoteKey", KeyCode.G,
@@ -280,6 +283,7 @@ namespace CardShopCoop
             go.AddComponent<UI.CheatMenu>();
             go.AddComponent<UI.ChatOverlay>();
             go.AddComponent<UI.PurchaseConfirm>();
+            go.AddComponent<UI.PhoneApps>();
             go.AddComponent<Sync.Rivals.RivalsLobby>();
         }
     }
