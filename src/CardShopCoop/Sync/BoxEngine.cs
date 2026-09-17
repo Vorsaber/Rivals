@@ -940,7 +940,20 @@ namespace CardShopCoop.Sync
             }
 
             var next = BoxAuthority.NextBoxOwner(sender, w.Possession);
-            BoxShared.DebugLog("box-rx", $"id={w.Id} fam={w.Family} sender={connId} state={w.Possession} open={w.Open} accepted=true owner={lease.Owner}->{next}");
+            if (BoxShared.Debug)
+            {
+                // fv-691 forensics: a release accepted on the remembered owner, how far the
+                // incoming pose is from the host's copy, and what the box holds - enough to
+                // name the box and the dropper if a carry glitch recurs.
+                string via = currentOwner.IsOwned ? "owner" : "last-owner";
+                string jump = "";
+                if (w.Possession == BoxPossession.Free && knownBox != null)
+                    jump = $" jump={Vector3.Distance(BoxPlacement.PhysicsPosition(knownBox), w.Pos):F2}";
+                string content = w.Family == BoxFamily.Furniture
+                    ? $" obj={(EnumMap.TryFromWire(EnumKind.ObjectType, w.ObjType, out int objType) ? ((EObjectType)objType).ToString() : w.ObjType.ToString())}"
+                    : w.Family == BoxFamily.Item ? $" item={w.ItemType}x{w.ItemCount}" : "";
+                BoxShared.DebugLog("box-rx", $"id={w.Id} fam={w.Family} sender={connId} state={w.Possession} open={w.Open} accepted=true via={via} owner={lease.Owner}->{next}{jump}{content}");
+            }
             // The client does not know the host's owner id for itself; stamp the sender so
             // the families resolve the correct avatar for a remote Held/Placing box.
             w.OwnerConn = connId;
