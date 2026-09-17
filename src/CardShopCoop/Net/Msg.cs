@@ -126,6 +126,7 @@ namespace CardShopCoop.Net
         RivalsBoard = 133,   // also relayed host -> guests over the co-op session
         RivalsChat = 134,
         RivalsPing = 135,
+        RivalsLeague = 136, // league setup / ready state / START (server <-> members)
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

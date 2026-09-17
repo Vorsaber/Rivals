@@ -443,6 +443,16 @@ namespace CardShopCoop.UI
             }
             GUILayout.EndVertical();
 
+            if (R != Sync.Rivals.RivalsLobby.LobbyRole.None)
+                DrawLeague(R == Sync.Rivals.RivalsLobby.LobbyRole.Server);
+            else if (Sync.Rivals.LeagueSession.Active)
+            {
+                GUILayout.BeginVertical(CoopTheme.SectionBox);
+                GUILayout.Label("LEAGUE GAME", CoopTheme.SectionHeader);
+                GUILayout.Label($"League {Sync.Rivals.LeagueSession.Id} is live on this PC (save slot {Sync.Rivals.LeagueSession.Slot}) - the lobby dropped, your progress keeps saving. Rejoin the lobby to be on the board.", CoopTheme.LabelWarn);
+                GUILayout.EndVertical();
+            }
+
             // the board
             var board = Sync.Rivals.RivalsLobby.Board;
             GUILayout.BeginVertical(CoopTheme.SectionBox);
@@ -508,6 +518,98 @@ namespace CardShopCoop.UI
                 GUILayout.EndHorizontal();
                 GUILayout.EndVertical();
             }
+        }
+
+        /// <summary>The LEAGUE box: the lobby host sets teams and players per team, everyone
+        /// picks a team and readies up at the title screen, the host presses START. Captains
+        /// (save holders) load or create the league save; teammates join their captain's shop.</summary>
+        private void DrawLeague(bool server)
+        {
+            string id = Sync.Rivals.RivalsLobby.LeagueId;
+            int teams = Sync.Rivals.RivalsLobby.LeagueTeams, per = Sync.Rivals.RivalsLobby.LeaguePerTeam;
+            var roster = Sync.Rivals.RivalsLobby.Roster;
+            GUILayout.BeginVertical(CoopTheme.SectionBox);
+            GUILayout.Label("LEAGUE " + (string.IsNullOrEmpty(id) ? "" : id), CoopTheme.SectionHeader);
+            GUILayout.Label($"A league shop is its own save (slot {Sync.Rivals.LeagueSession.Slot}) that only loads when this lobby's host starts the league. Everyone readies up at the TITLE SCREEN; START gives every team a new game at once (tutorial off) or resumes the league's saves.", CoopTheme.LabelDim);
+            if (Sync.Rivals.LeagueSession.Active)
+                GUILayout.Label("LIVE: " + Sync.Rivals.LeagueSession.Status, CoopTheme.LabelWarn);
+
+            // settings (host edits, members see)
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("teams", CoopTheme.Label, GUILayout.Width(60f));
+            if (server && GUILayout.Button("-", CoopTheme.ButtonSecondary, GUILayout.Width(26f)))
+                Sync.Rivals.RivalsLobby.HostSetTeams(teams - 1);
+            GUILayout.Label(teams.ToString(), CoopTheme.Label, GUILayout.Width(24f));
+            if (server && GUILayout.Button("+", CoopTheme.ButtonSecondary, GUILayout.Width(26f)))
+                Sync.Rivals.RivalsLobby.HostSetTeams(teams + 1);
+            GUILayout.Space(16f);
+            GUILayout.Label("players per team", CoopTheme.Label, GUILayout.Width(110f));
+            if (server && GUILayout.Button("-", CoopTheme.ButtonSecondary, GUILayout.Width(26f)))
+                Sync.Rivals.RivalsLobby.HostSetPerTeam(per - 1);
+            GUILayout.Label(per.ToString(), CoopTheme.Label, GUILayout.Width(24f));
+            if (server && GUILayout.Button("+", CoopTheme.ButtonSecondary, GUILayout.Width(26f)))
+                Sync.Rivals.RivalsLobby.HostSetPerTeam(per + 1);
+            GUILayout.FlexibleSpace();
+            if (server && GUILayout.Button("New league", CoopTheme.ButtonDanger, GUILayout.Width(90f)))
+                Sync.Rivals.RivalsLobby.HostNewLeague();
+            GUILayout.EndHorizontal();
+
+            // roster
+            if (roster.Count == 0)
+                GUILayout.Label("waiting for the roster...", CoopTheme.LabelDim);
+            int myId = Sync.Rivals.RivalsLobby.MyId;
+            foreach (var m in roster)
+            {
+                bool mine = m.Id == myId;
+                GUILayout.BeginHorizontal();
+                string tick = m.Ready ? "[READY]" : (m.AtTitle ? "[ at title ]" : "[ in game ]");
+                string tags = (m.Captain ? "  captain" : "") + (m.HasSave ? "  has save" : "  new shop");
+                GUILayout.Label($"{tick} {m.Name}{(mine ? " (you)" : "")} - team {(m.Team > 0 ? m.Team.ToString() : "-")}{tags}", m.Ready ? CoopTheme.Label : CoopTheme.LabelDim);
+                GUILayout.FlexibleSpace();
+                // team pick: my own row always; every row for the host
+                if (mine || server)
+                    for (int t = 1; t <= teams; t++)
+                    {
+                        bool on = m.Team == t;
+                        if (GUILayout.Button(on ? "[" + t + "]" : t.ToString(), on ? CoopTheme.ButtonPrimary : CoopTheme.ButtonSecondary, GUILayout.Width(30f)))
+                        {
+                            if (mine)
+                                Sync.Rivals.RivalsLobby.SetMyTeam(t);
+                            else
+                                Sync.Rivals.RivalsLobby.HostAssignTeam(m.Id, t);
+                        }
+                    }
+                GUILayout.EndHorizontal();
+            }
+
+            // me: ready
+            var gm = CSingleton<CGameManager>.Instance;
+            bool atTitle = gm != null && !gm.m_IsGameLevel;
+            GUILayout.BeginHorizontal();
+            GUI.enabled = atTitle && CoopCore.Role == CoopRole.None;
+            bool ready = Sync.Rivals.RivalsLobby.MyReady;
+            if (GUILayout.Button(ready ? "READY - click to unready" : "Ready up", ready ? CoopTheme.ButtonPrimary : CoopTheme.ButtonSecondary, GUILayout.Width(180f)))
+                Sync.Rivals.RivalsLobby.SetReady(!ready);
+            GUI.enabled = true;
+            if (!atTitle)
+                GUILayout.Label("go to the title screen to ready up (save first)", CoopTheme.LabelDim);
+            else if (CoopCore.Role != CoopRole.None)
+                GUILayout.Label("leave your co-op session to ready up", CoopTheme.LabelDim);
+            GUILayout.EndHorizontal();
+
+            // host: START
+            if (server)
+            {
+                string why = Sync.Rivals.RivalsLobby.CannotStart();
+                bool anySave = roster.Exists(x => x.HasSave);
+                GUI.enabled = why.Length == 0;
+                if (GUILayout.Button(anySave ? "START - resume the league" : "START - new league game for everyone", CoopTheme.ButtonPrimary))
+                    Sync.Rivals.RivalsLobby.HostStart();
+                GUI.enabled = true;
+                if (why.Length > 0)
+                    GUILayout.Label("<size=10>waiting: " + why + "</size>", CoopTheme.LabelDim);
+            }
+            GUILayout.EndVertical();
         }
 
         /// <summary>The SETTINGS tab: appearance, live logging switches, and the artificial

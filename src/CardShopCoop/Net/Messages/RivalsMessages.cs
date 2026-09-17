@@ -56,6 +56,7 @@ namespace CardShopCoop.Net.Messages
         public int CoopPort;
         public ulong SteamLobby;               // when the shop hosts its co-op session on Steam
         public bool Visitable;                 // hosting a co-op session right now
+        public string CoopPassword = "";       // the session's password (a league is a friend group)
         // filled by the server
         public int PriceRank;                  // 0 = cheapest
         public float CrowdMultiplier = 1f;     // what this shop's population sim should apply
@@ -109,6 +110,44 @@ namespace CardShopCoop.Net.Messages
             get
             {
                 return MsgType.RivalsChat;
+            }
+        }
+    }
+
+    /// <summary>One lobby member's place in the league.</summary>
+    public sealed class LeagueMember
+    {
+        public int Id;                 // lobby connection id (server = 0)
+        public string Name = "";
+        public int Team;               // 1-based; 0 = not picked
+        public bool Ready;
+        public bool AtTitle;           // ready-up only counts from the title screen
+        public bool HasSave;           // holds a save for the current league id
+        public bool Captain;           // owns the team's save; teammates join their shop
+    }
+
+    /// <summary>League setup and start. Op "setup": server -> members (id, teams, roster).
+    /// Op "state": member -> server (my team, ready, at-title, has-save). Op "start": server ->
+    /// members: begin the league session now (captains load, teammates join).</summary>
+    [NetworkMessage(MsgType.RivalsLeague, Policy = MessagePolicy.Any)]
+    public sealed class RivalsLeagueMessage : INetMessage
+    {
+        public string Op = "";
+        public string LeagueId = "";
+        public string Name = "";
+        public int Teams;
+        public int PerTeam;
+        public List<LeagueMember> Members = new List<LeagueMember>();
+        // "state"
+        public int Team;
+        public bool Ready;
+        public bool AtTitle;
+        public bool HasSave;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.RivalsLeague;
             }
         }
     }

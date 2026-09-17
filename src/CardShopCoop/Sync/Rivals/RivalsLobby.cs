@@ -65,6 +65,20 @@ namespace CardShopCoop.Sync.Rivals
         private float _publishTimer;
         private float _boardTimer;
 
+        // ---- league: teams, ready-up, START (see LeagueSession for the save side)
+        public static string LeagueId = "";
+        public static int LeagueTeams = 2, LeaguePerTeam = 1;
+        /// <summary>Everyone in the lobby and where they stand (server-built, sent to all).</summary>
+        public static readonly List<LeagueMember> Roster = new List<LeagueMember>();
+        public static LeagueMember Me => Roster.Find(m => m.Id == MyId);
+        private readonly Dictionary<int, LeagueMember> _members = new Dictionary<int, LeagueMember>(); // server: conn -> member
+        private int _myTeam;
+        private bool _myReady;
+        private string _sentState = "";
+        private float _stateTimer;
+        private int _joinCaptain = -1;   // teammate: the captain whose shop to join once it opens
+        private float _lastJoinTry = -100f;
+
         private void Awake()
         {
             Instance = this;
@@ -96,6 +110,7 @@ namespace CardShopCoop.Sync.Rivals
                     me._shops.Clear();
                     me._welcomed.Clear();
                     me._myId = 0;
+                    me.InitLeagueAsServer();
                     CoopPlugin.Log.LogInfo("Rivals: " + Status + " (lobby " + id + ")");
                 };
                 Role = LobbyRole.Server; // provisional until the lobby is live
@@ -171,6 +186,7 @@ namespace CardShopCoop.Sync.Rivals
                 me._welcomed.Clear();
                 // the server is a shop too: id 0
                 me._myId = 0;
+                me.InitLeagueAsServer();
                 CoopPlugin.Log.LogInfo("Rivals: " + Status);
             }
             catch (Exception e)
@@ -248,6 +264,11 @@ namespace CardShopCoop.Sync.Rivals
             _shops.Clear();
             _welcomed.Clear();
             _myId = -1;
+            _members.Clear();
+            Roster.Clear();
+            _myReady = false;
+            _sentState = "";
+            _joinCaptain = -1;
             Board = new RivalsBoardMessage();
             CrowdMultiplier = 1f;
             MyPriceRank = -1;
@@ -273,6 +294,7 @@ namespace CardShopCoop.Sync.Rivals
 
         private void Update()
         {
+            LeagueSession.Tick(); // a live league game keeps going whether or not the lobby is up
             if (_net == null || Role == LobbyRole.None)
                 return;
             try
@@ -293,6 +315,8 @@ namespace CardShopCoop.Sync.Rivals
                             PushChat("lobby", s.Name + " left the league");
                         _shops.Remove(d);
                         _welcomed.Remove(d);
+                        if (_members.Remove(d))
+                            SendSetup();
                     }
                     else
                     {
@@ -312,6 +336,13 @@ namespace CardShopCoop.Sync.Rivals
                     PublishMyShop();
                 }
                 VisitorBag.Tick();
+                _stateTimer += dt;
+                if (_stateTimer >= 1f)
+                {
+                    _stateTimer = 0f;
+                    PumpLeagueState();
+                    TryJoinTeam();
+                }
                 if (Role == LobbyRole.Server)
                 {
                     _boardTimer += dt;
@@ -358,6 +389,8 @@ namespace CardShopCoop.Sync.Rivals
                     _net.Send(msg.ConnId, new RivalsWelcomeMessage { Ok = true, YourId = msg.ConnId, LobbyName = LobbyName });
                     PushChat("lobby", _shops[msg.ConnId].Name + " joined the league");
                     _net.Broadcast(new RivalsChatMessage { From = "lobby", Text = _shops[msg.ConnId].Name + " joined the league" });
+                    _members[msg.ConnId] = new LeagueMember { Id = msg.ConnId, Name = _shops[msg.ConnId].Name };
+                    SendSetup();
                     break;
                 case RivalsWelcomeMessage welcome:
                     if (Role != LobbyRole.Client)
@@ -397,6 +430,9 @@ namespace CardShopCoop.Sync.Rivals
                     PushChat(chat.From, chat.Text);
                     break;
                 case RivalsPingMessage _:
+                    break;
+                case RivalsLeagueMessage league:
+                    OnLeagueMessage(msg.ConnId, league);
                     break;
                 case MarketStateMessage market:
                     if (Role != LobbyRole.Client)
@@ -468,6 +504,7 @@ namespace CardShopCoop.Sync.Rivals
                     if (CoopCore.Instance.IsSteamSession && CoopCore.Instance.Steam != null)
                         s.SteamLobby = CoopCore.Instance.SteamLobbyIdForRivals;
                     s.LanAddress = CoopCore.Instance.LanAddressForRivals;
+                    s.CoopPassword = CoopCore.Instance.HostPassword ?? "";
                 }
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals BuildMyShop: " + e.Message); }
@@ -607,18 +644,339 @@ namespace CardShopCoop.Sync.Rivals
             if (!VisitorBag.IsOpen)
                 VisitorBag.Open(shop.Name);
             CoopCore.JoiningAsVisitor = true;
+            if (!JoinShop(shop, "visiting " + shop.Name))
+                CoopCore.JoiningAsVisitor = false;
+        }
+
+        /// <summary>Join a shop's co-op session the way it published itself (Steam lobby or LAN
+        /// address, with its password). Visits and teammates share this.</summary>
+        private static bool JoinShop(RivalsShop shop, string what)
+        {
+            var core = CoopCore.Instance;
+            if (core == null || shop == null)
+                return false;
+            string pw = shop.CoopPassword ?? "";
             if (shop.SteamLobby != 0 && core.Steam != null)
             {
-                Status = "visiting " + shop.Name + " via Steam...";
-                core.JoinSteam(shop.SteamLobby);
+                Status = what + " via Steam...";
+                core.JoinSteam(shop.SteamLobby, pw);
+                return true;
             }
-            else if (!string.IsNullOrEmpty(shop.LanAddress))
+            if (!string.IsNullOrEmpty(shop.LanAddress))
             {
-                Status = "visiting " + shop.Name + " at " + shop.LanAddress + "...";
-                core.Join(shop.LanAddress, shop.CoopPort > 0 ? shop.CoopPort : (CoopPlugin.Port != null ? CoopPlugin.Port.Value : 27886), "");
+                Status = what + " at " + shop.LanAddress + "...";
+                core.Join(shop.LanAddress, shop.CoopPort > 0 ? shop.CoopPort : (CoopPlugin.Port != null ? CoopPlugin.Port.Value : 27886), pw);
+                return true;
+            }
+            Status = shop.Name + " published no address";
+            return false;
+        }
+
+        // ================================================================ league
+
+        public static string MyShopNameForLeague()
+        {
+            return MyShopName();
+        }
+
+        private void InitLeagueAsServer()
+        {
+            LeagueId = CoopPlugin.RivalsLeagueId != null ? (CoopPlugin.RivalsLeagueId.Value ?? "").Trim() : "";
+            if (string.IsNullOrEmpty(LeagueId))
+                MintLeagueId();
+            LeagueTeams = CoopPlugin.RivalsTeams != null ? CoopPlugin.RivalsTeams.Value : 2;
+            LeaguePerTeam = CoopPlugin.RivalsPerTeam != null ? CoopPlugin.RivalsPerTeam.Value : 1;
+            _members.Clear();
+            _members[0] = new LeagueMember { Id = 0, Name = MyShopName(), Team = 1 };
+            _myTeam = 1;
+            _myReady = false;
+            SendSetup();
+        }
+
+        private static void MintLeagueId()
+        {
+            LeagueId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            if (CoopPlugin.RivalsLeagueId != null)
+                CoopPlugin.RivalsLeagueId.Value = LeagueId;
+        }
+
+        /// <summary>Server: start a brand-new league - new id, so every member's save state
+        /// resets; the old league's saves stay archived on each PC.</summary>
+        public static void HostNewLeague()
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server)
+                return;
+            MintLeagueId();
+            foreach (var m in me._members.Values)
+            {
+                m.Ready = false;
+                m.HasSave = false;
+            }
+            me._myReady = false;
+            me.SendSetup();
+            PushChat("lobby", "new league " + LeagueId + " - everyone starts fresh");
+            me._net.Broadcast(new RivalsChatMessage { From = "lobby", Text = "new league " + LeagueId + " - everyone starts fresh" });
+        }
+
+        public static void HostSetTeams(int teams)
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server)
+                return;
+            LeagueTeams = Mathf.Clamp(teams, 1, 8);
+            if (CoopPlugin.RivalsTeams != null)
+                CoopPlugin.RivalsTeams.Value = LeagueTeams;
+            me.SendSetup();
+        }
+
+        public static void HostSetPerTeam(int perTeam)
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server)
+                return;
+            LeaguePerTeam = Mathf.Clamp(perTeam, 1, 4);
+            if (CoopPlugin.RivalsPerTeam != null)
+                CoopPlugin.RivalsPerTeam.Value = LeaguePerTeam;
+            me.SendSetup();
+        }
+
+        /// <summary>Server: put a member on a team (the host can arrange everyone).</summary>
+        public static void HostAssignTeam(int memberId, int team)
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server)
+                return;
+            if (memberId == 0)
+            {
+                SetMyTeam(team);
+                return;
+            }
+            if (me._members.TryGetValue(memberId, out var m))
+            {
+                m.Team = Mathf.Clamp(team, 0, LeagueTeams);
+                me.SendSetup();
+            }
+        }
+
+        public static void SetMyTeam(int team)
+        {
+            var me = Instance;
+            if (me == null || Role == LobbyRole.None)
+                return;
+            me._myTeam = Mathf.Clamp(team, 0, Mathf.Max(1, LeagueTeams));
+            me._stateTimer = 10f; // push now
+        }
+
+        public static void SetReady(bool ready)
+        {
+            var me = Instance;
+            if (me == null || Role == LobbyRole.None)
+                return;
+            me._myReady = ready;
+            me._stateTimer = 10f;
+        }
+
+        public static bool MyReady => Instance != null && Instance._myReady;
+        public static int MyTeam => Instance != null ? Instance._myTeam : 0;
+
+        private static bool AtTitle()
+        {
+            var gm = CSingleton<CGameManager>.Instance;
+            return gm != null && !gm.m_IsGameLevel;
+        }
+
+        /// <summary>Once a second: my team / ready / at-title / has-save, sent when it changes.
+        /// Ready only holds at the title screen.</summary>
+        private void PumpLeagueState()
+        {
+            bool atTitle = AtTitle();
+            if (!atTitle && _myReady)
+                _myReady = false;
+            bool hasSave = LeagueSession.HasSave(LeagueId);
+            string key = $"{LeagueId}|{_myTeam}|{_myReady}|{atTitle}|{hasSave}";
+            if (key == _sentState)
+                return;
+            _sentState = key;
+            if (Role == LobbyRole.Server)
+            {
+                if (_members.TryGetValue(0, out var m))
+                {
+                    m.Team = _myTeam;
+                    m.Ready = _myReady;
+                    m.AtTitle = atTitle;
+                    m.HasSave = hasSave;
+                    m.Name = MyShopName();
+                }
+                SendSetup();
+            }
+            else if (!string.IsNullOrEmpty(LeagueId))
+            {
+                _net.Send(1, new RivalsLeagueMessage { Op = "state", LeagueId = LeagueId, Team = _myTeam, Ready = _myReady, AtTitle = atTitle, HasSave = hasSave });
+            }
+        }
+
+        /// <summary>Server: captains are the members who hold the team's save (lowest id
+        /// wins a tie), else the lowest id on the team; then the roster goes to everyone.</summary>
+        private void SendSetup()
+        {
+            if (Role != LobbyRole.Server || _net == null)
+                return;
+            var list = new List<LeagueMember>(_members.Values);
+            list.Sort((a, b) => a.Id.CompareTo(b.Id));
+            foreach (var m in list)
+                m.Captain = false;
+            for (int t = 1; t <= LeagueTeams; t++)
+            {
+                LeagueMember cap = null;
+                foreach (var m in list)
+                    if (m.Team == t && (cap == null || (m.HasSave && !cap.HasSave)))
+                        cap = m;
+                if (cap != null)
+                    cap.Captain = true;
+            }
+            var msg = new RivalsLeagueMessage { Op = "setup", LeagueId = LeagueId, Name = LobbyName, Teams = LeagueTeams, PerTeam = LeaguePerTeam, Members = list };
+            Roster.Clear();
+            Roster.AddRange(list);
+            _net.Broadcast(msg);
+        }
+
+        private void OnLeagueMessage(int conn, RivalsLeagueMessage m)
+        {
+            switch (m.Op)
+            {
+                case "state":
+                    if (Role != LobbyRole.Server || !_members.TryGetValue(conn, out var mem))
+                        return;
+                    mem.Team = Mathf.Clamp(m.Team, 0, LeagueTeams);
+                    mem.Ready = m.Ready;
+                    mem.AtTitle = m.AtTitle;
+                    mem.HasSave = m.LeagueId == LeagueId && m.HasSave;
+                    SendSetup();
+                    break;
+                case "setup":
+                    if (Role != LobbyRole.Client)
+                        return;
+                    bool newId = m.LeagueId != LeagueId;
+                    LeagueId = m.LeagueId ?? "";
+                    LeagueTeams = Mathf.Max(1, m.Teams);
+                    LeaguePerTeam = Mathf.Max(1, m.PerTeam);
+                    Roster.Clear();
+                    if (m.Members != null)
+                        Roster.AddRange(m.Members);
+                    if (_myTeam > LeagueTeams)
+                        _myTeam = 0;
+                    if (newId)
+                        _stateTimer = 10f; // has-save is per league id: resend
+                    break;
+                case "start":
+                    if (Role != LobbyRole.Client)
+                        return;
+                    BeginLeague(m);
+                    break;
+            }
+        }
+
+        /// <summary>Why START is not possible right now ("" = go).</summary>
+        public static string CannotStart()
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server)
+                return "not hosting";
+            if (Roster.Count == 0)
+                return "nobody in the lobby";
+            var perTeam = new int[LeagueTeams + 1];
+            foreach (var m in Roster)
+            {
+                if (m.Team < 1)
+                    return m.Name + " has no team";
+                perTeam[m.Team]++;
+                if (perTeam[m.Team] > LeaguePerTeam)
+                    return "team " + m.Team + " has more than " + LeaguePerTeam;
+                if (!m.AtTitle)
+                    return m.Name + " is not at the title screen";
+                if (!m.Ready)
+                    return m.Name + " is not ready";
+            }
+            return "";
+        }
+
+        /// <summary>Server: everyone readied up at the title - go. Captains load (or create)
+        /// the league save, teammates join their captain's shop as it opens.</summary>
+        public static void HostStart()
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server)
+                return;
+            string why = CannotStart();
+            if (why.Length > 0)
+            {
+                Status = "can't start: " + why;
+                return;
+            }
+            me.SendSetup(); // captains final
+            var msg = new RivalsLeagueMessage { Op = "start", LeagueId = LeagueId, Name = LobbyName, Teams = LeagueTeams, PerTeam = LeaguePerTeam, Members = new List<LeagueMember>(Roster) };
+            me._net.Broadcast(msg);
+            PushChat("lobby", "league " + LeagueId + " STARTED");
+            me._net.Broadcast(new RivalsChatMessage { From = "lobby", Text = "league " + LeagueId + " STARTED" });
+            me.BeginLeague(msg);
+        }
+
+        private void BeginLeague(RivalsLeagueMessage m)
+        {
+            Roster.Clear();
+            if (m.Members != null)
+                Roster.AddRange(m.Members);
+            var me = Roster.Find(x => x.Id == _myId);
+            if (me == null)
+            {
+                Status = "START came but you are not on the roster";
+                return;
+            }
+            _myReady = false;
+            _sentState = "";
+            if (!LeagueSession.Begin(m.LeagueId, m.Name, me.Captain, _viaSteam))
+            {
+                Status = "league start: " + LeagueSession.Status;
+                return;
+            }
+            if (me.Captain)
+            {
+                _joinCaptain = -1;
+                Status = LeagueSession.Status;
             }
             else
-                Status = shop.Name + " published no address";
+            {
+                var cap = Roster.Find(x => x.Team == me.Team && x.Captain);
+                _joinCaptain = cap != null ? cap.Id : -1;
+                _lastJoinTry = -100f;
+                Status = cap != null ? "waiting for " + cap.Name + "'s shop to open..." : "your team has no captain";
+            }
+        }
+
+        /// <summary>Teammate: the captain's shop shows up on the board as visitable - join it
+        /// as a regular co-op guest (the team shares the shop).</summary>
+        private void TryJoinTeam()
+        {
+            if (_joinCaptain < 0)
+                return;
+            if (CoopCore.Role != CoopRole.None)
+            {
+                if (CoopCore.Role == CoopRole.Client)
+                {
+                    _joinCaptain = -1;
+                    Status = "joined your team's shop";
+                }
+                return;
+            }
+            if (!AtTitle() || Time.unscaledTime - _lastJoinTry < 8f)
+                return;
+            var shop = Board.Shops.Find(s => s.Id == _joinCaptain);
+            if (shop == null || !shop.Visitable)
+                return;
+            _lastJoinTry = Time.unscaledTime;
+            CoopCore.JoiningAsVisitor = false;
+            JoinShop(shop, "joining your team at " + shop.Name);
         }
 
         // ================================================================ chat

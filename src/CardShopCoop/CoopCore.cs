@@ -1929,6 +1929,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(_sleep, "sleep-vote", patches: Sync.SleepVote.ApplyPatches),
                 new Sync.CoopModuleEntry(_social, "social", 16, 8, Sync.Social.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "visitor-bag", patches: Sync.Rivals.VisitorBag.ApplyPatches),
+                new Sync.CoopModuleEntry(null, "league-save", patches: Sync.Rivals.LeagueSession.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "population-tuning", patches: Sync.PopulationTuning.ApplyPatches),
             };

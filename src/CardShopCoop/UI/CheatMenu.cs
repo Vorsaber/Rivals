@@ -474,43 +474,8 @@ namespace CardShopCoop.UI
 
         private void FinishTutorial()
         {
-            {
-                CPlayerData.m_HasFinishedTutorial = true;
-                CPlayerData.m_TutorialIndex = 99;
-                var tm = FindObjectOfType<TutorialManager>();
-                if (tm != null)
-                {
-                    // mark every subgroup's task finished first, otherwise EvaluateTaskVisibility
-                    // reopens the first unfinished panel and rewrites the index
-                    var fi = HarmonyLib.AccessTools.Field(typeof(TutorialSubGroup), "m_IsTaskFinish");
-                    if (tm.m_TutorialSubGroupList != null)
-                        foreach (var sg in tm.m_TutorialSubGroupList)
-                        {
-                            if (sg == null)
-                                continue;
-                            try
-                            {
-                                fi?.SetValue(sg, true);
-                            }
-                            catch { }
-                            try
-                            {
-                                sg.CloseScreen();
-                            }
-                            catch { }
-                        }
-                    try
-                    {
-                        tm.EvaluateTaskVisibility();
-                    }
-                    catch { }
-                    CPlayerData.m_TutorialIndex = 99;
-                    if (tm.m_TutorialTargetIndicator != null)
-                        tm.m_TutorialTargetIndicator.SetActive(false);
-                }
-                GameUIScreen.SetGameUIVisible(isVisible: true);
-                Say("tutorial marked finished");
-            }
+            Util.TutorialSkip.Finish();
+            Say("tutorial marked finished");
         }
 
         private void UnlockLicenses()

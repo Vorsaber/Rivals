@@ -41,6 +41,10 @@ namespace CardShopCoop
         public static ConfigEntry<float> RivalsPriceEffect;
         public static ConfigEntry<bool> RivalsSharedMarket;
         public static ConfigEntry<bool> RivalsSharedTuning;
+        public static ConfigEntry<int> RivalsSaveSlot;
+        public static ConfigEntry<string> RivalsLeagueId;
+        public static ConfigEntry<int> RivalsTeams;
+        public static ConfigEntry<int> RivalsPerTeam;
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
         public static ConfigEntry<string> LastJoinIP;
@@ -103,6 +107,14 @@ namespace CardShopCoop
                 "Lobby host: the lobby host's TcgDifficulty and TcgEconomy settings apply to every shop in the league (each shop still counts its own players).");
             RivalsPriceEffect = Config.Bind("Rivals", "PriceEffect", 0.3f,
                 "Lobby host: how much the price race moves the crowd. 0.3 = the cheapest shop draws 30% more customers, the priciest 30% fewer, linear between. 0 = off.");
+            RivalsSaveSlot = Config.Bind("Rivals", "SaveSlot", 8,
+                new ConfigDescription("Save slot a league shop lives in - one the game's own menus never show (0-3 are yours, 6-7 are co-op's). The league save only loads when the lobby host starts the league.", new AcceptableValueRange<int>(8, 15)));
+            RivalsLeagueId = Config.Bind("Rivals", "LeagueId", "",
+                "Written automatically: the id of the league you host. 'New league' mints another; the old league's saves are archived under CardShopCoop.leagues.");
+            RivalsTeams = Config.Bind("Rivals", "Teams", 2,
+                new ConfigDescription("Lobby host: number of teams (shops) in the league.", new AcceptableValueRange<int>(1, 8)));
+            RivalsPerTeam = Config.Bind("Rivals", "PlayersPerTeam", 1,
+                new ConfigDescription("Lobby host: players per team. A team is one shop: its captain holds the save, teammates join it as co-op guests.", new AcceptableValueRange<int>(1, 4)));
             MaxPlayers = Config.Bind("Network", "MaxPlayers", 4,
                 new ConfigDescription("Host: players in the shop including you (2-8). Sets the Steam lobby size and refuses LAN joins past it. Everything is relayed through the host, so above 4 expect the host's upload to be the limit.", new AcceptableValueRange<int>(2, 8)));
             LastJoinIP = Config.Bind("Network", "LastJoinIP", "192.168.1.100",
