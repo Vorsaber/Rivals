@@ -119,10 +119,14 @@ namespace CardShopCoop.UI
         {
             switch (overall)
             {
-                case 0: return "1st";
-                case 1: return "2nd";
-                case 2: return "3rd";
-                default: return (overall + 1) + "th";
+                case 0:
+                    return "1st";
+                case 1:
+                    return "2nd";
+                case 2:
+                    return "3rd";
+                default:
+                    return (overall + 1) + "th";
             }
         }
     }
