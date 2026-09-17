@@ -24,8 +24,11 @@ namespace CardShopCoop.UI
             // live board
             GUILayout.BeginVertical(CoopTheme.SectionBox);
             GUILayout.Label("BOARD" + (string.IsNullOrEmpty(RivalsLobby.Board.LobbyName) ? "" : " - " + RivalsLobby.Board.LobbyName), CoopTheme.SectionHeader);
+            // --- fv-683 leaderboard-v2 begin
+            SeasonPanel.DrawStatus(RivalsLobby.Board);
             var shops = new List<Net.Messages.RivalsShop>(RivalsLobby.Board.Shops);
-            shops.Sort((a, b) => b.ShopValue.CompareTo(a.ShopValue));
+            shops.Sort((a, b) => (b.Finished ? b.FinalValue : b.ShopValue).CompareTo(a.Finished ? a.FinalValue : a.ShopValue));
+            // --- fv-683 leaderboard-v2 end
             if (shops.Count == 0)
                 GUILayout.Label("No shops on the board yet.", CoopTheme.LabelDim);
             for (int i = 0; i < shops.Count; i++)
@@ -34,9 +37,14 @@ namespace CardShopCoop.UI
                 bool mine = s.Id == RivalsLobby.MyId;
                 string price = s.PriceRank < 0 ? "no prices" : (s.PriceRank == 0 ? "CHEAPEST" : "price #" + (s.PriceRank + 1)) + $" x{s.AvgMarkup:0.00}";
                 string crowd = Mathf.Approximately(s.CrowdMultiplier, 1f) ? "" : $"  crowd x{s.CrowdMultiplier:0.00}";
-                GUILayout.Label($"{(mine ? "<b>" : "")}{i + 1}. {s.Name} - lvl {s.Level}, {GameInstance.GetPriceString(s.Money)}, day {s.Day}{(mine ? "</b>" : "")}", CoopTheme.Label);
+                // --- fv-683 leaderboard-v2 begin
+                GUILayout.Label($"{(mine ? "<b>" : "")}{i + 1}. {s.Name} - lvl {s.Level}, day {s.Day + 1}, {SeasonPanel.ValueText(s, RivalsLobby.Board.SeasonDays)}{(mine ? "</b>" : "")}", CoopTheme.Label);
+                // --- fv-683 leaderboard-v2 end
                 GUILayout.Label($"<size=10>   sales {s.SalesToday}, customers {s.CustomersToday}  |  {price}{crowd}{(s.TournamentToday ? "  TOURNAMENT TODAY" : "")}</size>", CoopTheme.LabelDim);
             }
+            // --- fv-683 leaderboard-v2 begin
+            SeasonPanel.DrawWeeks(RivalsLobby.Board, 3);
+            // --- fv-683 leaderboard-v2 end
             GUILayout.EndVertical();
 
             DrawDayTable(width, true);

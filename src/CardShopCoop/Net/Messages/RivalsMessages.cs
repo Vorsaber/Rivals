@@ -61,6 +61,13 @@ namespace CardShopCoop.Net.Messages
         public int PriceRank;                  // 0 = cheapest
         public float CrowdMultiplier = 1f;     // what this shop's population sim should apply
         public double ShopValue;               // money + stock value (phase 1: money)
+        // --- fv-683 leaderboard-v2 begin
+        public double StockValue;              // the shop's stock at market price (ShopValue = Money + StockValue)
+        public int StockItems, StockCards;     // unit counts behind StockValue
+        public bool Finished;                  // server: this shop has played the season's last day
+        public double FinalValue;              // server: its shop value at the end of that day
+        public int WeeksClosed;                // server: how many WeekDays stretches this shop has closed
+        // --- fv-683 leaderboard-v2 end
     }
 
     [NetworkMessage(MsgType.RivalsShopState, Policy = MessagePolicy.Any)]
@@ -91,6 +98,14 @@ namespace CardShopCoop.Net.Messages
         public float StaffCostPerPlayer;
         public bool EconomyPresent;
         public float EconMargin = 1f, EconCard = 1f, EconPick = 1f, EconCost = 1f, EconBill = 1f;
+        // --- fv-683 leaderboard-v2 begin
+        public int SeasonDays;                 // the lobby host's season length in days (0 = endless)
+        public bool SeasonOver;                // every shop has finished: the winner stands
+        public string WinnerName = "";
+        public double WinnerValue;
+        public int WeekDays;                   // the host's stretch length (0 = no weekly winners)
+        public List<RivalsWeekResult> Weeks = new List<RivalsWeekResult>();  // every stretch declared so far, oldest first
+        // --- fv-683 leaderboard-v2 end
         public MsgType Type
         {
             get
@@ -144,6 +159,10 @@ namespace CardShopCoop.Net.Messages
         public bool Ready;
         public bool AtTitle;
         public bool HasSave;
+        // --- fv-683 leaderboard-v2 begin
+        public int SeasonDays;         // "setup": the host's season length (0 = endless)
+        public int WeekDays;           // "setup": the host's weekly-winner stretch (0 = off)
+        // --- fv-683 leaderboard-v2 end
         public MsgType Type
         {
             get
@@ -298,6 +317,10 @@ namespace CardShopCoop.Net.Messages
         public double Money;
         public int Level;
         public float Markup;
+        // --- fv-683 leaderboard-v2 begin
+        public double StockValue;      // stock at market price when the day closed
+        public double ShopValue;       // Money + StockValue: the season is decided on this
+        // --- fv-683 leaderboard-v2 end
     }
 
     [NetworkMessage(MsgType.RivalsDayReport, Policy = MessagePolicy.Any)]
@@ -325,6 +348,22 @@ namespace CardShopCoop.Net.Messages
             }
         }
     }
+
+    // --- fv-683 leaderboard-v2 begin
+    /// <summary>One declared stretch of WeekDays days: who gained the most shop value over
+    /// it. Ranked on the DELTA (close of day W*N minus close of day W*(N-1); week 1 = the
+    /// standing value), so a trailing shop can still take a week.</summary>
+    public sealed class RivalsWeekResult
+    {
+        public int Week;               // 1-based
+        public int LastDay;            // Week * WeekDays
+        public string WinnerName = "";
+        public double WinnerDelta;
+        public double WinnerClose;     // the winner's shop value at that close
+        public List<string> Names = new List<string>();   // every shop's week, best first
+        public List<double> Deltas = new List<double>();
+    }
+    // --- fv-683 leaderboard-v2 end
 
     [NetworkMessage(MsgType.RivalsPing, Policy = MessagePolicy.Any)]
     public sealed class RivalsPingMessage : INetMessage

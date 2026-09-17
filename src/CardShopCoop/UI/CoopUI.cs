@@ -466,10 +466,15 @@ namespace CardShopCoop.UI
             var board = Sync.Rivals.RivalsLobby.Board;
             GUILayout.BeginVertical(CoopTheme.SectionBox);
             GUILayout.Label("BOARD" + (string.IsNullOrEmpty(board.LobbyName) ? "" : " - " + board.LobbyName), CoopTheme.SectionHeader);
+            // --- fv-683 leaderboard-v2 begin
+            SeasonPanel.DrawStatus(board);
+            // --- fv-683 leaderboard-v2 end
             if (board.Shops.Count == 0)
                 GUILayout.Label("No shops on the board yet.", CoopTheme.LabelDim);
             var shops = new List<Net.Messages.RivalsShop>(board.Shops);
-            shops.Sort((a, b) => b.ShopValue.CompareTo(a.ShopValue));
+            // --- fv-683 leaderboard-v2 begin
+            shops.Sort((a, b) => (b.Finished ? b.FinalValue : b.ShopValue).CompareTo(a.Finished ? a.FinalValue : a.ShopValue));
+            // --- fv-683 leaderboard-v2 end
             for (int i = 0; i < shops.Count; i++)
             {
                 var s = shops[i];
@@ -478,7 +483,9 @@ namespace CardShopCoop.UI
                 string crowd = Mathf.Approximately(s.CrowdMultiplier, 1f) ? "" : $"  customers x{s.CrowdMultiplier:0.00}";
                 string tourney = s.TournamentToday ? "  TOURNAMENT TODAY" : (s.TournamentScheduled ? "  tournament scheduled" : "");
                 GUILayout.BeginHorizontal();
-                GUILayout.Label($"{i + 1}. {s.Name}{team} - lvl {s.Level}, {GameInstance.GetPriceString(s.Money)}, day {s.Day}", CoopTheme.Label);
+                // --- fv-683 leaderboard-v2 begin
+                GUILayout.Label($"{i + 1}. {s.Name}{team} - lvl {s.Level}, day {s.Day + 1}, {SeasonPanel.ValueText(s, board.SeasonDays)}", CoopTheme.Label);
+                // --- fv-683 leaderboard-v2 end
                 bool mine = s.Id == Sync.Rivals.RivalsLobby.MyId;
                 var gmv = CSingleton<CGameManager>.Instance;
                 bool inGame = gmv != null && gmv.m_IsGameLevel;
@@ -630,6 +637,12 @@ namespace CardShopCoop.UI
             if (server && GUILayout.Button("New league", CoopTheme.ButtonDanger, GUILayout.Width(90f)))
                 Sync.Rivals.RivalsLobby.HostNewLeague();
             GUILayout.EndHorizontal();
+            // --- fv-683 leaderboard-v2 begin
+            SeasonPanel.DrawSetting(server);
+            if (Sync.Rivals.RivalsLobby.Board.SeasonOver)
+                SeasonPanel.DrawStatus(Sync.Rivals.RivalsLobby.Board);
+            SeasonPanel.DrawWeeks(Sync.Rivals.RivalsLobby.Board, 5);
+            // --- fv-683 leaderboard-v2 end
 
             // roster
             if (roster.Count == 0)

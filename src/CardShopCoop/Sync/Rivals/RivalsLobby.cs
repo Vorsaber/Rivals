@@ -291,6 +291,9 @@ namespace CardShopCoop.Sync.Rivals
             _departShop = null;
             _withdrawFor = null;
             LeagueStarted = false;
+            // --- fv-683 leaderboard-v2 begin
+            SeasonReset();
+            // --- fv-683 leaderboard-v2 end
             Board = new RivalsBoardMessage();
             CrowdMultiplier = 1f;
             MyPriceRank = -1;
@@ -539,7 +542,10 @@ namespace CardShopCoop.Sync.Rivals
                 s.TournamentScheduled = td != null && td.m_IsHostingTournament;
                 s.TournamentToday = td != null && td.m_IsTournamentDay && !td.m_IsTournamentDayOver;
                 s.AvgMarkup = PriceIndex.AverageMarkup(out s.PricedItems);
-                s.ShopValue = s.Money;
+                // --- fv-683 leaderboard-v2 begin
+                s.StockValue = StockValue.Compute(out s.StockItems, out s.StockCards);
+                s.ShopValue = s.Money + s.StockValue;
+                // --- fv-683 leaderboard-v2 end
                 s.CoopPort = CoopPlugin.Port != null ? CoopPlugin.Port.Value : 0;
                 // visitable = hosting a co-op session right now (LAN address or Steam lobby)
                 if (CoopCore.Instance != null && CoopCore.Role == CoopRole.Host)
@@ -599,6 +605,10 @@ namespace CardShopCoop.Sync.Rivals
                     x.PriceRank = -1;
                     x.CrowdMultiplier = 1f;
                 }
+            // --- fv-683 leaderboard-v2 begin
+            SeasonFillBoard(board);
+            WeekFillBoard(board);
+            // --- fv-683 leaderboard-v2 end
             _net.Broadcast(board);
             ApplyBoard(board);
         }
@@ -929,6 +939,10 @@ namespace CardShopCoop.Sync.Rivals
             LoadTeamBags();
             LeagueTeams = CoopPlugin.RivalsTeams != null ? CoopPlugin.RivalsTeams.Value : 2;
             LeaguePerTeam = CoopPlugin.RivalsPerTeam != null ? CoopPlugin.RivalsPerTeam.Value : 1;
+            // --- fv-683 leaderboard-v2 begin
+            SeasonDays = CoopPlugin.RivalsSeasonDays != null ? Mathf.Max(0, CoopPlugin.RivalsSeasonDays.Value) : 0;
+            WeekDays = CoopPlugin.RivalsWeekDays != null ? Mathf.Max(0, CoopPlugin.RivalsWeekDays.Value) : 7;
+            // --- fv-683 leaderboard-v2 end
             _members.Clear();
             _members[0] = new LeagueMember { Id = 0, Name = MyShopName(), Team = 1 };
             _myTeam = 1;
@@ -952,6 +966,9 @@ namespace CardShopCoop.Sync.Rivals
                 return;
             MintLeagueId();
             LeagueStarted = false;
+            // --- fv-683 leaderboard-v2 begin
+            me.SeasonReset();
+            // --- fv-683 leaderboard-v2 end
             foreach (var m in me._members.Values)
             {
                 m.Ready = false;
@@ -1080,6 +1097,10 @@ namespace CardShopCoop.Sync.Rivals
                     cap.Captain = true;
             }
             var msg = new RivalsLeagueMessage { Op = "setup", LeagueId = LeagueId, Name = LobbyName, Teams = LeagueTeams, PerTeam = LeaguePerTeam, Members = list, Started = LeagueStarted };
+            // --- fv-683 leaderboard-v2 begin
+            msg.SeasonDays = SeasonDays;
+            msg.WeekDays = WeekDays;
+            // --- fv-683 leaderboard-v2 end
             Roster.Clear();
             Roster.AddRange(list);
             _net.Broadcast(msg);
@@ -1109,6 +1130,10 @@ namespace CardShopCoop.Sync.Rivals
                     if (m.Members != null)
                         Roster.AddRange(m.Members);
                     LeagueStarted = m.Started;
+                    // --- fv-683 leaderboard-v2 begin
+                    SeasonDays = Mathf.Max(0, m.SeasonDays);
+                    WeekDays = Mathf.Max(0, m.WeekDays);
+                    // --- fv-683 leaderboard-v2 end
                     if (_myTeam > LeagueTeams)
                         _myTeam = 0;
                     if (newId)
@@ -1211,6 +1236,10 @@ namespace CardShopCoop.Sync.Rivals
             if (me == null || Role == LobbyRole.None || me._net == null || r == null)
                 return;
             r.ShopId = me._myId;
+            // --- fv-683 leaderboard-v2 begin
+            r.StockValue = StockValue.Compute(out _, out _);
+            r.ShopValue = r.Money + r.StockValue;
+            // --- fv-683 leaderboard-v2 end
             if (Role == LobbyRole.Server)
             {
                 me._dayReports[0] = r;
@@ -1540,6 +1569,178 @@ namespace CardShopCoop.Sync.Rivals
             while (Chat.Count > 60)
                 Chat.RemoveAt(0);
         }
+
+        // --- fv-683 leaderboard-v2 begin
+        // ================================================================ season
+
+        /// <summary>The season's length in days (host's Rivals.SeasonDays; 0 = endless). A
+        /// shop is FINISHED once it has closed day N: its shop value (money + stock at market
+        /// price) at that close is its final score. When every shop on the board is finished
+        /// the winner stands - highest final value - and the lobby says so. Days are the
+        /// save's own day numbers, so a season fits a NEW league; set it longer than the
+        /// current day on a resumed one.</summary>
+        public static int SeasonDays;
+        /// <summary>Server: final value per shop (conn id), locked the first time it qualifies.</summary>
+        private readonly Dictionary<int, double> _finals = new Dictionary<int, double>();
+        private string _winnerName = "";
+        private double _winnerValue;
+        private bool _seasonOver;
+        /// <summary>Weekly winners (Dan, 2026-09-17: "endless, but declare a winner of every 7 day
+        /// stretch"): every WeekDays days the shop that GAINED the most shop value over the
+        /// stretch takes the week, and the league runs on. Independent of the season.</summary>
+        public static int WeekDays = 7;
+        /// <summary>Server: per shop (conn id), its shop value at the close of each week (1-based).</summary>
+        private readonly Dictionary<int, Dictionary<int, double>> _weekCloses = new Dictionary<int, Dictionary<int, double>>();
+        private readonly List<RivalsWeekResult> _weeks = new List<RivalsWeekResult>();
+
+        private void SeasonReset()
+        {
+            _finals.Clear();
+            _winnerName = "";
+            _winnerValue = 0;
+            _seasonOver = false;
+            _weekCloses.Clear();
+            _weeks.Clear();
+        }
+
+        public static void HostSetWeekDays(int days)
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server)
+                return;
+            WeekDays = Mathf.Clamp(days, 0, 60);
+            if (CoopPlugin.RivalsWeekDays != null)
+                CoopPlugin.RivalsWeekDays.Value = WeekDays;
+            // a different stretch means different closes: the declared weeks stand, the
+            // closes re-lock from the reports / live numbers under the new length
+            me._weekCloses.Clear();
+            me.SendSetup();
+        }
+
+        /// <summary>Server, every board: lock each shop's close for every week it has passed,
+        /// declare each week once every shop on the board has closed it.</summary>
+        private void WeekFillBoard(RivalsBoardMessage board)
+        {
+            board.WeekDays = WeekDays;
+            board.Weeks = _weeks;
+            if (WeekDays <= 0 || board.Shops.Count == 0)
+                return;
+            int declared = _weeks.Count;
+            foreach (var shop in board.Shops)
+            {
+                if (!_weekCloses.TryGetValue(shop.Id, out var closes))
+                    _weekCloses[shop.Id] = closes = new Dictionary<int, double>();
+                _dayReports.TryGetValue(shop.Id, out var r);
+                // the latest report is the exact close of a week whose last day it is; a shop
+                // that got past a week without the lobby seeing that report locks from the
+                // live value (fallback) - the declared weeks never move
+                for (int w = declared + 1; ; w++)
+                {
+                    int last = w * WeekDays;
+                    if (closes.ContainsKey(w))
+                        continue;
+                    if (r != null && r.Day >= last)
+                        closes[w] = r.ShopValue > 0 ? r.ShopValue : r.Money;
+                    else if (shop.Day >= last)
+                        closes[w] = shop.ShopValue;
+                    else
+                        break;
+                }
+                int n = 0;
+                while (closes.ContainsKey(n + 1))
+                    n++;
+                shop.WeeksClosed = n;
+            }
+            // declare the next week while everyone has closed it
+            while (board.Shops.TrueForAll(x => x.WeeksClosed > _weeks.Count))
+            {
+                int w = _weeks.Count + 1;
+                var res = new RivalsWeekResult { Week = w, LastDay = w * WeekDays };
+                var rows = new List<(string name, double delta, double close)>();
+                foreach (var x in board.Shops)
+                {
+                    var closes = _weekCloses[x.Id];
+                    double close = closes[w];
+                    double before = w > 1 && closes.TryGetValue(w - 1, out double b) ? b : 0;
+                    rows.Add((x.Name, close - before, close));
+                }
+                rows.Sort((a, b) => b.delta.CompareTo(a.delta));
+                foreach (var row in rows)
+                {
+                    res.Names.Add(row.name);
+                    res.Deltas.Add(row.delta);
+                }
+                res.WinnerName = rows[0].name;
+                res.WinnerDelta = rows[0].delta;
+                res.WinnerClose = rows[0].close;
+                _weeks.Add(res);
+                string line = $"WEEK {w} (days {(w - 1) * WeekDays + 1}-{res.LastDay}) goes to {res.WinnerName} - shop value up {GameInstance.GetPriceString(res.WinnerDelta)} to {GameInstance.GetPriceString(res.WinnerClose)}";
+                CoopPlugin.Log.LogInfo("Rivals: " + line);
+                PushChat("lobby", line);
+                _net.Broadcast(new RivalsChatMessage { From = "lobby", Text = line });
+            }
+        }
+
+        public static void HostSetSeasonDays(int days)
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server)
+                return;
+            SeasonDays = Mathf.Clamp(days, 0, 365);
+            if (CoopPlugin.RivalsSeasonDays != null)
+                CoopPlugin.RivalsSeasonDays.Value = SeasonDays;
+            if (!me._seasonOver)
+                me._finals.Clear(); // a longer or shorter season re-qualifies everyone from the live numbers
+            me.SendSetup();
+        }
+
+        /// <summary>Server, every board: lock finals, mark finished shops, declare the winner
+        /// once - it stays declared (a late joiner does not reopen a finished season).</summary>
+        private void SeasonFillBoard(RivalsBoardMessage board)
+        {
+            board.SeasonDays = SeasonDays;
+            if (SeasonDays <= 0)
+                return;
+            foreach (var shop in board.Shops)
+            {
+                if (!_finals.TryGetValue(shop.Id, out double final))
+                {
+                    // the day-N report is the exact close; the live state is the fallback (a
+                    // report the lobby never saw - it was hosted elsewhere, or came up later)
+                    if (_dayReports.TryGetValue(shop.Id, out var r) && r != null && r.Day >= SeasonDays)
+                        final = r.ShopValue > 0 ? r.ShopValue : r.Money;
+                    else if (shop.Day >= SeasonDays)
+                        final = shop.ShopValue;
+                    else
+                        continue;
+                    _finals[shop.Id] = final;
+                    CoopPlugin.Log.LogInfo($"Rivals: season - {shop.Name} finished day {SeasonDays} with shop value {final:0.00}");
+                    string done = shop.Name + " has finished the season - shop value " + GameInstance.GetPriceString(final);
+                    PushChat("lobby", done);
+                    _net.Broadcast(new RivalsChatMessage { From = "lobby", Text = done });
+                }
+                shop.Finished = true;
+                shop.FinalValue = final;
+            }
+            if (!_seasonOver && board.Shops.Count > 0 && board.Shops.TrueForAll(x => x.Finished))
+            {
+                RivalsShop best = null;
+                foreach (var x in board.Shops)
+                    if (best == null || x.FinalValue > best.FinalValue)
+                        best = x;
+                _seasonOver = true;
+                _winnerName = best.Name;
+                _winnerValue = best.FinalValue;
+                string line = "SEASON OVER after " + SeasonDays + " days - " + _winnerName + " wins with a shop value of " + GameInstance.GetPriceString(_winnerValue);
+                CoopPlugin.Log.LogInfo("Rivals: " + line);
+                PushChat("lobby", line);
+                _net.Broadcast(new RivalsChatMessage { From = "lobby", Text = line });
+            }
+            board.SeasonOver = _seasonOver;
+            board.WinnerName = _winnerName;
+            board.WinnerValue = _winnerValue;
+        }
+        // --- fv-683 leaderboard-v2 end
     }
 
     /// <summary>The shop's markup over everything it has actually priced - set item prices and
