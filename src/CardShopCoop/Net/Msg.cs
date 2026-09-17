@@ -135,6 +135,8 @@ namespace CardShopCoop.Net
         Trade = 142,         // both ways: the trade window between a visitor and the shop (open/offer/confirm/state/done/cancel)
         BagWithdraw = 143,   // client -> host: a teammate leaving to visit takes this much from the till
         BagWithdrawResult = 144, // host -> that client: what actually left the till
+        RivalsDayReport = 145,   // league: a shop's end-of-day numbers (member -> server)
+        RivalsDayBoard = 146,    // league: every shop's latest day report (server -> all; team host -> guests)
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

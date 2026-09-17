@@ -957,6 +957,15 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.ClientOnly, false, heal: null);
+            _messageRouter.Register<RivalsDayBoardMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client)
+                    return;
+                if (message is RivalsDayBoardMessage board)
+                    Sync.Rivals.RivalsLobby.ApplyRelayedDayBoard(board);
+                return;
+            },
+                MessagePolicy.ClientOnly, false, heal: null);
             _messageRouter.Register<SocialMessage>((context, message) =>
             {
                 if (message is SocialMessage social)

@@ -183,6 +183,7 @@ namespace CardShopCoop.Sync
             }
             if (IsDeckListOpen())
             {
+                CoopPlugin.Log.LogInfo("DeckSync: phone deck builder refused - the workbench deck list is open");
                 HostOnlyFeatures.Notice("Close the workbench deck list first");
                 return false;
             }
@@ -456,10 +457,20 @@ namespace CardShopCoop.Sync
             try
             {
                 var m = PlayCardGame.Manager();
-                var screen = m != null ? m.m_DeckListScreen : null;
-                return screen != null && screen.gameObject.activeInHierarchy;
+                if (m == null)
+                    return false;
+                var screen = m.m_DeckListScreen;
+                if (!screen) // Unity's null: a destroyed or never-built screen is NOT open
+                    return false;
+                return screen.gameObject.activeInHierarchy;
             }
-            catch { return true; }
+            catch (Exception e)
+            {
+                // fail OPEN: a shop that has never built its battle UI threw here and the owner
+                // was refused for a list that was never open (2026-09-16, fresh league shop)
+                CoopPlugin.Log.LogWarning("DeckSync.IsDeckListOpen: " + e.Message + " - treating as closed");
+                return false;
+            }
         }
 
         /// <summary>Replace the deck list in place, keeping THIS player's selected deck (clamped).</summary>

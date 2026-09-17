@@ -1232,6 +1232,12 @@ namespace CardShopCoop
                 Broadcast(board);
         }
 
+        internal void RelayRivalsDayBoard(RivalsDayBoardMessage board)
+        {
+            if (Role == CoopRole.Host && _net != null && _net.ConnectionCount > 0)
+                Broadcast(board);
+        }
+
         /// <summary>Tag above the puppet with this display name, if it is in the shop.</summary>
         internal void ShowTagFor(string name, string text, float seconds)
         {
@@ -1976,6 +1982,7 @@ namespace CardShopCoop
                 new Sync.CoopModuleEntry(null, "phone-apps", patches: UI.PhoneApps.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "visitor-guard", patches: Sync.Rivals.VisitorGuard.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "tutorial-skip", patches: Util.TutorialSkip.ApplyPatches),
+                new Sync.CoopModuleEntry(null, "league-day", patches: Sync.Rivals.LeagueDay.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "guest-battle", patches: Sync.GuestBattle.ApplyPatches),
                 new Sync.CoopModuleEntry(null, "population-tuning", patches: Sync.PopulationTuning.ApplyPatches),
             };

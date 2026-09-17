@@ -90,6 +90,8 @@ namespace CardShopCoop.Sync.Rivals
         public static bool LeagueStarted;
         /// <summary>Server: one carry-out bag per team, keyed by <see cref="BagKeyFor"/>.</summary>
         private readonly Dictionary<string, VisitorBag.State> _teamBags = new Dictionary<string, VisitorBag.State>();
+        /// <summary>Server: the latest end-of-day report per shop (conn id).</summary>
+        private readonly Dictionary<int, RivalsDayReport> _dayReports = new Dictionary<int, RivalsDayReport>();
 
         private void Awake()
         {
@@ -278,6 +280,8 @@ namespace CardShopCoop.Sync.Rivals
             _myId = -1;
             _members.Clear();
             Roster.Clear();
+            _dayReports.Clear();
+            LeagueDay.Clear();
             _myReady = false;
             _sentState = "";
             _joinCaptain = -1;
@@ -457,6 +461,19 @@ namespace CardShopCoop.Sync.Rivals
                     break;
                 case RivalsBagMessage bag:
                     OnBagMessage(msg.ConnId, bag);
+                    break;
+                case RivalsDayReportMessage day:
+                    if (Role != LobbyRole.Server || day.Report == null || !_welcomed.Contains(msg.ConnId))
+                        return;
+                    day.Report.ShopId = msg.ConnId;
+                    _dayReports[msg.ConnId] = day.Report;
+                    BroadcastDayBoard();
+                    break;
+                case RivalsDayBoardMessage dayBoard:
+                    if (Role != LobbyRole.Client)
+                        return;
+                    LeagueDay.Apply(dayBoard);
+                    CoopCore.Instance?.RelayRivalsDayBoard(dayBoard);
                     break;
                 case MarketStateMessage market:
                     if (Role != LobbyRole.Client)
@@ -1107,6 +1124,44 @@ namespace CardShopCoop.Sync.Rivals
                 _lastJoinTry = -100f;
                 Status = cap != null ? "waiting for " + cap.Name + "'s shop to open..." : "your team has no captain";
             }
+        }
+
+        // ================================================================ end of day
+
+        /// <summary>A shop owner's day report just opened: the numbers go to the league.</summary>
+        public static void PublishDayReport(RivalsDayReport r)
+        {
+            var me = Instance;
+            if (me == null || Role == LobbyRole.None || me._net == null || r == null)
+                return;
+            r.ShopId = me._myId;
+            if (Role == LobbyRole.Server)
+            {
+                me._dayReports[0] = r;
+                me.BroadcastDayBoard();
+            }
+            else
+                me._net.Send(1, new RivalsDayReportMessage { Report = r });
+            CoopPlugin.Log.LogInfo($"Rivals: day {r.Day} report published - profit {r.Profit:0.00}, {r.Customers:0} customers, {r.Checkouts:0} checkouts");
+        }
+
+        private void BroadcastDayBoard()
+        {
+            var board = new RivalsDayBoardMessage();
+            foreach (var kv in _dayReports)
+                if (kv.Value != null)
+                    board.Reports.Add(kv.Value);
+            _net.Broadcast(board);
+            LeagueDay.Apply(board);
+            CoopCore.Instance?.RelayRivalsDayBoard(board);
+        }
+
+        /// <summary>A co-op GUEST gets the day board from its host.</summary>
+        public static void ApplyRelayedDayBoard(RivalsDayBoardMessage board)
+        {
+            if (Role != LobbyRole.None)
+                return;
+            LeagueDay.Apply(board);
         }
 
         // ================================================================ team bag

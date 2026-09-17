@@ -287,6 +287,45 @@ namespace CardShopCoop.Net.Messages
         }
     }
 
+    /// <summary>One shop's end-of-day numbers (the vanilla report's collector, plus standing).</summary>
+    public sealed class RivalsDayReport
+    {
+        public int ShopId;
+        public string Name = "";
+        public int Day;
+        public double Customers, Checkouts, Dissatisfied, ItemsSold, CardsSold, Played;
+        public double Revenue, Costs, Profit, Exp;
+        public double Money;
+        public int Level;
+        public float Markup;
+    }
+
+    [NetworkMessage(MsgType.RivalsDayReport, Policy = MessagePolicy.Any)]
+    public sealed class RivalsDayReportMessage : INetMessage
+    {
+        public RivalsDayReport Report;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.RivalsDayReport;
+            }
+        }
+    }
+
+    [NetworkMessage(MsgType.RivalsDayBoard, Policy = MessagePolicy.Any)]
+    public sealed class RivalsDayBoardMessage : INetMessage
+    {
+        public List<RivalsDayReport> Reports = new List<RivalsDayReport>();
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.RivalsDayBoard;
+            }
+        }
+    }
+
     [NetworkMessage(MsgType.RivalsPing, Policy = MessagePolicy.Any)]
     public sealed class RivalsPingMessage : INetMessage
     {

@@ -16,7 +16,7 @@ namespace CardShopCoop.UI
     {
         public enum App
         {
-            None, Trade, Decks, Shop
+            None, Trade, Decks, Shop, Coop, League
         }
 
         public static App Current
@@ -33,6 +33,8 @@ namespace CardShopCoop.UI
         private const string TradeId = "CoopTrade";
         private const string DecksId = "CoopDecks";
         private const string ShopId = "CoopShop";
+        private const string CoopId = "CoopTeam";
+        private const string LeagueId = "CoopLeague";
 
         private void Update()
         {
@@ -106,8 +108,10 @@ namespace CardShopCoop.UI
                 register.Invoke(registry, new[] { MakeSpec(specType, TradeId, "Trade", () => Open(App.Trade, true)) });
                 register.Invoke(registry, new[] { MakeSpec(specType, DecksId, "Decks", () => Open(App.Decks, true)) });
                 register.Invoke(registry, new[] { MakeSpec(specType, ShopId, "Shop", () => Open(App.Shop, true)) });
+                register.Invoke(registry, new[] { MakeSpec(specType, CoopId, "Co-op", () => Open(App.Coop, true)) });
+                register.Invoke(registry, new[] { MakeSpec(specType, LeagueId, "League", () => Open(App.League, true)) });
                 s_registered = true;
-                CoopPlugin.Log.LogInfo("PhoneApps: registered Trade, Decks and Shop on the phone");
+                CoopPlugin.Log.LogInfo("PhoneApps: registered Trade, Decks, Shop, Co-op and League on the phone");
             }
             catch (Exception e)
             {
@@ -215,10 +219,50 @@ namespace CardShopCoop.UI
             catch (Exception e) { CoopPlugin.Log.LogWarning("PhoneApps patches: " + e.Message); }
         }
 
+        // ================================================================ end-of-day overlay
+
+        private static Vector2 s_dayScroll;
+
+        /// <summary>While the vanilla end-of-day report is up and the league has reports, the
+        /// standings table sits beside it.</summary>
+        private static void DrawDayOverlay()
+        {
+            try
+            {
+                if (Sync.Rivals.LeagueDay.Reports.Count == 0 || !EndOfDayReportScreen.IsActive())
+                    return;
+            }
+            catch { return; }
+            CoopTheme.EnsureBuilt();
+            float w = Mathf.Min(760f, Screen.width * 0.46f);
+            float h = Mathf.Min(420f, Screen.height * 0.5f);
+            var rect = new Rect(Screen.width - w - 16f, Screen.height - h - 24f, w, h);
+            CoopTheme.DrawWindowShadow(rect);
+            GUI.Box(rect, GUIContent.none, CoopTheme.Window);
+            GUILayout.BeginArea(rect);
+            CoopTheme.DrawWindowChrome(new Rect(0f, 0f, w, h), "LEAGUE - END OF DAY", "");
+            GUILayout.Space(34f);
+            GUILayout.BeginVertical(CoopTheme.ContentPanel);
+            s_dayScroll = GUILayout.BeginScrollView(s_dayScroll);
+            try
+            {
+                LeaguePanel.DrawDayTable(w - 24f, false);
+            }
+            catch (Exception e)
+            {
+                if (Event.current.type != EventType.Layout)
+                    CoopPlugin.Log.LogWarning("LeagueDay overlay: " + e.Message);
+            }
+            GUILayout.EndScrollView();
+            GUILayout.EndVertical();
+            GUILayout.EndArea();
+        }
+
         // ================================================================ draw
 
         private void OnGUI()
         {
+            DrawDayOverlay();
             if (Current == App.None)
                 return;
             CoopTheme.EnsureBuilt();
@@ -228,7 +272,7 @@ namespace CardShopCoop.UI
             CoopTheme.DrawWindowShadow(rect);
             GUI.Box(rect, GUIContent.none, CoopTheme.Window);
             GUILayout.BeginArea(rect);
-            string title = Current == App.Trade ? "TRADE" : Current == App.Decks ? "DECKS" : "SHOP";
+            string title = Current == App.Trade ? "TRADE" : Current == App.Decks ? "DECKS" : Current == App.Shop ? "SHOP" : Current == App.Coop ? "CO-OP" : "LEAGUE";
             CoopTheme.DrawWindowChrome(new Rect(0f, 0f, w, h), title, "");
             if (GUI.Button(new Rect(w - 74f, 4f, 66f, 22f), "Back", CoopTheme.ButtonSecondary))
             {
@@ -261,8 +305,12 @@ namespace CardShopCoop.UI
                 }
                 else if (Current == App.Decks)
                     DeckPanel.Draw(w - 24f);
-                else
+                else if (Current == App.Shop)
                     ShopPanel.Draw(w - 24f);
+                else if (Current == App.Coop)
+                    CoopPanel.Draw(core, w - 24f);
+                else
+                    LeaguePanel.Draw(w - 24f);
             }
             catch (Exception e)
             {
