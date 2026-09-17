@@ -121,6 +121,8 @@ namespace CardShopCoop.Sync
             s_proxyVsPlayer = false;
             s_proxyFinished = false;
             s_proxyNoticedTable = -1;
+            Unpark(); // fv-689
+            NpcSync.SetParkedCustomer(-1); // fv-689
         }
 
         public TournamentSync()
@@ -330,6 +332,142 @@ namespace CardShopCoop.Sync
             HostOnlyFeatures.Notice($"Co-op: {who} placed #{placed + 1} in the tournament" + (placed <= 7 ? " - their prize is on the shelf" : ""));
         }
 
+        // --- fv-689 npc-seat begin
+        // R12: while the challenger sits in its NPC's seat the NPC body is PARKED - renderers off
+        // on the host, puppet hidden on every client (ProxyFlags bit 16 + ProxyNpcIndex ->
+        // NpcSync.SetParkedCustomer). The sim is untouched: the customer keeps sitting, the table
+        // keeps its occupant, the result path stays R4's. Parked from the frame the NPC's table
+        // carries a player game (GuestBattle's proxy sit and PvpBattle's sit both book the seat)
+        // until the table stands down, plus a short hold while the NPC is still in its sit pose so
+        // the two bodies do not overlap during the stand-up.
+        private const float ParkHold = 2f;
+        private Customer _parkedCustomer;                                  // host: the body currently hidden
+        private readonly List<Renderer> _parkedRenderers = new List<Renderer>();
+        private readonly List<bool> _parkedWasEnabled = new List<bool>();
+        private float _parkHoldUntil = -1f;
+
+        /// <summary>Host: the challenger's NPC body is parked (hidden) right now.</summary>
+        public static bool ProxyParked => s_instance != null && s_instance._parkedCustomer != null;
+
+        /// <summary>Host: the proxy NPC's index in the customer list (NpcSync's identity), -1 none.</summary>
+        private int ProxyNpcIndex()
+        {
+            var c = _proxyCustomer;
+            var cm = Cm();
+            if (c == null || cm == null)
+                return -1;
+            try
+            {
+                var list = cm.GetCustomerList();
+                return list != null ? list.IndexOf(c) : -1;
+            }
+            catch { return -1; }
+        }
+
+        /// <summary>Host: is the proxy NPC seated at a table that has a player game on it -
+        /// i.e. the challenger (or the host, for the PvP round) took the seat?</summary>
+        private static bool ProxyTableHasPlayerGame(Customer proxy)
+        {
+            try
+            {
+                var sm = CSingleton<ShelfManager>.Instance;
+                var tables = sm != null ? sm.m_PlayTableList : null;
+                if (tables == null)
+                    return false;
+                for (int i = 0; i < tables.Count; i++)
+                {
+                    var t = tables[i];
+                    if (t == null)
+                        continue;
+                    var occ = t.GetOccupiedCustomerList();
+                    if (occ == null || !occ.Contains(proxy))
+                        continue;
+                    return t.GetHasStartPlayerPlayCard();
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool ProxySitting(Customer proxy)
+        {
+            try
+            {
+                return proxy != null && proxy.m_Anim != null && proxy.m_Anim.GetBool("IsSitting");
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Host, every frame (ahead of the snapshot gate): park or unpark the NPC body.</summary>
+        private void TickPark()
+        {
+            var proxy = _proxyConn != NoEntry ? _proxyCustomer : null;
+            bool want = false;
+            if (proxy != null)
+            {
+                if (ProxyTableHasPlayerGame(proxy))
+                {
+                    want = true;
+                    _parkHoldUntil = Time.unscaledTime + ParkHold;
+                }
+                else if (_parkedCustomer == proxy && Time.unscaledTime < _parkHoldUntil && ProxySitting(proxy))
+                    want = true; // the game is over; stay out of the chair while still in the sit pose
+            }
+            if (_parkedCustomer != null && (!want || _parkedCustomer != proxy))
+                Unpark();
+            if (want && _parkedCustomer == null)
+                Park(proxy);
+        }
+
+        private void Park(Customer c)
+        {
+            _parkedRenderers.Clear();
+            _parkedWasEnabled.Clear();
+            try
+            {
+                // every renderer under the body, inactive ones too: the game switches the card
+                // fan / single card props on after the seat is booked, and those must stay dark
+                var rs = c.GetComponentsInChildren<Renderer>(true);
+                for (int i = 0; i < rs.Length; i++)
+                {
+                    if (rs[i] == null)
+                        continue;
+                    _parkedRenderers.Add(rs[i]);
+                    _parkedWasEnabled.Add(rs[i].enabled);
+                    rs[i].enabled = false;
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("TournamentSync park: " + e.Message); }
+            _parkedCustomer = c;
+            _gate.Force();
+            CoopPlugin.Log.LogInfo($"TournamentSync: parked the challenger's NPC (customer #{ProxyNpcIndex()}, {_parkedRenderers.Count} renderers) - {NameOf(_proxyConn)} has the seat");
+        }
+
+        private void Unpark()
+        {
+            if (_parkedCustomer == null)
+                return;
+            int restored = 0;
+            for (int i = 0; i < _parkedRenderers.Count; i++)
+            {
+                try
+                {
+                    if (_parkedRenderers[i] != null && i < _parkedWasEnabled.Count && _parkedWasEnabled[i])
+                    {
+                        _parkedRenderers[i].enabled = true;
+                        restored++;
+                    }
+                }
+                catch { }
+            }
+            _parkedRenderers.Clear();
+            _parkedWasEnabled.Clear();
+            _parkedCustomer = null;
+            _parkHoldUntil = -1f;
+            _gate.Force();
+            CoopPlugin.Log.LogInfo($"TournamentSync: unparked the challenger's NPC ({restored} renderers back)");
+        }
+        // --- fv-689 npc-seat end
         private static string NameOfStatic(int conn)
         {
             return s_instance != null ? s_instance.NameOf(conn) : "the challenger";
@@ -634,6 +772,7 @@ namespace CardShopCoop.Sync
 
         public void HostTick(float dt, bool inGame)
         {
+            TickPark(); // fv-689: every frame, ahead of the gate (Force() on a change ships the state)
             if (!inGame)
                 return;
             if (!_gate.Due(dt))
@@ -851,6 +990,7 @@ namespace CardShopCoop.Sync
             s_proxyTable = (message.ProxyFlags & 1) != 0 ? message.ProxyTable : 0;
             s_proxyFinished = (message.ProxyFlags & 2) != 0;
             s_proxyVsPlayer = (message.ProxyFlags & 8) != 0;
+            NpcSync.SetParkedCustomer((message.ProxyFlags & 16) != 0 ? message.ProxyNpcIndex : -1); // fv-689
             if (s_proxyMine && s_proxyTable > 0 && td.m_IsTournamentDay && !td.m_IsTournamentDayOver && !s_proxyFinished && s_proxyNoticedTable != s_proxyTable)
             {
                 s_proxyNoticedTable = s_proxyTable;
@@ -1116,6 +1256,10 @@ namespace CardShopCoop.Sync
                     msg.ProxyFlags = (byte)(1 | (pctd.m_HasFinishCurrentTournamentRound ? 2 : 0) | (pctd.m_IsTournamentWin ? 4 : 0) | (vsPlayer ? 8 : 0));
                 }
                 catch { }
+                // fv-689: parked body -> every client hides the puppet
+                if (s_instance._parkedCustomer == proxyC)
+                    msg.ProxyFlags |= 16;
+                msg.ProxyNpcIndex = s_instance.ProxyNpcIndex();
             }
 
             // bracket digest straight from the host's live sorted list (the same list
@@ -1192,6 +1336,7 @@ namespace CardShopCoop.Sync
             hash = hash * 31 + (s_proxyHolder ?? "").GetHashCode();
             hash = hash * 31 + ProxyTable();
             hash = hash * 31 + (ProxyFinishedRound() ? 1 : 0);
+            hash = hash * 31 + (ProxyParked ? 1 : 0); // fv-689
             var lists = td.m_PrizeDataList;
             if (lists != null)
             {
