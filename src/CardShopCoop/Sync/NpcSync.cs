@@ -656,6 +656,34 @@ namespace CardShopCoop.Sync
         /// shows its own real interactable cash. Populated by RegisterSync; cleared on reset.</summary>
         public static readonly HashSet<int> SuppressedCustomer = new HashSet<int>();
 
+        // --- fv-689 npc-seat begin
+        /// <summary>Client: the customer-list index whose puppet is PARKED (-1 none): the
+        /// challenger - a human, rendered by AvatarManager - is sitting in that NPC's tournament
+        /// seat, so the NPC's body stays out of the chair. Set by TournamentSync from the host's
+        /// state; kept apart from SuppressedCustomer, which belongs to the register carriers.</summary>
+        private static int s_parkedCustomer = -1;
+        public static int ParkedCustomer => s_parkedCustomer;
+
+        public static void SetParkedCustomer(int index)
+        {
+            if (index == s_parkedCustomer)
+                return;
+            int prev = s_parkedCustomer;
+            s_parkedCustomer = index;
+            var live = _live;
+            if (live == null)
+                return;
+            // the previous body comes back (unless a register carrier is hiding it for its own reasons)
+            if (prev >= 0 && !SuppressedCustomer.Contains(prev)
+                && live._puppets.TryGetValue((KindCustomer << 16) | prev, out var shown) && shown.Go != null && shown.BufCount > 0)
+                shown.Go.SetActive(true);
+            if (index >= 0 && live._puppets.TryGetValue((KindCustomer << 16) | index, out var hidden) && hidden.Go != null)
+                hidden.Go.SetActive(false);
+            CoopPlugin.Log.LogInfo(index >= 0 ? $"NpcSync: customer #{index} parked - the challenger has its seat"
+                : $"NpcSync: customer #{prev} unparked");
+        }
+        // --- fv-689 npc-seat end
+
         public int PuppetCount => _puppets.Count;
 
         private static CustomerManager s_diagCm;
@@ -722,6 +750,7 @@ namespace CardShopCoop.Sync
             }
             _puppets.Clear();
             SuppressedCustomer.Clear();
+            s_parkedCustomer = -1; // fv-689
             _cmClient = null;
             _clockInit = false;
         }
@@ -1104,6 +1133,8 @@ namespace CardShopCoop.Sync
                 p.LastSeen = _now;
                 if (kind == KindCustomer && SuppressedCustomer.Contains(index) && p.Go != null)
                     p.Go.SetActive(false);
+                if (kind == KindCustomer && index == s_parkedCustomer && p.Go != null && p.Go.activeSelf) // fv-689
+                    p.Go.SetActive(false);
             }
         }
 
@@ -1187,6 +1218,8 @@ namespace CardShopCoop.Sync
                 if (kv.Key < 65536 && SuppressedCustomer.Contains(kv.Key)
                     && (!_existing.TryGetValue(kv.Key, out var existingVisual) || !existingVisual.KeepPuppetVisible)
                     && p.Go != null)
+                    p.Go.SetActive(false);
+                if (kv.Key == s_parkedCustomer && p.Go != null && p.Go.activeSelf) // fv-689: parked = out of the chair
                     p.Go.SetActive(false);
                 // generous: NPC state rides the UNRELIABLE lane, and flaky NATs starve
                 // it in bursts - a 1.5s timeout made whole crowds blink out and back

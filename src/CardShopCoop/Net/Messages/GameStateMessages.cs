@@ -215,6 +215,10 @@ namespace CardShopCoop.Net.Messages
         public int ProxyTable;          // the NPC's table this round (0 = not assigned yet)
         public int ProxyCustomerIndex = -1;
         public byte ProxyFlags;         // bit0 assigned, bit1 finished this round, bit2 won last, bit3 opponent is the shop's player
+        // --- fv-689 npc-seat begin: the NPC body is parked (hidden) while the challenger sits in its seat
+        public int ProxyNpcIndex = -1;  // the NPC's index in the host's customer list (NpcSync identity); -1 none
+        // ProxyFlags bit4 (16): parked - hide the NPC's puppet, the human's is in the seat
+        // --- fv-689 npc-seat end
 
         public MsgType Type
         {
