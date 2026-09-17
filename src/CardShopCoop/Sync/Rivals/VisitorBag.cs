@@ -393,13 +393,15 @@ namespace CardShopCoop.Sync.Rivals
                 // no lobby: this mirror is the only copy we can be sure of - apply it here and
                 // tell the server on the next connect (it drops any copy it kept)
                 CoopPlugin.Log.LogWarning("VisitorBag: home without the lobby - applying the mirror here");
-                Current.Shared = false;
                 if (Current.HomeIsTeam)
                 {
+                    Current.Shared = false; // ours now: the deposit is retried as a private bag
+                    Save();
                     DepositToTeam(); // fv-682: the bag stays until acked; the ack records the offline apply
                     return;
                 }
-                // fall through: the owner's own world takes it
+                // fall through: the owner's own world takes it (still Shared until it does, so a
+                // lobby that comes back first can still take it over)
             }
             if (Current.HomeIsTeam)
             {
@@ -418,7 +420,7 @@ namespace CardShopCoop.Sync.Rivals
             if (CoopCore.Role == CoopRole.Client)
                 return; // the rival's world in the scratch slot, not home
             string trip = Current.TripId ?? "";
-            string appliedKey = Current.Delivered ? "" : trip; // fv-682: an offline apply is reported by trip; a delivery is acked instead
+            string appliedKey = Current.Shared ? trip : ""; // fv-682: a mirror applied offline is reported by trip on the next connect
             bool delivered = Current.Delivered;
             var merged = new List<string>(Current.MergedTrips);
             try
