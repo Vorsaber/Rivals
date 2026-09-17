@@ -166,6 +166,17 @@ namespace CardShopCoop.Sync
                         HostOnlyFeatures.Notice("Co-op: waiting for " + "the shop's player" + " to sit at this table");
                     return true;
                 }
+                // --- fv-680 guest-vs-guest pvp begin
+                // R4, the other chair: this guest holds the shop's entry and the challenger is
+                // another guest - the round is PvP relayed by the host, not a battle vs the NPC
+                if (dayOn && TournamentSync.ClientHoldsEntry() && TournamentSync.ClientEntryVsChallenger()
+                    && table.GetTournamentPlayTableNumber() == TournamentSync.ClientProxyTable())
+                {
+                    if (!PvpBattle.ClientRequestPvp(table, index))
+                        HostOnlyFeatures.Notice("Co-op: waiting for the challenger to sit at this table");
+                    return true;
+                }
+                // --- fv-680 guest-vs-guest pvp end
                 if (CPlayerData.m_CurrentSelectedDeckIndex >= CPlayerData.m_DeckCompactCardDataList.Count
                     || CPlayerData.m_DeckCompactCardDataList[CPlayerData.m_CurrentSelectedDeckIndex].GetTotalCardCount() < GameInstance.GetMaxDeckCardCount())
                 {
@@ -412,6 +423,16 @@ namespace CardShopCoop.Sync
                 CoopPlugin.Log.LogWarning("GuestBattle host exit: " + e.Message);
             }
         }
+
+        // --- fv-680 guest-vs-guest pvp begin
+        /// <summary>Host: is this guest sitting at a table in a battle of their own right now?
+        /// (PvpBattle: a guest waiting for a PvP opponent may have sat down meanwhile.)</summary>
+        internal static bool HostIsSeated(int connId)
+        {
+            var me = _active;
+            return me != null && me._guestSeats.ContainsKey(connId);
+        }
+        // --- fv-680 guest-vs-guest pvp end
 
         /// <summary>Host / single player: stand every table down that has a player seat booked
         /// or a player game flagged, and forget every guest seat. The cheat menu's eviction.</summary>

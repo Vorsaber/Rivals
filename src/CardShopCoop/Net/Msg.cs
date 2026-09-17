@@ -143,6 +143,9 @@ namespace CardShopCoop.Net
         // --- fv-687 prize-entitlement begin
         TournamentPrizeClaim = 155, // host -> one entrant: what is still theirs on the prize shelf (R9); RefusedKey bounces a card claim
         // --- fv-687 prize-entitlement end
+        // --- fv-680 guest-vs-guest pvp begin
+        PvpWait = 147,           // host -> one client: you are (or are no longer) waiting at a table for a second player
+        // --- fv-680 guest-vs-guest pvp end
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

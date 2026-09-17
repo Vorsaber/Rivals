@@ -939,6 +939,17 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.InGameOnly, false, heal: null);
+            // --- fv-680 guest-vs-guest pvp begin
+            _messageRouter.Register<PvpWaitMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client || !InGameLevel())
+                    return;
+                if (message is PvpWaitMessage wait)
+                    _pvp.ClientApplyWait(wait);
+                return;
+            },
+                MessagePolicy.ClientOnlyInGame, false);
+            // --- fv-680 guest-vs-guest pvp end
             _messageRouter.Register<TournamentEntryMessage>((context, message) =>
             {
                 if (Role != CoopRole.Host || !InGameLevel())

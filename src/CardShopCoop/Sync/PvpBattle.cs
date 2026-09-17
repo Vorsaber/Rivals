@@ -28,6 +28,15 @@ namespace CardShopCoop.Sync
     /// Divergence: a state hash (turn, both HPs, both hand sizes) is exchanged every 2s and a
     /// mismatch is logged loudly; an action that cannot be applied (card not in hand) is logged
     /// and dropped. There is no rollback - if the engines disagree, leave the table.
+    ///
+    /// Guest vs guest (fv-680): a guest who right-clicks a free table nobody waits at WAITS
+    /// there; the host or a second guest right-clicking it starts the match. Between two guests
+    /// the host runs no engine - it books the seats on its own table and forwards PvpAction /
+    /// PvpEnd between them. The guest who waited is "side A" (decides who goes first, drives
+    /// the rematch); the ordering everywhere is side A first, so the host-vs-guest code is the
+    /// same code. Guest-vs-guest matches are free (no ante). On a tournament day the only such
+    /// pairing is R4's challenger against the guest holding the shop's entry; the host writes
+    /// the result into the bracket as the entry holder's when the match ends.
     /// </summary>
     public sealed class PvpBattle : TickableCoopModule
     {
@@ -72,6 +81,27 @@ namespace CardShopCoop.Sync
         // host bookkeeping
         private int _hostWaitingTable = -1;
         private int _peerConn = -1;
+
+        // --- fv-680 guest-vs-guest pvp begin
+        // Side A is the match authority (who goes first, the rematch go); it is the host in a
+        // host-vs-guest match and the guest who waited first in a guest-vs-guest one. Sending
+        // is unchanged: a guest always talks to the host, which forwards a relayed match's
+        // traffic to the other guest and runs no engine of its own.
+        private static bool s_sideA;
+        private static bool s_relay;                        // this PC's opponent is another guest
+        private static bool s_hasResult, s_resultWin, s_resultDraw; // the engine's verdict, for PvpEnd
+        // client: the table this guest is waiting at (a second right-click cancels)
+        private static int s_clientWaitTable = -1;
+        // host: guests waiting at a table for a second player (table -> who, with the sit they sent)
+        private readonly Dictionary<int, (int conn, PvpSitMessage sit)> _waiting = new Dictionary<int, (int, PvpSitMessage)>();
+        // host: matches between two guests that this PC only forwards
+        private sealed class Relay
+        {
+            public int A, B, Table;
+            public string NameA, NameB;
+        }
+        private readonly List<Relay> _relays = new List<Relay>();
+        // --- fv-680 guest-vs-guest pvp end
 
         public override string Name => nameof(PvpBattle);
 
@@ -184,6 +214,26 @@ namespace CardShopCoop.Sync
                 int index = GuestBattle.IndexOf(__instance);
                 if (index < 0)
                     return true;
+                // --- fv-680 guest-vs-guest pvp begin
+                // a guest is already waiting at this table: the host's click takes them on -
+                // the host waits here and the guest's sit is replayed (an ante offer to a
+                // visitor runs exactly as if they had sat after the host)
+                if (self._waiting.TryGetValue(index, out var waiter))
+                {
+                    if (self.RelayAt(index) != null)
+                        return true;
+                    if (!DeckReady())
+                    {
+                        NotEnoughResourceTextPopup.ShowText(ENotEnoughResourceText.DeckIncomplete);
+                        return false;
+                    }
+                    self._waiting.Remove(index);
+                    self._hostWaitingTable = index;
+                    CoopPlugin.Log.LogInfo($"PvpBattle: host takes on the guest waiting at table {index}");
+                    self.HostApplySit(waiter.sit, waiter.conn);
+                    return false;
+                }
+                // --- fv-680 guest-vs-guest pvp end
                 // R4: tournament round against the challenger - the host waits here for PvP
                 // rather than sitting down against the NPC's AI
                 if (TournamentSync.HostProxyVsPlayerTable(index))
@@ -262,14 +312,41 @@ namespace CardShopCoop.Sync
         {
             Guarded("sit", () =>
             {
-                if (Active)
+                // --- fv-680 guest-vs-guest pvp begin
+                // a guest may sit against ANOTHER GUEST: the first to right-click a free table
+                // waits there, the second is paired with them and the host only relays
+                if (RelayOf(conn) != null)
                 {
                     SendToClient?.Invoke(conn, new BattleSitResultMessage { TableIndex = msg.TableIndex, Granted = false, Reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying });
                     return;
                 }
+                if (_waiting.TryGetValue(msg.TableIndex, out var waiter))
+                {
+                    if (waiter.conn == conn)
+                    {
+                        // their second click: no longer waiting
+                        _waiting.Remove(msg.TableIndex);
+                        SendToClient?.Invoke(conn, new PvpWaitMessage { TableIndex = msg.TableIndex, Waiting = false, Text = "Co-op: no longer waiting at this table" });
+                        CoopPlugin.Log.LogInfo($"PvpBattle: {PeerName?.Invoke(conn)} stopped waiting at table {msg.TableIndex}");
+                        return;
+                    }
+                    HostPairGuests(msg.TableIndex, waiter.conn, waiter.sit, conn, msg);
+                    return;
+                }
                 if (_hostWaitingTable != msg.TableIndex)
                 {
-                    SendToClient?.Invoke(conn, new BattleSitResultMessage { TableIndex = msg.TableIndex, Granted = false, Reason = (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer });
+                    if (RelayAt(msg.TableIndex) != null)
+                    {
+                        SendToClient?.Invoke(conn, new BattleSitResultMessage { TableIndex = msg.TableIndex, Granted = false, Reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying });
+                        return;
+                    }
+                    HostGuestWaits(msg, conn);
+                    return;
+                }
+                // --- fv-680 guest-vs-guest pvp end
+                if (Active)
+                {
+                    SendToClient?.Invoke(conn, new BattleSitResultMessage { TableIndex = msg.TableIndex, Granted = false, Reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying });
                     return;
                 }
                 var table = GuestBattle.TableAt(msg.TableIndex);
@@ -346,6 +423,234 @@ namespace CardShopCoop.Sync
             });
         }
 
+        // --- fv-680 guest-vs-guest pvp begin
+        // ================================================================ guest vs guest (host relays)
+
+        private Relay RelayOf(int conn)
+        {
+            for (int i = 0; i < _relays.Count; i++)
+                if (_relays[i].A == conn || _relays[i].B == conn)
+                    return _relays[i];
+            return null;
+        }
+
+        private Relay RelayAt(int table)
+        {
+            for (int i = 0; i < _relays.Count; i++)
+                if (_relays[i].Table == table)
+                    return _relays[i];
+            return null;
+        }
+
+        /// <summary>Host: may two guests play at this table now? Null when yes, else the popup
+        /// reason. A tournament day allows only the R4 pairing (the challenger vs the guest who
+        /// holds the shop's entry, at their assigned table), where the NPC's seat is expected.</summary>
+        private static int? RelayTableBusy(InteractablePlayTable table, int index, int conn)
+        {
+            var td = CPlayerData.m_TournamentData;
+            bool dayOn = td != null && td.m_IsTournamentDay && !td.m_IsTournamentDayOver;
+            if (dayOn)
+            {
+                // the R4 table: the challenger vs the entry holder - a guest (relayed match), or the
+                // host (the challenger may wait here first; the host's click takes them on)
+                bool r4 = (TournamentSync.HostProxyVsEntryTable(index) && (TournamentSync.IsProxy(conn) || TournamentSync.GuestHoldsEntry(conn)))
+                    || (TournamentSync.HostProxyVsPlayerTable(index) && TournamentSync.IsProxy(conn));
+                if (!r4)
+                    return (int)ENotEnoughResourceText.TournamentInProgress;
+                if (table.GetHasStartPlayerPlayCard())
+                    return (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
+                return null;
+            }
+            if (table.GetHasStartPlayerPlayCard())
+                return (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
+            var occ = table.m_IsSeatOccupied;
+            if (occ != null && ((occ.Count > 0 && occ[0]) || (occ.Count > 1 && occ[1])))
+                return (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
+            var cust = table.GetOccupiedCustomerList();
+            if (cust != null && ((cust.Count > 0 && cust[0] != null) || (cust.Count > 1 && cust[1] != null)))
+                return (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
+            return null;
+        }
+
+        private void Refuse(int conn, byte table, int reason)
+        {
+            SendToClient?.Invoke(conn, new BattleSitResultMessage { TableIndex = table, Granted = false, Reason = reason });
+        }
+
+        /// <summary>Host: nobody is waiting at this table - the guest waits there for the host
+        /// or another guest to right-click it. Nothing is booked on the table meanwhile (like
+        /// the host's own wait); the pairing re-checks that it is still free.</summary>
+        private void HostGuestWaits(PvpSitMessage msg, int conn)
+        {
+            var table = GuestBattle.TableAt(msg.TableIndex);
+            if (table == null)
+            {
+                Refuse(conn, msg.TableIndex, (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer);
+                return;
+            }
+            int? busy = RelayTableBusy(table, msg.TableIndex, conn);
+            if (busy == null && GuestBattle.HostIsSeated(conn))
+                busy = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
+            if (busy != null)
+            {
+                Refuse(conn, msg.TableIndex, busy.Value);
+                return;
+            }
+            var deck = ResolveDeck(msg.Deck);
+            if (deck == null || deck.Count < GameInstance.GetMaxDeckCardCount())
+            {
+                Refuse(conn, msg.TableIndex, (int)ENotEnoughResourceText.DeckIncomplete);
+                return;
+            }
+            // one wait per guest: a click on another table moves it
+            int previous = -1;
+            foreach (var kv in _waiting)
+                if (kv.Value.conn == conn)
+                    previous = kv.Key;
+            if (previous >= 0)
+                _waiting.Remove(previous);
+            _waiting[msg.TableIndex] = (conn, msg);
+            string name = PeerName?.Invoke(conn);
+            if (string.IsNullOrEmpty(name))
+                name = "a guest";
+            SendToClient?.Invoke(conn, new PvpWaitMessage
+            {
+                TableIndex = msg.TableIndex,
+                Waiting = true,
+                Text = "Co-op: waiting for the host or another guest to right-click this table (right-click again to cancel)",
+            });
+            HostOnlyFeatures.Notice($"Co-op: {name} is waiting for an opponent at a play table - right-click it to play them");
+            CoopPlugin.Log.LogInfo($"PvpBattle: {name} waits at table {msg.TableIndex} for a second player");
+        }
+
+        /// <summary>Host: a second guest right-clicked the table a guest is waiting at - start a
+        /// match between the two. Both engines run on the guests' PCs; this PC books the two
+        /// seats (so nobody else sits, and the R4 NPC shows its card fan) and forwards traffic.
+        /// The waiter is side A. Guest-vs-guest matches are free: no ante.</summary>
+        private void HostPairGuests(byte tableIndex, int aConn, PvpSitMessage aSit, int bConn, PvpSitMessage bSit)
+        {
+            var table = GuestBattle.TableAt(tableIndex);
+            if (table == null)
+            {
+                _waiting.Remove(tableIndex);
+                Refuse(bConn, tableIndex, (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer);
+                return;
+            }
+            int? busy = RelayTableBusy(table, tableIndex, bConn);
+            if (busy == null && GuestBattle.HostIsSeated(bConn))
+                busy = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
+            if (busy != null)
+            {
+                Refuse(bConn, tableIndex, busy.Value);
+                return;
+            }
+            var deckB = ResolveDeck(bSit.Deck);
+            if (deckB == null || deckB.Count < GameInstance.GetMaxDeckCardCount())
+            {
+                Refuse(bConn, tableIndex, (int)ENotEnoughResourceText.DeckIncomplete);
+                return;
+            }
+            var deckA = ResolveDeck(aSit.Deck);
+            bool aSeated = GuestBattle.HostIsSeated(aConn);
+            if (aSeated || deckA == null || deckA.Count < GameInstance.GetMaxDeckCardCount())
+            {
+                // the waiter sat down elsewhere, or their deck went bad (edited meanwhile): drop the wait
+                _waiting.Remove(tableIndex);
+                SendToClient?.Invoke(aConn, new PvpWaitMessage { TableIndex = tableIndex, Waiting = false, Text = aSeated ? "Co-op: you sat down elsewhere - no longer waiting for a PvP opponent" : "Co-op: your selected deck is incomplete - no longer waiting" });
+                Refuse(bConn, tableIndex, (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer);
+                return;
+            }
+            string nameA = PeerName?.Invoke(aConn), nameB = PeerName?.Invoke(bConn);
+            if (string.IsNullOrEmpty(nameA))
+                nameA = "guest";
+            if (string.IsNullOrEmpty(nameB))
+                nameB = "guest";
+            int seed = unchecked(Environment.TickCount * 31 + tableIndex * 7 + (int)(Time.realtimeSinceStartup * 1000f));
+            _waiting.Remove(tableIndex);
+            _relays.Add(new Relay { A = aConn, B = bConn, Table = tableIndex, NameA = nameA, NameB = nameB });
+            GuestBattle.BookSeat(table, 0, true);
+            GuestBattle.BookSeat(table, 1, true);
+            try
+            {
+                table.StartPlayerCardGame();
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("PvpBattle relay start: " + e.Message); }
+            SendToClient?.Invoke(aConn, new PvpStartMessage
+            {
+                TableIndex = tableIndex,
+                Seed = seed,
+                HostSideA = false,       // the opponent sits at B: the waiter takes seat A
+                HostDeck = bSit.Deck,
+                HostName = nameB,
+                Ante = 0,
+                Relay = true,
+                SideA = true,
+            });
+            SendToClient?.Invoke(bConn, new PvpStartMessage
+            {
+                TableIndex = tableIndex,
+                Seed = seed,
+                HostSideA = true,
+                HostDeck = aSit.Deck,
+                HostName = nameA,
+                Ante = 0,
+                Relay = true,
+                SideA = false,
+            });
+            HostOnlyFeatures.Notice($"Co-op: {nameA} vs {nameB} at a play table (relayed)");
+            CoopPlugin.Log.LogInfo($"PvpBattle: relay {nameA} ({aConn}) vs {nameB} ({bConn}) at table {tableIndex}, seed {seed}");
+        }
+
+        /// <summary>Host: a relayed match is over - one side left (with its result, if the
+        /// engine had one) or dropped. Tell the other side and free the table on this PC. On
+        /// the R4 tournament table the exit writes the result as the ENTRY holder's, which is
+        /// how vanilla registers the player's round and the NPC's opposite.</summary>
+        private void HostEndRelay(Relay r, int fromConn, PvpEndMessage end)
+        {
+            _relays.Remove(r);
+            int other = fromConn == r.A ? r.B : r.A;
+            string fromName = fromConn == r.A ? r.NameA : r.NameB;
+            SendToClient?.Invoke(other, end ?? new PvpEndMessage { TableIndex = (byte)Mathf.Clamp(r.Table, 0, 255), Reason = "opponent disconnected" });
+            var table = GuestBattle.TableAt(r.Table);
+            if (table != null)
+            {
+                bool playerWin, draw = false;
+                bool fromEntry = TournamentSync.GuestHoldsEntry(fromConn);
+                if (end != null && end.HasResult)
+                {
+                    draw = end.Draw;
+                    playerWin = !draw && (fromEntry ? end.PlayerWin : !end.PlayerWin);
+                }
+                else
+                    playerWin = !fromEntry; // whoever left without a result forfeits
+                try
+                {
+                    table.ExitPlayerCardGame(playerWin, draw);
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning("PvpBattle relay exit: " + e.Message); }
+            }
+            CoopPlugin.Log.LogInfo($"PvpBattle: relay at table {r.Table} over - {fromName} {(end != null ? end.Reason : "disconnected")}"
+                + (end != null && end.HasResult ? $" (win={end.PlayerWin} draw={end.Draw})" : ""));
+        }
+
+        /// <summary>Client: the host says we are (or are no longer) waiting at a table.</summary>
+        public void ClientApplyWait(PvpWaitMessage msg)
+        {
+            Guarded("wait", () =>
+            {
+                s_clientWaitTable = msg.Waiting ? msg.TableIndex : -1;
+                if (!string.IsNullOrEmpty(msg.Text))
+                    HostOnlyFeatures.Notice(msg.Text);
+                CoopPlugin.Log.LogInfo(msg.Waiting ? $"PvpBattle: waiting at table {msg.TableIndex} for a second player" : "PvpBattle: no longer waiting");
+            });
+        }
+
+        /// <summary>Client: the table this guest is waiting at, or -1.</summary>
+        public static int ClientWaitingTable => s_clientWaitTable;
+        /// <summary>This PC's current match is against another guest, forwarded by the host.</summary>
+        public static bool IsRelay => Active && s_relay;
+        // --- fv-680 guest-vs-guest pvp end
+
         /// <summary>Client: the host wants a stake. A visitor with the money in the bag is asked
         /// (Y sits again with the ante); anyone else is told why not.</summary>
         public void ClientApplyOffer(PvpOfferMessage msg)
@@ -415,8 +720,11 @@ namespace CardShopCoop.Sync
                     SendToHost?.Invoke(new PvpEndMessage { TableIndex = msg.TableIndex, Reason = "guest could not start" });
                     return;
                 }
-                Begin(false, msg.Seed, msg.TableIndex, remote, string.IsNullOrEmpty(msg.HostName) ? "host" : msg.HostName);
-                if (msg.Ante > 0)
+                // fv-680: a relayed match names the other guest; side A is whoever waited first
+                s_clientWaitTable = -1;
+                Begin(false, msg.Seed, msg.TableIndex, remote, string.IsNullOrEmpty(msg.HostName) ? (msg.Relay ? "guest" : "host") : msg.HostName,
+                    sideA: msg.Relay && msg.SideA, relay: msg.Relay);
+                if (msg.Ante > 0 && !msg.Relay)
                 {
                     // the stake leaves the bag now; the host holds the pot and settles
                     s_ante = msg.Ante;
@@ -435,10 +743,14 @@ namespace CardShopCoop.Sync
             });
         }
 
-        private static void Begin(bool hostPc, int seed, int table, List<CardData> remoteDeck, string opponent)
+        private static void Begin(bool hostPc, int seed, int table, List<CardData> remoteDeck, string opponent, bool sideA = false, bool relay = false)
         {
             Active = true;
             s_isHostPc = hostPc;
+            // fv-680: the host is always side A of its own match; in a relayed one the start message says
+            s_sideA = hostPc || sideA;
+            s_relay = relay;
+            s_hasResult = s_resultWin = s_resultDraw = false;
             s_seed = seed;
             s_table = table;
             s_remoteDeck = remoteDeck;
@@ -456,8 +768,9 @@ namespace CardShopCoop.Sync
             s_hashMisses = 0;
             if (!hostPc)
                 s_ante = 0; // the host set its stake before Begin; the guest learns it from the start message
-            CoopPlugin.Log.LogInfo($"PvpBattle: match vs {opponent} at table {table}, seed {seed}, {(hostPc ? "host" : "guest")} PC");
-            HostOnlyFeatures.Notice("Co-op: match vs " + opponent + " (experimental)");
+            CoopPlugin.Log.LogInfo($"PvpBattle: match vs {opponent} at table {table}, seed {seed}, {(hostPc ? "host" : "guest")} PC"
+                + (relay ? $", relayed by the host, side {(s_sideA ? "A" : "B")}" : ""));
+            HostOnlyFeatures.Notice("Co-op: match vs " + opponent + (relay ? " (relayed by the host, experimental)" : " (experimental)"));
         }
 
         private static void Abort(string why)
@@ -506,7 +819,13 @@ namespace CardShopCoop.Sync
         /// dropping (OpponentLeft reports a host win).</summary>
         public static void ReportWinnerPostfix(bool isPlayerWin, bool isDraw)
         {
-            if (!Active || !s_isHostPc)
+            if (!Active)
+                return;
+            // fv-680: both sides remember the verdict - a relayed match's PvpEnd carries it to the host
+            s_hasResult = true;
+            s_resultWin = isPlayerWin;
+            s_resultDraw = isDraw;
+            if (!s_isHostPc)
                 return;
             Settle(isDraw ? 0 : isPlayerWin ? 1 : 2, isDraw ? "draw" : "result");
         }
@@ -533,6 +852,13 @@ namespace CardShopCoop.Sync
 
         public void HostApplyEnd(PvpEndMessage msg, int conn)
         {
+            // fv-680: a relayed match ends on this PC by forwarding the end and freeing the table
+            var relay = RelayOf(conn);
+            if (relay != null)
+            {
+                Guarded("relay end", () => HostEndRelay(relay, conn, msg));
+                return;
+            }
             if (conn != _peerConn && !(_hostWaitingTable >= 0 && conn >= 0))
                 return;
             Guarded("end", () =>
@@ -576,6 +902,16 @@ namespace CardShopCoop.Sync
 
         public void HostReleaseConn(int conn)
         {
+            // fv-680: a guest in a relayed match, or waiting for one, is gone
+            var relay = RelayOf(conn);
+            if (relay != null)
+                Guarded("relay drop", () => HostEndRelay(relay, conn, null));
+            int waitingAt = -1;
+            foreach (var kv in _waiting)
+                if (kv.Value.conn == conn)
+                    waitingAt = kv.Key;
+            if (waitingAt >= 0)
+                _waiting.Remove(waitingAt);
             if (conn == _peerConn && Active)
             {
                 CoopPlugin.Log.LogInfo("PvpBattle: opponent disconnected");
@@ -586,14 +922,25 @@ namespace CardShopCoop.Sync
         public override void Reset()
         {
             End();
+            // fv-680
+            _waiting.Clear();
+            _relays.Clear();
+            s_clientWaitTable = -1;
         }
 
         /// <summary>This side decided to leave (quit dialog or the win screen's Leave): tell the
         /// other PC now. The table exit that follows only cleans up.</summary>
-        public static void LeavePostfix(PlayTableGame __instance)
+        public static void LeavePostfix(PlayTableGame __instance, bool isPlayerWin)
         {
             if (!Active || s_endSent)
                 return;
+            // fv-680: the leave carries the verdict too, in case ReportWinner was not seen
+            if (!s_hasResult)
+            {
+                s_hasResult = true;
+                s_resultWin = isPlayerWin;
+                s_resultDraw = false;
+            }
             SendEnd("left the match");
         }
 
@@ -603,7 +950,14 @@ namespace CardShopCoop.Sync
                 return;
             s_endSent = true;
             var self = s_instance;
-            var msg = new PvpEndMessage { TableIndex = (byte)Mathf.Clamp(s_table, 0, 255), Reason = reason };
+            var msg = new PvpEndMessage
+            {
+                TableIndex = (byte)Mathf.Clamp(s_table, 0, 255),
+                Reason = reason,
+                HasResult = s_hasResult,
+                PlayerWin = s_resultWin,
+                Draw = s_resultDraw,
+            };
             if (s_isHostPc)
             {
                 if (self != null && self._peerConn >= 0)
@@ -627,7 +981,7 @@ namespace CardShopCoop.Sync
                     return;
                 SendEnd("left the table");
                 // the other player's puppet seat
-                GuestBattle.BookSeat(__instance, s_isHostPc ? 1 : 0, false);
+                GuestBattle.BookSeat(__instance, s_sideA ? 1 : 0, false); // fv-680: side A sits at seat 0
                 CoopPlugin.Log.LogInfo("PvpBattle: match over");
                 End();
             }
@@ -639,7 +993,7 @@ namespace CardShopCoop.Sync
         /// <summary>Owner of a set on THIS pc: 0 = host's deck, 1 = guest's deck.</summary>
         private static int OwnerOf(PlayCardSet set)
         {
-            return set.m_IsPlayer == s_isHostPc ? 0 : 1;
+            return set.m_IsPlayer == s_sideA ? 0 : 1; // fv-680: side A's deck is owner 0
         }
 
         private static int SeedFor(int owner, int site)
@@ -692,7 +1046,7 @@ namespace CardShopCoop.Sync
             s_turnClickCounts = false;
             if (!Active)
                 return true;
-            if (!s_isHostPc && !s_applying)
+            if (!s_sideA && !s_applying)
                 return false;
             try
             {
@@ -716,7 +1070,7 @@ namespace CardShopCoop.Sync
             if (!s_turnClickCounts)
                 return;
             UnityEngine.Random.state = __state;
-            if (!s_isHostPc || s_applying)
+            if (!s_sideA || s_applying)
                 return;
             try
             {
@@ -894,6 +1248,13 @@ namespace CardShopCoop.Sync
 
         public void HostApplyAction(PvpActionMessage msg, int conn)
         {
+            // fv-680: a relayed match's traffic goes straight to the other guest; no engine here
+            var relay = RelayOf(conn);
+            if (relay != null)
+            {
+                SendToClient?.Invoke(conn == relay.A ? relay.B : relay.A, msg);
+                return;
+            }
             if (!Active || conn != _peerConn)
                 return;
             Enqueue(msg);
@@ -1072,8 +1433,8 @@ namespace CardShopCoop.Sync
 
         private static bool ApplyTurnFirst(PlayTableGame ptg, PvpActionMessage a)
         {
-            if (s_isHostPc)
-                return true; // never sent to the host
+            if (s_sideA)
+                return true; // never sent to side A (the host, or the guest who waited)
             if (FiHasSelectedTurn == null || (bool)FiHasSelectedTurn.GetValue(ptg))
                 return true; // already decided (a duplicate) - drop it, never block the queue
             if (!ptg.IsWaitingResponse())
@@ -1168,8 +1529,8 @@ namespace CardShopCoop.Sync
         {
             var mine = ptg.m_PlayCardSetPlayer;
             var theirs = ptg.m_PlayCardSetEnemy;
-            var host = s_isHostPc ? mine : theirs;
-            var guest = s_isHostPc ? theirs : mine;
+            var host = s_sideA ? mine : theirs;   // fv-680: side A first, whoever that is
+            var guest = s_sideA ? theirs : mine;
             int h = 17;
             h = h * 31 + ptg.GetTurnCount();
             h = h * 31 + host.GetCurrentHP();
@@ -1250,7 +1611,7 @@ namespace CardShopCoop.Sync
                 s_rematchMine = true;
                 Send(new PvpActionMessage { Kind = PvpActionKind.Rematch, A = 1 });
                 HostOnlyFeatures.Notice("Co-op: rematch requested - waiting for " + s_opponent);
-                if (s_isHostPc)
+                if (s_sideA)
                     HostTryRematch();
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("PvpBattle.RematchButtonPrefix: " + e.Message); }
@@ -1263,11 +1624,11 @@ namespace CardShopCoop.Sync
             {
                 s_rematchTheirs = true;
                 HostOnlyFeatures.Notice("Co-op: " + s_opponent + " wants a rematch" + (s_rematchMine ? "" : " - press Rematch to accept"));
-                if (s_isHostPc)
+                if (s_sideA)
                     HostTryRematch();
                 return;
             }
-            if (msg.A == 2 && !s_isHostPc)
+            if (msg.A == 2 && !s_sideA)
             {
                 // go: the host restarted; we follow, same seed stream (the RNG counters continue)
                 bool anteOn = msg.B == 1;
@@ -1279,10 +1640,10 @@ namespace CardShopCoop.Sync
 
         private static void HostTryRematch()
         {
-            if (!s_isHostPc || !s_rematchMine || !s_rematchTheirs)
+            if (!s_sideA || !s_rematchMine || !s_rematchTheirs)
                 return;
             bool anteOn = false;
-            if (s_ante > 0 && CPlayerData.m_CoinAmountDouble >= s_ante)
+            if (s_isHostPc && s_ante > 0 && CPlayerData.m_CoinAmountDouble >= s_ante)
             {
                 anteOn = true;
                 CEventManager.QueueEvent(new CEventPlayer_ReduceCoin((float)s_ante));
@@ -1309,6 +1670,7 @@ namespace CardShopCoop.Sync
                 s_hashTimer = 0f;
                 s_queueStuckSince = -1f;
                 s_endSent = false;
+                s_hasResult = false; // fv-680
                 if (!anteOn)
                     s_ante = 0;
                 try

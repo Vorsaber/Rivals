@@ -1358,8 +1358,9 @@ namespace CardShopCoop.Sync
                     var pctd = proxyC.GetCustomerTournamentData();
                     msg.ProxyTable = pctd.m_TournamentCustomerPlayTableIndex;
                     msg.ProxyCustomerIndex = pctd.m_TournamentCustomerIndex;
+                    // fv-680: the entry holder may be a GUEST too (then the round is guest-vs-guest PvP, relayed)
                     bool vsPlayer = CPlayerData.m_IsPlayerRegisteredForTournament && ptd != null
-                        && ptd.m_TournamentCustomerPlayTableIndex == pctd.m_TournamentCustomerPlayTableIndex && s_instance._entryConn == HostEntry;
+                        && ptd.m_TournamentCustomerPlayTableIndex == pctd.m_TournamentCustomerPlayTableIndex && s_instance._entryConn != NoEntry;
                     msg.ProxyFlags = (byte)(1 | (pctd.m_HasFinishCurrentTournamentRound ? 2 : 0) | (pctd.m_IsTournamentWin ? 4 : 0) | (vsPlayer ? 8 : 0));
                 }
                 catch { }
@@ -1495,5 +1496,37 @@ namespace CardShopCoop.Sync
             }
             return hash;
         }
+
+        // --- fv-680 guest-vs-guest pvp begin
+        /// <summary>Host: on tournament day, is this table where the challenger meets the shop's
+        /// player and that player is a GUEST (the entry holder)? Then the two guests play each
+        /// other as PvP relayed by the host (PvpBattle), and the NPC's seat there is expected.
+        /// The host-holds-the-entry case is <see cref="HostProxyVsPlayerTable"/>.</summary>
+        public static bool HostProxyVsEntryTable(int tableIndex)
+        {
+            var self = s_instance;
+            if (self == null || self._entryConn == NoEntry || self._entryConn == HostEntry || self._proxyCustomer == null)
+                return false;
+            try
+            {
+                var td = CPlayerData.m_TournamentData;
+                var ptd = CPlayerData.m_PlayerTournamentData;
+                if (td == null || ptd == null || !td.m_IsTournamentDay || td.m_IsTournamentDayOver || !CPlayerData.m_IsPlayerRegisteredForTournament)
+                    return false;
+                if (ptd.m_HasRegisteredTournamentResult || ProxyFinishedRound())
+                    return false;
+                int pt = ProxyTable();
+                if (pt <= 0 || ptd.m_TournamentCustomerPlayTableIndex != pt)
+                    return false;
+                var table = GuestBattle.TableAt(tableIndex);
+                return table != null && table.GetTournamentPlayTableNumber() == pt;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Client: this guest holds the entry and this round's opponent is the
+        /// challenger (another guest) - the round is PvP, not a battle against the NPC's AI.</summary>
+        public static bool ClientEntryVsChallenger() => s_entryMine && s_proxyVsPlayer && !s_proxyFinished;
+        // --- fv-680 guest-vs-guest pvp end
     }
 }
