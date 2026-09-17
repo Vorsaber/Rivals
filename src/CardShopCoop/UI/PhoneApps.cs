@@ -219,16 +219,22 @@ namespace CardShopCoop.UI
             CoopPlugin.Log.LogInfo("PhoneApps: closed " + was);
         }
 
-        /// <summary>The phone closed (Esc / the close key): our app goes with it.</summary>
-        public static void ExitPhonePostfix()
+        /// <summary>The phone's own close (Tab / Esc) while our app is up: close the app FIRST -
+        /// which gives the phone back its CanClosePhone and its tiles - and then let the phone
+        /// close as normal. The previous postfix ran after ExitPhoneMode had already been
+        /// refused by CanClosePhone=false and dropped the app without restoring either flag:
+        /// phone frozen on screen, no way out (2026-09-16, "New deck" refusal then Tab).</summary>
+        public static void ExitPhonePrefix()
         {
-            if (Current != App.None && s_onPhone)
+            try
             {
-                if (Current == App.Decks)
-                    DeckPanel.Close();
-                Current = App.None;
-                s_onPhone = false;
+                if (Current != App.None && s_onPhone)
+                {
+                    CoopPlugin.Log.LogInfo("PhoneApps: phone closing with " + Current + " open - closing the app first");
+                    Close();
+                }
             }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("PhoneApps exit: " + e.Message); }
         }
 
         public static void ApplyPatches(Harmony h)
@@ -237,7 +243,7 @@ namespace CardShopCoop.UI
             {
                 var m = AccessTools.Method(typeof(PhoneManager), "ExitPhoneMode");
                 if (m != null)
-                    h.Patch(m, postfix: new HarmonyMethod(typeof(PhoneApps), nameof(ExitPhonePostfix)));
+                    h.Patch(m, prefix: new HarmonyMethod(typeof(PhoneApps), nameof(ExitPhonePrefix)) { priority = Priority.First });
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("PhoneApps patches: " + e.Message); }
         }
