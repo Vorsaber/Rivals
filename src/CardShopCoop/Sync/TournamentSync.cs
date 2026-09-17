@@ -49,6 +49,20 @@ namespace CardShopCoop.Sync
         private int _entryConn = NoEntry;              // host
         private static string s_entryHolder = "";      // both: name of the holder, "" none
         private static bool s_entryMine;               // client: the entry is this guest's
+
+        // R4 - the CHALLENGER: vanilla has one player slot; a second human plays the tournament
+        // AS one of the NPC entrants (its "proxy"). The NPC still walks and sits; the human plays
+        // its matches - against an NPC on their own PC (GuestBattle), against the shop's player
+        // as PvP - and the result is written over the coin flip the table would have rolled.
+        private int _proxyConn = NoEntry;              // host: the challenger's connection
+        private Customer _proxyCustomer;               // host: the NPC they play as (assigned on tournament day)
+        private int _proxyResult = -1;                 // host: -1 none, 0 lost, 1 won (pending for the table's resolution)
+        private static string s_proxyHolder = "";      // both
+        private static bool s_proxyMine;               // client
+        private static int s_proxyTable;               // client
+        private static bool s_proxyVsPlayer;           // client: this round's opponent is the shop's player (PvP)
+        private static bool s_proxyFinished;           // client
+        private static int s_proxyNoticedTable = -1;
         private static TournamentSync s_instance;
 
         // client: the phone's tournament screen is open here - the guest may be scheduling, so
@@ -98,6 +112,15 @@ namespace CardShopCoop.Sync
             s_entryHolder = "";
             s_entryMine = false;
             s_planEditing = false;
+            _proxyConn = NoEntry;
+            _proxyCustomer = null;
+            _proxyResult = -1;
+            s_proxyHolder = "";
+            s_proxyMine = false;
+            s_proxyTable = 0;
+            s_proxyVsPlayer = false;
+            s_proxyFinished = false;
+            s_proxyNoticedTable = -1;
         }
 
         public TournamentSync()
@@ -136,6 +159,180 @@ namespace CardShopCoop.Sync
             // host may not take the guest's tournament seat
             Try(h, typeof(InteractablePlayTable), "OnRightMouseButtonUp",
                 prefix: new HarmonyMethod(typeof(TournamentSync), nameof(HostTableClickPrefix)));
+            // R4: the challenger's real result replaces the coin flip for its NPC and the opponent
+            Try(h, typeof(Customer), "SetTournamentWinLose",
+                prefix: new HarmonyMethod(typeof(TournamentSync), nameof(ProxyWinLosePrefix)));
+            // R4: the challenger's NPC does not collect the prize - the human takes it off the shelf
+            Try(h, typeof(Customer), "OnTournamentEnded",
+                prefix: new HarmonyMethod(typeof(TournamentSync), nameof(ProxyEndedPrefix)));
+            Try(h, typeof(InteractablePlayTable), "ExitPlayerCardGame",
+                postfix: new HarmonyMethod(typeof(TournamentSync), nameof(ProxyTableExitPostfix)));
+        }
+
+        // ================================================================ R4: the challenger
+
+        public static bool IsProxy(int conn)
+        {
+            var self = s_instance;
+            return self != null && conn != NoEntry && conn != HostEntry && self._proxyConn == conn;
+        }
+
+        public static Customer ProxyCustomer => s_instance != null ? s_instance._proxyCustomer : null;
+
+        /// <summary>Host: the NPC's table number this round (0 = none).</summary>
+        public static int ProxyTable()
+        {
+            var c = ProxyCustomer;
+            try
+            {
+                return c != null ? c.GetCustomerTournamentData().m_TournamentCustomerPlayTableIndex : 0;
+            }
+            catch { return 0; }
+        }
+
+        private static bool ProxyFinishedRound()
+        {
+            var c = ProxyCustomer;
+            try
+            {
+                return c != null && c.GetCustomerTournamentData().m_HasFinishCurrentTournamentRound;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Host: on tournament day, is this table the one where the challenger meets
+        /// the shop's PLAYER (host holding the entry)? Then the host waits for PvP instead of
+        /// sitting down against the NPC's AI.</summary>
+        public static bool HostProxyVsPlayerTable(int tableIndex)
+        {
+            var self = s_instance;
+            if (self == null || self._entryConn != HostEntry || self._proxyCustomer == null)
+                return false;
+            try
+            {
+                var td = CPlayerData.m_TournamentData;
+                var ptd = CPlayerData.m_PlayerTournamentData;
+                if (td == null || ptd == null || !td.m_IsTournamentDay || td.m_IsTournamentDayOver || !CPlayerData.m_IsPlayerRegisteredForTournament)
+                    return false;
+                if (ptd.m_HasRegisteredTournamentResult || ProxyFinishedRound())
+                    return false;
+                int pt = ProxyTable();
+                if (pt <= 0 || ptd.m_TournamentCustomerPlayTableIndex != pt)
+                    return false;
+                var table = GuestBattle.TableAt(tableIndex);
+                return table != null && table.GetTournamentPlayTableNumber() == pt;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Host: the challenger's match on their PC ended (GuestBattle exit) - hold
+        /// the result for the table's resolution that follows.</summary>
+        public static void SetProxyResult(bool win, bool draw)
+        {
+            var self = s_instance;
+            if (self == null || self._proxyCustomer == null)
+                return;
+            self._proxyResult = win && !draw ? 1 : 0;
+            CoopPlugin.Log.LogInfo($"TournamentSync: challenger {(win && !draw ? "won" : "lost")} the round at table {ProxyTable()}");
+        }
+
+        public static bool ClientIsProxy() => s_proxyMine;
+        public static int ClientProxyTable() => s_proxyTable;
+        public static bool ClientProxyVsPlayer() => s_proxyVsPlayer;
+        public static bool ClientProxyFinished() => s_proxyFinished;
+
+        /// <summary>Host: the tournament day started and the NPC field is in - the challenger
+        /// becomes the last NPC entrant. Cleared when the next tournament is scheduled.</summary>
+        private void TickProxy(TournamentData td)
+        {
+            if (_proxyConn == NoEntry)
+            {
+                if (_proxyCustomer != null)
+                    _proxyCustomer = null;
+                return;
+            }
+            if (!td.m_IsTournamentDay && !td.m_IsTournamentDayOver)
+            {
+                if (_proxyCustomer != null)
+                {
+                    _proxyCustomer = null;
+                    _proxyConn = NoEntry; // one tournament per entry, like the player's own
+                    s_proxyHolder = "";
+                    _gate.Force();
+                }
+                return;
+            }
+            if (_proxyCustomer != null || !td.m_IsTournamentDay || td.m_IsTournamentDayOver)
+                return;
+            var cm = Cm();
+            var list = cm != null ? cm.m_TournamentCustomerList : null;
+            if (list == null || list.Count < td.m_TournamentMaxPlayerCount)
+                return;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                var c = list[i];
+                if (c == null)
+                    continue;
+                try
+                {
+                    if (!c.GetCustomerTournamentData().m_IsTournamentCustomer)
+                        continue;
+                }
+                catch { continue; }
+                _proxyCustomer = c;
+                _gate.Force();
+                CoopPlugin.Log.LogInfo($"TournamentSync: {NameOf(_proxyConn)} plays as tournament customer #{c.GetCustomerTournamentData().m_TournamentCustomerIndex}");
+                HostOnlyFeatures.Notice("Co-op: " + NameOf(_proxyConn) + " plays the tournament as customer #" + c.GetCustomerTournamentData().m_TournamentCustomerIndex);
+                return;
+            }
+        }
+
+        public static void ProxyWinLosePrefix(Customer __instance, ref bool isWin, int opponentCustomerIndex)
+        {
+            var self = s_instance;
+            if (self == null || CoopCore.Role != CoopRole.Host || self._proxyCustomer == null || self._proxyResult < 0)
+                return;
+            try
+            {
+                int proxyIdx = self._proxyCustomer.GetCustomerTournamentData().m_TournamentCustomerIndex;
+                if (__instance == self._proxyCustomer)
+                    isWin = self._proxyResult == 1;
+                else if (opponentCustomerIndex == proxyIdx)
+                    isWin = self._proxyResult != 1;
+            }
+            catch { }
+        }
+
+        public static void ProxyTableExitPostfix(InteractablePlayTable __instance)
+        {
+            var self = s_instance;
+            if (self == null || self._proxyResult < 0)
+                return;
+            try
+            {
+                if (__instance.GetTournamentPlayTableNumber() == ProxyTable())
+                    self._proxyResult = -1;
+            }
+            catch { self._proxyResult = -1; }
+        }
+
+        /// <summary>The NPC's prize goes to the human: send the NPC away empty-handed (a
+        /// placement past the prize table) so the prizes stay on the shelf for the challenger.</summary>
+        public static void ProxyEndedPrefix(Customer __instance, ref int tournamentPlacementIndex)
+        {
+            var self = s_instance;
+            if (self == null || CoopCore.Role != CoopRole.Host || __instance != self._proxyCustomer)
+                return;
+            int placed = tournamentPlacementIndex;
+            tournamentPlacementIndex = 99;
+            string who = NameOfStatic(self._proxyConn);
+            CoopPlugin.Log.LogInfo($"TournamentSync: challenger {who} placed #{placed + 1} - prizes left on the shelf for them");
+            HostOnlyFeatures.Notice($"Co-op: {who} placed #{placed + 1} in the tournament" + (placed <= 7 ? " - their prize is on the shelf" : ""));
+        }
+
+        private static string NameOfStatic(int conn)
+        {
+            return s_instance != null ? s_instance.NameOf(conn) : "the challenger";
         }
 
         public static bool SignUpPrefix()
@@ -154,7 +351,9 @@ namespace CardShopCoop.Sync
             }
             if (CoopCore.Role == CoopRole.Client)
             {
-                self.SendToHost?.Invoke(new TournamentEntryMessage { Want = true });
+                // the shop's one entry is taken by someone else: enter as the challenger
+                bool taken = !string.IsNullOrEmpty(s_entryHolder) && !s_entryMine;
+                self.SendToHost?.Invoke(new TournamentEntryMessage { Want = true, AsProxy = taken });
                 return false;
             }
             return true;
@@ -178,6 +377,8 @@ namespace CardShopCoop.Sync
             {
                 if (s_entryMine)
                     self.SendToHost?.Invoke(new TournamentEntryMessage { Want = false });
+                else if (s_proxyMine)
+                    self.SendToHost?.Invoke(new TournamentEntryMessage { Want = false, AsProxy = true });
                 else
                     HostOnlyFeatures.Notice("Co-op: " + (string.IsNullOrEmpty(s_entryHolder) ? "the host" : s_entryHolder) + " is entered in this tournament");
                 return false;
@@ -243,13 +444,13 @@ namespace CardShopCoop.Sync
         /// off the PRIZE shelf is their winnings, not a purchase.</summary>
         public static bool HostPrizeFree(int conn)
         {
-            return GuestHoldsEntry(conn) && TournamentOver();
+            return (GuestHoldsEntry(conn) || IsProxy(conn)) && TournamentOver();
         }
 
         /// <summary>Visitor: same test from this side (mirrored entry + day over).</summary>
         public static bool ClientPrizeFree()
         {
-            return s_entryMine && TournamentOver();
+            return (s_entryMine || s_proxyMine) && TournamentOver();
         }
 
         private void HostSetEntry(int conn)
@@ -442,6 +643,7 @@ namespace CardShopCoop.Sync
                 var td = CPlayerData.m_TournamentData;
                 if (td == null)
                     return;
+                TickProxy(td);
                 int hash = ComputeHash(td);
                 if (!_gate.ShouldSend(hash))
                     return;
@@ -464,6 +666,41 @@ namespace CardShopCoop.Sync
                 int reason = 0;
                 if (td == null)
                     reason = (int)ENotEnoughResourceText.NoSlotToJoinTournament;
+                else if (msg.AsProxy)
+                {
+                    if (msg.Want)
+                    {
+                        if (td.m_IsTournamentDay)
+                            reason = (int)ENotEnoughResourceText.NoSlotToJoinTournament;
+                        else if (_entryConn == conn)
+                        { /* they already hold the real entry */
+                        }
+                        else if (_proxyConn != NoEntry && _proxyConn != conn)
+                            reason = (int)ENotEnoughResourceText.PlayerAlreadyJoinedTournament;
+                        else if (!td.m_IsHostingTournament)
+                            reason = (int)ENotEnoughResourceText.NoSlotToJoinTournament;
+                        else if (_proxyConn != conn)
+                        {
+                            _proxyConn = conn;
+                            s_proxyHolder = NameOf(conn);
+                            _gate.Force();
+                            CoopPlugin.Log.LogInfo($"TournamentSync: {NameOf(conn)} entered as the challenger (plays as an NPC entrant)");
+                            HostOnlyFeatures.Notice("Co-op: " + NameOf(conn) + " joins the tournament as a challenger");
+                        }
+                    }
+                    else if (_proxyConn == conn)
+                    {
+                        if (td.m_IsTournamentDay)
+                            reason = (int)ENotEnoughResourceText.CannotWithdrawTournament;
+                        else
+                        {
+                            _proxyConn = NoEntry;
+                            s_proxyHolder = "";
+                            _gate.Force();
+                            CoopPlugin.Log.LogInfo($"TournamentSync: {NameOf(conn)} withdrew as the challenger");
+                        }
+                    }
+                }
                 else if (msg.Want)
                 {
                     if (td.m_IsTournamentDay)
@@ -504,6 +741,7 @@ namespace CardShopCoop.Sync
                 {
                     Ok = reason == 0,
                     Registered = reason == 0 && _entryConn == conn,
+                    Proxy = reason == 0 && _proxyConn == conn,
                     Reason = reason
                 });
             });
@@ -517,6 +755,19 @@ namespace CardShopCoop.Sync
                 return;
             CoopPlugin.Log.LogInfo($"TournamentSync: {NameOf(conn)} left holding the tournament entry - the host inherits it");
             HostSetEntry(CPlayerData.m_IsPlayerRegisteredForTournament ? HostEntry : NoEntry);
+        }
+
+        /// <summary>Host: the challenger left - their NPC plays on as an NPC.</summary>
+        public void HostReleaseProxy(int conn)
+        {
+            if (_proxyConn != conn)
+                return;
+            CoopPlugin.Log.LogInfo($"TournamentSync: challenger {NameOf(conn)} left - the NPC plays on by itself");
+            _proxyConn = NoEntry;
+            _proxyCustomer = null;
+            _proxyResult = -1;
+            s_proxyHolder = "";
+            _gate.Force();
         }
 
         /// <summary>Repaint the phone tournament screen's entry buttons and count if it is open
@@ -595,6 +846,20 @@ namespace CardShopCoop.Sync
             string me = CoopCore.Instance != null ? CoopCore.Instance.EffectivePlayerName : null;
             s_entryMine = CPlayerData.m_IsPlayerRegisteredForTournament
                 && !string.IsNullOrEmpty(me) && s_entryHolder == me;
+            s_proxyHolder = message.ProxyHolder ?? "";
+            s_proxyMine = !string.IsNullOrEmpty(me) && s_proxyHolder == me;
+            s_proxyTable = (message.ProxyFlags & 1) != 0 ? message.ProxyTable : 0;
+            s_proxyFinished = (message.ProxyFlags & 2) != 0;
+            s_proxyVsPlayer = (message.ProxyFlags & 8) != 0;
+            if (s_proxyMine && s_proxyTable > 0 && td.m_IsTournamentDay && !td.m_IsTournamentDayOver && !s_proxyFinished && s_proxyNoticedTable != s_proxyTable)
+            {
+                s_proxyNoticedTable = s_proxyTable;
+                HostOnlyFeatures.Notice(s_proxyVsPlayer
+                    ? $"Tournament: you're at table {s_proxyTable} against {s_entryHolder} - right-click it when they're waiting"
+                    : $"Tournament: you're at table {s_proxyTable} (as customer #{message.ProxyCustomerIndex}) - right-click it once both are seated");
+            }
+            if (!s_proxyMine || s_proxyTable <= 0)
+                s_proxyNoticedTable = -1;
 
             ApplyPrizeSlots(td, message.PrizeSlots);
 
@@ -650,6 +915,17 @@ namespace CardShopCoop.Sync
                         NotEnoughResourceTextPopup.ShowText((ENotEnoughResourceText)msg.Reason);
                     }
                     catch { HostOnlyFeatures.Notice("Co-op: the host refused the tournament entry"); }
+                    return;
+                }
+                if (msg.Proxy || (s_proxyMine && !msg.Registered))
+                {
+                    // the challenger path: nothing of the player's own record changes
+                    s_proxyMine = msg.Proxy;
+                    s_proxyNoticedTable = -1;
+                    HostOnlyFeatures.Notice(msg.Proxy
+                        ? "Co-op: you're in as the CHALLENGER - on tournament day you play as one of the entrants; watch for your table number"
+                        : "Co-op: you withdrew as the challenger");
+                    CoopPlugin.Log.LogInfo(msg.Proxy ? "TournamentSync: entered the host's tournament as the challenger" : "TournamentSync: withdrew as the challenger");
                     return;
                 }
                 // repaint now; the mirror confirms within a tick
@@ -826,6 +1102,21 @@ namespace CardShopCoop.Sync
             msg.PlayerSortedIndex = ptd != null ? ptd.m_TournamentCustomerSortedIndex : 0;
 
             msg.PrizeSlots = BuildPrizeSlots(td);
+            msg.ProxyHolder = s_proxyHolder ?? "";
+            var proxyC = s_instance != null ? s_instance._proxyCustomer : null;
+            if (proxyC != null)
+            {
+                try
+                {
+                    var pctd = proxyC.GetCustomerTournamentData();
+                    msg.ProxyTable = pctd.m_TournamentCustomerPlayTableIndex;
+                    msg.ProxyCustomerIndex = pctd.m_TournamentCustomerIndex;
+                    bool vsPlayer = CPlayerData.m_IsPlayerRegisteredForTournament && ptd != null
+                        && ptd.m_TournamentCustomerPlayTableIndex == pctd.m_TournamentCustomerPlayTableIndex && s_instance._entryConn == HostEntry;
+                    msg.ProxyFlags = (byte)(1 | (pctd.m_HasFinishCurrentTournamentRound ? 2 : 0) | (pctd.m_IsTournamentWin ? 4 : 0) | (vsPlayer ? 8 : 0));
+                }
+                catch { }
+            }
 
             // bracket digest straight from the host's live sorted list (the same list
             // the vanilla pairing board renders from)
@@ -898,6 +1189,9 @@ namespace CardShopCoop.Sync
             hash = hash * 31 + (ptd != null ? ptd.m_TournamentCustomerIndex : 0);
             hash = hash * 31 + (ptd != null ? ptd.m_TournamentCustomerSortedIndex : 0);
             hash = hash * 31 + (s_entryHolder ?? "").GetHashCode();
+            hash = hash * 31 + (s_proxyHolder ?? "").GetHashCode();
+            hash = hash * 31 + ProxyTable();
+            hash = hash * 31 + (ProxyFinishedRound() ? 1 : 0);
             var lists = td.m_PrizeDataList;
             if (lists != null)
             {

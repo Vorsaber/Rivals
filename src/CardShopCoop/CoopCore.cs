@@ -4005,6 +4005,7 @@ namespace CardShopCoop
                 _peerWireNames.Remove(left);
                 if (_visitorConns.Remove(left))
                     Sync.Rivals.TradeSync.HostPeerGone(left);
+                _tournament.HostReleaseProxy(left);
                 _peerSteamIds.Remove(left);
                 _avatars.Remove(left);
                 _movePreview.RemoveSource(left);

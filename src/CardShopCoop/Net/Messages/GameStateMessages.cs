@@ -210,6 +210,11 @@ namespace CardShopCoop.Net.Messages
         public int PlayerCustomerIndex;
         public int PlayerSortedIndex;
         public string EntryHolder = ""; // player name holding the entry ("" = none)
+        // R4: the challenger who plays as an NPC entrant
+        public string ProxyHolder = "";
+        public int ProxyTable;          // the NPC's table this round (0 = not assigned yet)
+        public int ProxyCustomerIndex = -1;
+        public byte ProxyFlags;         // bit0 assigned, bit1 finished this round, bit2 won last, bit3 opponent is the shop's player
 
         public MsgType Type
         {
@@ -245,6 +250,7 @@ namespace CardShopCoop.Net.Messages
     public sealed class TournamentEntryMessage : INetMessage
     {
         public bool Want;
+        public bool AsProxy;   // R4: the second human - plays the tournament AS one of the NPC entrants
         public MsgType Type
         {
             get
@@ -262,6 +268,7 @@ namespace CardShopCoop.Net.Messages
         public bool Ok;
         public bool Registered;
         public int Reason;
+        public bool Proxy;     // R4: you are in as the challenger (proxy)
         public MsgType Type
         {
             get

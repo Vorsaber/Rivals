@@ -152,9 +152,18 @@ namespace CardShopCoop.Sync
                 // rules run on the host against the mirrored entry; only the obvious
                 // "not entered" case is answered here)
                 var td = CPlayerData.m_TournamentData;
-                if (td != null && td.m_IsTournamentDay && !td.m_IsTournamentDayOver && !TournamentSync.ClientHoldsEntry())
+                bool dayOn = td != null && td.m_IsTournamentDay && !td.m_IsTournamentDayOver;
+                if (dayOn && !TournamentSync.ClientHoldsEntry() && !TournamentSync.ClientIsProxy())
                 {
                     NotEnoughResourceTextPopup.ShowText(ENotEnoughResourceText.TournamentInProgress);
+                    return true;
+                }
+                // R4: the challenger's round against the shop's player is PvP, not a customer battle
+                if (dayOn && TournamentSync.ClientIsProxy() && TournamentSync.ClientProxyVsPlayer()
+                    && table.GetTournamentPlayTableNumber() == TournamentSync.ClientProxyTable())
+                {
+                    if (!PvpBattle.ClientRequestPvp(table, index))
+                        HostOnlyFeatures.Notice("Co-op: waiting for " + "the shop's player" + " to sit at this table");
                     return true;
                 }
                 if (CPlayerData.m_CurrentSelectedDeckIndex >= CPlayerData.m_DeckCompactCardDataList.Count
@@ -281,6 +290,51 @@ namespace CardShopCoop.Sync
                 var ptd = CPlayerData.m_PlayerTournamentData;
                 if (table == null)
                     reason = (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer;
+                // R4: the challenger takes its NPC's seat once both NPCs are sitting; the table's
+                // own timer stops and waits for the human's result instead of rolling a coin
+                else if (tournamentDay && TournamentSync.IsProxy(connId))
+                {
+                    var proxy = TournamentSync.ProxyCustomer;
+                    int pt = TournamentSync.ProxyTable();
+                    if (proxy == null)
+                        reason = (int)ENotEnoughResourceText.TournamentInProgress;
+                    else if (proxy.GetCustomerTournamentData().m_HasFinishCurrentTournamentRound)
+                        reason = (int)ENotEnoughResourceText.WaitNextRoundTournament;
+                    else if (table.GetTournamentPlayTableNumber() != pt)
+                        reason = (int)ENotEnoughResourceText.PlayAtWrongTableNumber;
+                    else if (table.GetHasStartPlayerPlayCard())
+                        reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying;
+                    else
+                    {
+                        var occ = table.GetOccupiedCustomerList();
+                        int mySeat = -1, others = 0;
+                        for (int i = 0; occ != null && i < occ.Count; i++)
+                        {
+                            if (occ[i] == proxy)
+                                mySeat = i;
+                            else if (occ[i] != null)
+                                others++;
+                        }
+                        if (mySeat < 0 || others == 0 || !table.m_HasStartPlay)
+                            reason = (int)ENotEnoughResourceText.SitPlaytableNoOtherPlayer; // not both seated yet
+                        else
+                        {
+                            table.m_HasStartPlay = false; // no coin flip: the human's result decides
+                            sideA = mySeat == 0;
+                            _guestSeats.Remove(connId);
+                            BookSeat(table, mySeat, true);
+                            try
+                            {
+                                table.StartPlayerCardGame();
+                            }
+                            catch (Exception e) { CoopPlugin.Log.LogWarning("GuestBattle proxy start: " + e.Message); }
+                            _guestSeats[connId] = (msg.TableIndex, mySeat);
+                            CoopPlugin.Log.LogInfo($"GuestBattle: challenger {connId} plays its round at table {msg.TableIndex} seat {mySeat}");
+                            SendToClient?.Invoke(connId, new BattleSitResultMessage { TableIndex = msg.TableIndex, Granted = true, SideA = sideA, Reason = 0 });
+                            return;
+                        }
+                    }
+                }
                 // tournament day: vanilla's own rules for "the player", which is this guest
                 // only when they hold the shop's entry (TournamentSync)
                 else if (tournamentDay && !TournamentSync.GuestHoldsEntry(connId))
@@ -346,6 +400,10 @@ namespace CardShopCoop.Sync
                 return;
             try
             {
+                // R4: the challenger's result is what the table writes into the bracket
+                var tdx = CPlayerData.m_TournamentData;
+                if (tdx != null && tdx.m_IsTournamentDay && !tdx.m_IsTournamentDayOver && TournamentSync.IsProxy(connId))
+                    TournamentSync.SetProxyResult(msg.PlayerWin, msg.Draw);
                 table.ExitPlayerCardGame(msg.PlayerWin, msg.Draw);
                 CoopPlugin.Log.LogInfo($"GuestBattle: guest {connId} left table {msg.TableIndex} (win={msg.PlayerWin} draw={msg.Draw})");
             }

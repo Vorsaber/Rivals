@@ -181,6 +181,29 @@ namespace CardShopCoop.Sync
                 return true;
             try
             {
+                int index = GuestBattle.IndexOf(__instance);
+                if (index < 0)
+                    return true;
+                // R4: tournament round against the challenger - the host waits here for PvP
+                // rather than sitting down against the NPC's AI
+                if (TournamentSync.HostProxyVsPlayerTable(index))
+                {
+                    if (self._hostWaitingTable == index)
+                    {
+                        self._hostWaitingTable = -1;
+                        HostOnlyFeatures.Notice("Co-op: no longer waiting for the challenger");
+                        return false;
+                    }
+                    if (!DeckReady())
+                    {
+                        NotEnoughResourceTextPopup.ShowText(ENotEnoughResourceText.DeckIncomplete);
+                        return false;
+                    }
+                    self._hostWaitingTable = index;
+                    HostOnlyFeatures.Notice("Co-op: tournament round vs the challenger - waiting for them to right-click this table");
+                    CoopPlugin.Log.LogInfo($"PvpBattle: host waiting for the challenger at tournament table {index}");
+                    return false;
+                }
                 var occ = __instance.m_IsSeatOccupied;
                 bool anySeat = occ != null && ((occ.Count > 0 && occ[0]) || (occ.Count > 1 && occ[1]));
                 var cust = __instance.GetOccupiedCustomerList();
@@ -189,9 +212,6 @@ namespace CardShopCoop.Sync
                     return true;
                 var td = CPlayerData.m_TournamentData;
                 if (td != null && td.m_IsTournamentDay && !td.m_IsTournamentDayOver)
-                    return true;
-                int index = GuestBattle.IndexOf(__instance);
-                if (index < 0)
                     return true;
                 if (self._hostWaitingTable == index)
                 {
@@ -256,6 +276,9 @@ namespace CardShopCoop.Sync
                 var ptg = PlayCardGame.Game();
                 var cust = table != null ? table.GetOccupiedCustomerList() : null;
                 bool anyCustomer = cust != null && ((cust.Count > 0 && cust[0] != null) || (cust.Count > 1 && cust[1] != null));
+                // R4: the challenger's NPC sits at the tournament table - that is the point
+                if (anyCustomer && TournamentSync.IsProxy(conn) && TournamentSync.HostProxyVsPlayerTable(msg.TableIndex))
+                    anyCustomer = false;
                 if (table == null || ptg == null || ptg.IsPlayTableGameMode() || !DeckReady() || anyCustomer)
                 {
                     SendToClient?.Invoke(conn, new BattleSitResultMessage { TableIndex = msg.TableIndex, Granted = false, Reason = (int)ENotEnoughResourceText.SitPlaytableAlreadyPlaying });
