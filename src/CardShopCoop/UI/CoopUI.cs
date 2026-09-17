@@ -185,7 +185,9 @@ namespace CardShopCoop.UI
             // it at MaxWindowHeight and at the room the game window actually has, then hand that
             // to GUILayout.Window. The content panel below simply expands into what is left, so
             // the full window (header, tabs, content, footer) always fits after Alt+Enter.
-            _win.width = Mathf.Min(400f, Mathf.Max(1f, Screen.width - 32f));
+            // the RIVALS tab carries a roster with team buttons and a board: it gets the wide window
+            float wantWidth = _tab == CoopTab.Rivals ? 720f : 400f;
+            _win.width = Mathf.Min(wantWidth, Mathf.Max(1f, Screen.width - 32f));
             _win.height = TargetWindowHeight();
             _win.x = Mathf.Clamp(_win.x, 0f, Mathf.Max(0f, Screen.width - _win.width));
             _win.y = Mathf.Clamp(_win.y, 0f, Mathf.Max(0f, Screen.height - _win.height));
