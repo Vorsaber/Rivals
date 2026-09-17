@@ -41,6 +41,9 @@ namespace CardShopCoop.Sync.Rivals
             ("satisfaction", "Satisfaction", r => r.Customers > 0 ? 100.0 * (1.0 - r.Dissatisfied / r.Customers) : 0, false),
             ("money", "Money", r => r.Money, true),
             ("level", "Level", r => r.Level, false),
+            // --- post-merge fv-683 + fv-686 (agreed by both lanes) begin
+            ("value", "Shop value", r => r.ShopValue, true),
+            // --- post-merge fv-683 + fv-686 end
         };
 
         /// <summary>KPIs that are a running state rather than a day's tally: a window keeps the

@@ -1,9 +1,9 @@
 <Project>
   <PropertyGroup>
     <!-- Single source of truth for the plugin's public/release version. -->
-    <CardShopCoopVersion>2.0.0</CardShopCoopVersion>
+    <CardShopCoopVersion>2.1.0</CardShopCoopVersion>
     <!-- The standalone companion plugins (TcgEconomy, TcgDifficulty). -->
-    <TcgToolsVersion>1.0.2</TcgToolsVersion>
+    <TcgToolsVersion>1.1.0</TcgToolsVersion>
     <Deploy>false</Deploy>
     <GamePath Condition="'$(GamePath)' == '' and '$(CARDSHOP_GAMEPATH)' != ''">$(CARDSHOP_GAMEPATH)</GamePath>
     <GamePath Condition="'$(GamePath)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">D:\SteamLibrary\steamapps\common\TCG Card Shop Simulator</GamePath>
