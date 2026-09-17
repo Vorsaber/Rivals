@@ -1237,6 +1237,14 @@ namespace CardShopCoop
             if (Role == CoopRole.Host && _net != null && _net.ConnectionCount > 0)
                 Broadcast(board);
         }
+        // --- fv-684 econ-app begin
+        /// <summary>Host: the TUNING app's snapshot of the companion plugins' settings.</summary>
+        internal void RelayEconState(EconStateMessage state)
+        {
+            if (Role == CoopRole.Host && _net != null && _net.ConnectionCount > 0)
+                Broadcast(state);
+        }
+        // --- fv-684 econ-app end
 
         /// <summary>Tag above the puppet with this display name, if it is in the shop.</summary>
         internal void ShowTagFor(string name, string text, float seconds)

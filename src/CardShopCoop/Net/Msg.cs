@@ -137,6 +137,9 @@ namespace CardShopCoop.Net
         BagWithdrawResult = 144, // host -> that client: what actually left the till
         RivalsDayReport = 145,   // league: a shop's end-of-day numbers (member -> server)
         RivalsDayBoard = 146,    // league: every shop's latest day report (server -> all; team host -> guests)
+        // --- fv-684 econ-app begin
+        EconState = 152,         // host -> clients: the host's TcgEconomy / TcgDifficulty settings, for the TUNING phone app
+        // --- fv-684 econ-app end
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

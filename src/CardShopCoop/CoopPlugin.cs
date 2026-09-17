@@ -292,6 +292,9 @@ namespace CardShopCoop
             // --- fv-688 r11-bag-overlay begin
             go.AddComponent<UI.BagOverlay>();
             // --- fv-688 r11-bag-overlay end
+            // --- fv-684 econ-app begin
+            go.AddComponent<Sync.EconSync>();
+            // --- fv-684 econ-app end
         }
     }
 }
