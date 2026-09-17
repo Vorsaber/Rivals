@@ -1439,6 +1439,17 @@ namespace CardShopCoop
                     _register.ClientApplyChange(message);
             },
                 MessagePolicy.InGameOnly, true, heal: () => _register.ForceResend());
+            // --- fv-684 econ-app begin
+            _messageRouter.Register<EconStateMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client || !InGameLevel())
+                    return;
+                if (message is EconStateMessage state)
+                    Sync.EconSync.ClientApply(state);
+                return;
+            },
+                MessagePolicy.ClientOnlyInGame, false);
+            // --- fv-684 econ-app end
         }
     }
 }

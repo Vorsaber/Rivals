@@ -289,6 +289,9 @@ namespace CardShopCoop
             go.AddComponent<UI.PurchaseConfirm>();
             go.AddComponent<UI.PhoneApps>();
             go.AddComponent<Sync.Rivals.RivalsLobby>();
+            // --- fv-684 econ-app begin
+            go.AddComponent<Sync.EconSync>();
+            // --- fv-684 econ-app end
         }
     }
 }
