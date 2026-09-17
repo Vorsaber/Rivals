@@ -551,6 +551,28 @@ namespace CardShopCoop.Net
                 SteamFriends.ActivateGameOverlayInviteDialog(LobbyId);
         }
 
+        // --- fv-682 b5-ledger-hardening begin (Steam N-host invites)
+        public void SetData(string key, string value)
+        {
+            if (LobbyId == CSteamID.Nil || string.IsNullOrEmpty(key))
+                return;
+            try
+            {
+                SteamMatchmaking.SetLobbyData(LobbyId, key, value ?? "");
+            }
+            catch (System.Exception e) { Swallow.Log(e); }
+        }
+
+        public static string GetData(CSteamID lobby, string key)
+        {
+            try
+            {
+                return SteamMatchmaking.GetLobbyData(lobby, key) ?? "";
+            }
+            catch (System.Exception e) { Swallow.Log(e); return ""; }
+        }
+        // --- fv-682 b5-ledger-hardening end
+
         public void Leave()
         {
             if (LobbyId != CSteamID.Nil)
@@ -851,6 +873,16 @@ namespace CardShopCoop.Net
         {
             _rivals.OpenInviteDialog();
         }
+        // --- fv-682 b5-ledger-hardening begin (Steam N-host invites)
+        public void SetShopLobbyData(string key, string value)
+        {
+            _lobby.SetData(key, value);
+        }
+        public string LobbyData(ulong lobbyId, string key)
+        {
+            return SteamLobby.GetData(new CSteamID(lobbyId), key);
+        }
+        // --- fv-682 b5-ledger-hardening end
         public void RefreshList()
         {
             _lobby.RefreshList();

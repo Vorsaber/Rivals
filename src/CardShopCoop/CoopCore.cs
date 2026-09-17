@@ -916,6 +916,10 @@ namespace CardShopCoop
                 _steam.OnInviteAccepted = lobby =>
                 {
                     CoopPlugin.Log.LogInfo("steam: invite accepted -> lobby " + lobby);
+                    // fv-682: in a league every shop is a Steam host of its own - an invite to
+                    // a RIVAL's shop is a visit (bag, allowlist), to the captain's a team join
+                    if (Sync.Rivals.RivalsLobby.RouteShopInvite(lobby))
+                        return;
                     JoinSteam(lobby);
                 };
                 _steam.OnRivalsInviteAccepted = lobby =>

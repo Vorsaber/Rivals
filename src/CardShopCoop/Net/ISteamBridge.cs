@@ -164,6 +164,15 @@ namespace CardShopCoop.Net
         {
             get; set;
         }
+
+        // --- fv-682 b5-ledger-hardening begin (Steam N-host invites)
+        /// <summary>Host: stamp a key on OUR shop lobby (the co-op one), e.g. which league it
+        /// plays in, so an invite to it can be told from a plain co-op invite.</summary>
+        void SetShopLobbyData(string key, string value);
+        /// <summary>A lobby's data by key ("" when unknown). Readable for lobbies we are in and
+        /// for one whose data was just requested (an accepted invite requests it).</summary>
+        string LobbyData(ulong lobbyId, string key);
+        // --- fv-682 b5-ledger-hardening end
     }
 
     /// <summary>

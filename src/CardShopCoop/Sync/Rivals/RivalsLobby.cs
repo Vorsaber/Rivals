@@ -537,7 +537,69 @@ namespace CardShopCoop.Sync.Rivals
                 _shops[0] = shop;
             else
                 _net.Send(1, new RivalsShopStateMessage { Shop = shop });
+            TagShopLobby(shop.SteamLobby);
         }
+
+        // --- fv-682 b5-ledger-hardening begin (Steam N-host invites)
+        private ulong _taggedLobby;
+
+        /// <summary>Our Steam shop lobby carries the league id and our shop name, so a member
+        /// who accepts an invite to it (from the overlay, the friends list, +connect_lobby)
+        /// can be routed as a visit or a team join even before the board lists us.</summary>
+        private void TagShopLobby(ulong lobby)
+        {
+            if (lobby == 0 || lobby == _taggedLobby)
+                return;
+            var steam = CoopCore.Instance != null ? CoopCore.Instance.Steam : null;
+            if (steam == null)
+                return;
+            steam.SetShopLobbyData("league", LeagueId ?? "");
+            steam.SetShopLobbyData("shop", MyShopName());
+            _taggedLobby = lobby;
+            CoopPlugin.Log.LogInfo($"Rivals: shop lobby {lobby} tagged with league {LeagueId}");
+        }
+
+        /// <summary>An accepted Steam invite to a co-op SHOP lobby while we sit in a league:
+        /// a rival's shop = a visit (the bag opens, the host's allowlist applies), our team
+        /// captain's shop = a team join with the board's password. Returns false when the
+        /// invite is nothing of ours (no league, another league, not a league shop) - the
+        /// caller then joins the ordinary way. Without this an invite to a rival's shop made
+        /// the invitee a full guest of that shop, with its till.</summary>
+        public static bool RouteShopInvite(ulong lobby)
+        {
+            var me = Instance;
+            if (me == null || Role == LobbyRole.None || lobby == 0)
+                return false;
+            var steam = CoopCore.Instance != null ? CoopCore.Instance.Steam : null;
+            var shop = Board != null && Board.Shops != null ? Board.Shops.Find(x => x.SteamLobby == lobby) : null;
+            string league = steam != null ? steam.LobbyData(lobby, "league") : "";
+            if (shop == null && league != LeagueId)
+                return false; // not a shop of this league
+            if (shop == null)
+            {
+                string name = steam != null ? steam.LobbyData(lobby, "shop") : "";
+                Status = $"invite to {(string.IsNullOrEmpty(name) ? "a league shop" : name)} - it is not on the board yet, use Visit in a few seconds";
+                CoopPlugin.Log.LogInfo($"Rivals: shop invite to lobby {lobby} (league {league}) not on the board yet - not joined as a plain guest");
+                return true;
+            }
+            var mine = Roster.Find(x => x.Id == MyId);
+            var owner = Roster.Find(x => x.Name == shop.Name);
+            bool teammate = mine != null && owner != null && mine.Team > 0 && owner.Team == mine.Team;
+            if (teammate)
+            {
+                CoopPlugin.Log.LogInfo($"Rivals: shop invite to teammate {shop.Name} - joining the team");
+                if (CoopCore.Role != CoopRole.None)
+                {
+                    Status = "leave your current session first";
+                    return true;
+                }
+                return JoinShop(shop, "joining " + shop.Name);
+            }
+            CoopPlugin.Log.LogInfo($"Rivals: shop invite to rival {shop.Name} - visiting");
+            Visit(shop);
+            return true;
+        }
+        // --- fv-682 b5-ledger-hardening end
 
         private RivalsShop BuildMyShop()
         {
