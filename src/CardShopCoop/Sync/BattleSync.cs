@@ -95,7 +95,11 @@ namespace CardShopCoop.Sync
         private void DigestLocalBattle(ref bool wasActive, Action<BattleStateMessage> send)
         {
             var game = Game();
-            bool active = game != null && game.IsPlayTableGameMode() && !PvpBattle.Active;
+            // R1: a PvP match is mirrored too - from the HOST's engine only (it holds both humans'
+            // boards; the guest in the match stays quiet so spectators get one stream, and the
+            // two participants ignore it because they are in battle mode themselves)
+            bool active = game != null && game.IsPlayTableGameMode()
+                && (!PvpBattle.Active || CoopCore.Role == CoopRole.Host);
             if (!active)
             {
                 if (wasActive)

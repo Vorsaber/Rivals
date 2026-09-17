@@ -52,6 +52,8 @@ namespace CardShopCoop.Net.Messages
         SearchSelect = 7,   // Sel / Rem = indices into the offered list, Flag = resolve success
         Quit = 8,
         Hash = 9,           // A = turn, B = state hash (from the sender's side)
+        Rematch = 10,       // A = 1 "I want a rematch"; host -> guest A = 2 "go" (B = 1: the ante is on again)
+        Desync = 11,        // either side: the engines disagreed twice in a row - both abort the match
     }
 
     /// <summary>Both directions: one thing the sending human did in the match, replayed on the

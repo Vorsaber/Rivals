@@ -40,6 +40,12 @@ namespace CardShopCoop.Sync
         public static double HostAnte => CoopPlugin.RivalsPvpAnte != null ? Math.Max(0, CoopPlugin.RivalsPvpAnte.Value) : 0;
         private static double s_ante, s_pot;
         private static bool s_settled;
+        // rematch handshake: both press Rematch on the win/lose screen, the host says go
+        private static bool s_rematchMine, s_rematchTheirs;
+        // desync: consecutive hash mismatches on the same turn (R5: two in a row = abort)
+        private static int s_hashMisses;
+        private static readonly FieldInfo FiIsPlayerWin = AccessTools.Field(typeof(PlayTableGame), "m_IsPlayerWin");
+        private static readonly FieldInfo FiSpawnedGifts = AccessTools.Field(typeof(PlayTableGame), "m_SpawnedItemList");
         public static double CurrentAnte => Active ? s_ante : 0;
 
         public static bool Active
@@ -129,6 +135,13 @@ namespace CardShopCoop.Sync
             // the ante pot follows the result (host only)
             Try(h, typeof(PlayTableGame), "ReportWinner",
                 postfix: new HarmonyMethod(typeof(PvpBattle), nameof(ReportWinnerPostfix)));
+            // rematch: both must want it; the host restarts both engines in step (R2)
+            Try(h, typeof(PlayCardSetUIScreen_WinLoseScreen), "OnPressRematchButton",
+                prefix: new HarmonyMethod(typeof(PvpBattle), nameof(RematchButtonPrefix)));
+            // a visitor's won gift packs go into the carry-out bag, not the hand (R3)
+            Try(h, typeof(PlayTableGame), "TakeEndGameGiftItem",
+                prefix: new HarmonyMethod(typeof(PvpBattle), nameof(GiftTakePrefix)),
+                postfix: new HarmonyMethod(typeof(PvpBattle), nameof(GiftTakePostfix)));
             // no gift packs in PvP (each engine would roll its own)
             Try(h, typeof(PlayTableGame), "EvaluateEndGameGift",
                 postfix: new HarmonyMethod(typeof(PvpBattle), nameof(NoGiftPostfix)));
@@ -416,6 +429,8 @@ namespace CardShopCoop.Sync
             s_hashTimer = 0f;
             s_queueStuckSince = -1f;
             s_endSent = false;
+            s_rematchMine = s_rematchTheirs = false;
+            s_hashMisses = 0;
             if (!hostPc)
                 s_ante = 0; // the host set its stake before Begin; the guest learns it from the start message
             CoopPlugin.Log.LogInfo($"PvpBattle: match vs {opponent} at table {table}, seed {seed}, {(hostPc ? "host" : "guest")} PC");
@@ -882,6 +897,17 @@ namespace CardShopCoop.Sync
                 OpponentLeft();
                 return;
             }
+            if (msg.Kind == PvpActionKind.Rematch)
+            {
+                OnRematchAction(msg);
+                return;
+            }
+            if (msg.Kind == PvpActionKind.Desync)
+            {
+                CoopPlugin.Log.LogWarning("PvpBattle: the other side called a desync - aborting the match");
+                AbortDesync(false);
+                return;
+            }
             s_queue.Enqueue(msg);
         }
 
@@ -1141,9 +1167,187 @@ namespace CardShopCoop.Sync
                     return; // one side is mid-transition; compare on the same turn only
                 int mine = StateHash(ptg, true);
                 if (mine != msg.B)
-                    CoopPlugin.Log.LogWarning($"PvpBattle: state hash differs on turn {msg.A} (mine {mine}, theirs {msg.B}) - watch for a desync");
+                {
+                    s_hashMisses++;
+                    CoopPlugin.Log.LogWarning($"PvpBattle: state hash differs on turn {msg.A} (mine {mine}, theirs {msg.B}) - miss {s_hashMisses}");
+                    if (s_hashMisses >= 2)
+                    {
+                        // R5: the engines have parted ways; a match nobody can trust ends now,
+                        // stakes back to both, rather than playing on to a result one side never saw
+                        Send(new PvpActionMessage { Kind = PvpActionKind.Desync, A = msg.A });
+                        AbortDesync(true);
+                    }
+                }
+                else
+                    s_hashMisses = 0;
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("PvpBattle.CheckHash: " + e.Message); }
+        }
+
+        // ---------------------------------------------------------------- desync (R5)
+
+        /// <summary>Both engines stop this match: the host refunds an unsettled pot, the
+        /// result screen is shown as a draw so both players get the normal way out.</summary>
+        private static void AbortDesync(bool mine)
+        {
+            if (!Active)
+                return;
+            HostOnlyFeatures.Notice("Co-op: the match desynced - called off, stakes returned");
+            try
+            {
+                Settle(0, "desync - match called off");
+                var ptg = PlayCardGame.Game();
+                if (ptg != null && ptg.IsPlayTableGameMode()
+                    && !(ptg.m_PlayCardSetUIScreen_WinLoseScreen != null && ptg.m_PlayCardSetUIScreen_WinLoseScreen.IsScreenOpened()))
+                {
+                    s_applying = true;
+                    try
+                    {
+                        ptg.ReportWinner(false, true); // a draw: Settle above already ran, so the postfix has nothing to pay
+                    }
+                    finally { s_applying = false; }
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("PvpBattle.AbortDesync: " + e.Message); }
+            s_queue.Clear();
+        }
+
+        // ---------------------------------------------------------------- rematch (R2)
+
+        /// <summary>The win/lose screen's Rematch: in PvP nobody restarts alone. Say so, and
+        /// wait for the other side; the host restarts both engines when both want it.</summary>
+        public static bool RematchButtonPrefix(PlayCardSetUIScreen_WinLoseScreen __instance)
+        {
+            if (!Active)
+                return true;
+            try
+            {
+                if (s_rematchMine)
+                    return false;
+                s_rematchMine = true;
+                Send(new PvpActionMessage { Kind = PvpActionKind.Rematch, A = 1 });
+                HostOnlyFeatures.Notice("Co-op: rematch requested - waiting for " + s_opponent);
+                if (s_isHostPc)
+                    HostTryRematch();
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("PvpBattle.RematchButtonPrefix: " + e.Message); }
+            return false;
+        }
+
+        private static void OnRematchAction(PvpActionMessage msg)
+        {
+            if (msg.A == 1)
+            {
+                s_rematchTheirs = true;
+                HostOnlyFeatures.Notice("Co-op: " + s_opponent + " wants a rematch" + (s_rematchMine ? "" : " - press Rematch to accept"));
+                if (s_isHostPc)
+                    HostTryRematch();
+                return;
+            }
+            if (msg.A == 2 && !s_isHostPc)
+            {
+                // go: the host restarted; we follow, same seed stream (the RNG counters continue)
+                bool anteOn = msg.B == 1;
+                if (anteOn && s_ante > 0)
+                    Rivals.VisitorBag.TrySpend(s_ante, "PvP rematch ante vs " + s_opponent, true);
+                StartRematch(anteOn);
+            }
+        }
+
+        private static void HostTryRematch()
+        {
+            if (!s_isHostPc || !s_rematchMine || !s_rematchTheirs)
+                return;
+            bool anteOn = false;
+            if (s_ante > 0 && CPlayerData.m_CoinAmountDouble >= s_ante)
+            {
+                anteOn = true;
+                CEventManager.QueueEvent(new CEventPlayer_ReduceCoin((float)s_ante));
+                s_pot = s_ante * 2;
+                s_settled = false;
+                CoopPlugin.Log.LogInfo($"PvpBattle: rematch ante {s_ante:0.00} each - pot {s_pot:0.00}");
+            }
+            Send(new PvpActionMessage { Kind = PvpActionKind.Rematch, A = 2, B = anteOn ? 1 : 0 });
+            StartRematch(anteOn);
+        }
+
+        private static void StartRematch(bool anteOn)
+        {
+            try
+            {
+                var ptg = PlayCardGame.Game();
+                if (ptg == null || !ptg.IsPlayTableGameMode())
+                    return;
+                s_rematchMine = s_rematchTheirs = false;
+                s_queue.Clear();
+                s_enemyMulliganWanted = false;
+                s_enemySearchPending = false;
+                s_hashMisses = 0;
+                s_hashTimer = 0f;
+                s_queueStuckSince = -1f;
+                s_endSent = false;
+                if (!anteOn)
+                    s_ante = 0;
+                try
+                {
+                    if (ptg.m_PlayCardSetUIScreen_WinLoseScreen != null && ptg.m_PlayCardSetUIScreen_WinLoseScreen.IsScreenOpened())
+                        ptg.m_PlayCardSetUIScreen_WinLoseScreen.OnPressBack();
+                }
+                catch { }
+                bool win = FiIsPlayerWin != null && (bool)FiIsPlayerWin.GetValue(ptg);
+                ptg.Rematch(win);
+                CoopPlugin.Log.LogInfo("PvpBattle: rematch" + (anteOn ? $" for {s_ante:0.00} each" : ""));
+                HostOnlyFeatures.Notice("Co-op: rematch!" + (anteOn ? $" Ante {GameInstance.GetPriceString(s_ante)} each again" : ""));
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("PvpBattle.StartRematch: " + e.Message); }
+        }
+
+        // ---------------------------------------------------------------- gifts (R3)
+
+        [ThreadStatic] private static List<Item> s_giftItems;
+
+        /// <summary>Before the engine hands the won packs to the hand: remember them.</summary>
+        public static void GiftTakePrefix(PlayTableGame __instance)
+        {
+            s_giftItems = null;
+            if (!CoopCore.IsVisiting)
+                return;
+            try
+            {
+                var list = FiSpawnedGifts?.GetValue(__instance) as List<Item>;
+                if (list != null && list.Count > 0)
+                    s_giftItems = new List<Item>(list);
+            }
+            catch { }
+        }
+
+        /// <summary>A visitor's gift packs cannot be shelved here and would not come home:
+        /// straight from the hand into the carry-out bag.</summary>
+        public static void GiftTakePostfix()
+        {
+            var items = s_giftItems;
+            s_giftItems = null;
+            if (items == null || !CoopCore.IsVisiting)
+                return;
+            int n = 0;
+            foreach (var item in items)
+            {
+                if (item == null)
+                    continue;
+                try
+                {
+                    var type = item.GetItemType();
+                    if (CoopCore.RemoveHeldItemFromHand(item))
+                    {
+                        CoopCore.DestroyDetachedItem(item);
+                        Rivals.VisitorBag.AddItem(type, 1, 0f);
+                        n++;
+                    }
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning("PvpBattle gift to bag: " + e.Message); }
+            }
+            if (n > 0)
+                HostOnlyFeatures.Notice($"{n} gift pack(s) into your bag");
         }
 
         // ---------------------------------------------------------------- decks
