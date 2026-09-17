@@ -202,6 +202,21 @@ namespace CardShopCoop.Net.Messages
         }
     }
 
+    /// <summary>A visitor took a card off a display: buy it. The host clears the slot, takes
+    /// the card's set price into the till and echoes the empty slot to everyone.</summary>
+    [NetworkMessage(MsgType.VisitorCardBuy, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class VisitorCardBuyMessage : INetMessage
+    {
+        public int Key;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.VisitorCardBuy;
+            }
+        }
+    }
+
     [NetworkMessage(MsgType.RivalsPing, Policy = MessagePolicy.Any)]
     public sealed class RivalsPingMessage : INetMessage
     {

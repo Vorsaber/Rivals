@@ -1184,6 +1184,13 @@ namespace CardShopCoop
         }
 
         /// <summary>Team host: the Rivals board goes down to the guests over the co-op session.</summary>
+        /// <summary>Visitor: I took this displayed card - charge me, clear it there.</summary>
+        internal void SendVisitorCardBuy(int key)
+        {
+            if (Role == CoopRole.Client && _net != null)
+                Send(1, new VisitorCardBuyMessage { Key = key });
+        }
+
         /// <summary>Client: hand the carry-out bag to the shop we play in (our team's).</summary>
         internal void SendBagDeposit(BagDepositMessage dep)
         {
@@ -4874,6 +4881,8 @@ namespace CardShopCoop
                 case MsgType.TournamentEntry:
                 case MsgType.SprayHit:
                 case MsgType.NpcSpeech:
+                case MsgType.ShelfRequest:   // buy-by-taking: WorldSync.ApplyRequest keeps only their takes
+                case MsgType.VisitorCardBuy: // buy-by-taking: a displayed card
                     return true;
                 default:
                     return false;

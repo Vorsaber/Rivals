@@ -340,6 +340,32 @@ namespace CardShopCoop.Sync
                 // item, so escrowing it would reserve - and on rejection destroy - an unrelated
                 // hand item. GetShelfKey/QueueTake is the hand-take path (takeItem != null).
                 bool escrowTake = delta < 0 && takeItem != null;
+                if (CoopCore.IsVisiting)
+                {
+                    // A VISITOR buys by taking: a hand take off a priced shelf is a purchase
+                    // against the carry-out bag (charged when the host accepts it, see
+                    // ApplyTransferResult). Nothing else touches the shop: no stocking, no
+                    // container moves. Refuse those - and a take the bag cannot cover - closed.
+                    string refuse = null;
+                    if (delta > 0)
+                        refuse = "visitors can't stock the shelves";
+                    else if (!escrowTake)
+                        refuse = "visitors can't move stock around";
+                    else
+                    {
+                        double cost = VisitorUnitPrice(transferType) * -delta;
+                        if (!Rivals.VisitorBag.IsOpen)
+                            refuse = "no carry-out bag open";
+                        else if (Rivals.VisitorBag.Balance < cost)
+                            refuse = $"your bag can't cover {GameInstance.GetPriceString(cost)} (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})";
+                    }
+                    if (refuse != null)
+                    {
+                        HostOnlyFeatures.Notice("Visit: " + refuse);
+                        FailClosedMutation(comp, key, delta, transferType, escrowTake);
+                        return;
+                    }
+                }
                 if (_transfers.IsAddReserved(key) || _transfers.IsTakeReserved(key))
                 {
                     if (!_queued.TryGetValue(key, out var q))
@@ -518,13 +544,30 @@ namespace CardShopCoop.Sync
         public List<Entry> ApplyRequest(List<Entry> entries, int connId)
         {
             List<Entry> authoritative = null;
+            bool visitor = CoopCore.Instance != null && CoopCore.Instance.IsVisitorConn(connId);
             foreach (var e in entries)
             {
+                if (visitor)
+                {
+                    // a visitor may only TAKE (buy); an add or a label edit is refused so their
+                    // hand rolls back, and nothing absolute of theirs reaches the shop
+                    if (e.TransferSeq == 0)
+                        continue;
+                    if (e.Count - e.BaseCount >= 0)
+                    {
+                        _hostAcks.Store(connId, e.TransferSeq, 0);
+                        SendResult?.Invoke(new ShelfTransferResultMessage { Key = e.Key, TransferSeq = e.TransferSeq, AcceptedDelta = 0 }, connId);
+                        continue;
+                    }
+                }
                 if (e.TransferSeq != 0)
                 {
+                    _lastAccepted = 0; // a deduplicated replay returns without setting it
                     var actual = ApplyTransferRequest(e, connId);
                     if (actual.HasValue)
                         (authoritative ?? (authoritative = new List<Entry>())).Add(actual.Value);
+                    if (visitor && _lastAccepted < 0)
+                        VisitorPaid(connId, _lastAcceptedType, -_lastAccepted);
                 }
                 else
                 {
@@ -655,6 +698,8 @@ namespace CardShopCoop.Sync
                 accepted = 0;
             }
             _hostAcks.Store(connId, e.TransferSeq, accepted);
+            _lastAccepted = accepted;
+            _lastAcceptedType = actual.HasValue && accepted < 0 ? SoldType(e, actual.Value) : e.TransferType;
             SendResult?.Invoke(new ShelfTransferResultMessage
             {
                 Key = e.Key,
@@ -662,6 +707,53 @@ namespace CardShopCoop.Sync
                 AcceptedDelta = accepted,
             }, connId);
             return actual;
+        }
+
+        // ---- buy-by-taking (Rivals visits)
+
+        private int _lastAccepted;
+        private int _lastAcceptedType = -1;
+
+        /// <summary>The type that left the compartment: the transfer type when known, else the
+        /// compartment's type before it emptied.</summary>
+        private static int SoldType(Entry request, Entry actual)
+        {
+            if (request.TransferType >= 0 && request.TransferType != (int)EItemType.None)
+                return request.TransferType;
+            return actual.Type;
+        }
+
+        /// <summary>What the shop charges for one of these: the set price (the visitor sees
+        /// the same list through PriceListMessage, so both sides agree).</summary>
+        internal static double VisitorUnitPrice(int type)
+        {
+            try
+            {
+                if (type < 0 || type == (int)EItemType.None)
+                    return 0;
+                return CPlayerData.GetItemPrice((EItemType)type);
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>Host: a visitor took stock - the shop gets paid (their bag is charged on
+        /// their side when this acceptance lands).</summary>
+        private void VisitorPaid(int connId, int type, int count)
+        {
+            if (count <= 0)
+                return;
+            double unit = VisitorUnitPrice(type);
+            double total = unit * count;
+            try
+            {
+                if (total > 0)
+                    CEventManager.QueueEvent(new CEventPlayer_AddCoin((float)total));
+            }
+            catch (Exception ex) { CoopPlugin.Log.LogWarning("WorldSync visitor sale: " + ex.Message); }
+            string who = CoopCore.Instance != null ? CoopCore.Instance.PeerNameFor(connId) : "a visitor";
+            string what = type >= 0 ? ((EItemType)type).ToString() : "item";
+            CoopPlugin.Log.LogInfo($"rivals: {who} bought {count} x {what} for {total:0.00}");
+            HostOnlyFeatures.Notice($"{who} (visiting) bought {count} x {what} for {GameInstance.GetPriceString(total)}");
         }
 
         /// <summary>Client: the host resolved one of our shelf transfers. Anything it could not
@@ -683,13 +775,26 @@ namespace CardShopCoop.Sync
                 {
                     int accepted = Mathf.Max(0, -msg.AcceptedDelta);
                     reconciliationAttempted = true;
+                    bool purchase = CoopCore.IsVisiting && pending.EscrowToken > 0;
                     _applyingRemote = true;
                     try
                     {
-                        escrowResolved = HandEscrow.ResolveTake(pending.EscrowToken, accepted);
+                        // a visitor's accepted take is BOUGHT: it leaves the hand for the bag,
+                        // so every escrowed item comes out of the hand (accepted or not)
+                        escrowResolved = HandEscrow.ResolveTake(pending.EscrowToken, purchase ? 0 : accepted);
                     }
                     finally { _applyingRemote = false; }
                     CoopPlugin.Log.LogInfo($"WorldSync transfer key={pending.Target:X} take token={pending.EscrowToken} accepted={accepted} rejected={Mathf.Max(0, -rejected)}");
+                    if (purchase && accepted > 0)
+                    {
+                        double unit = VisitorUnitPrice(pending.TransferType);
+                        double cost = unit * accepted;
+                        string what = pending.TransferType >= 0 ? ((EItemType)pending.TransferType).ToString() : "item";
+                        Rivals.VisitorBag.TrySpend(cost, $"{accepted} x {what}", true);
+                        if (pending.TransferType >= 0 && pending.TransferType != (int)EItemType.None)
+                            Rivals.VisitorBag.AddItem((EItemType)pending.TransferType, accepted, (float)cost);
+                        HostOnlyFeatures.Notice($"Bought {accepted} x {what} for {GameInstance.GetPriceString(cost)} - in your bag (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})");
+                    }
                 }
                 else if (rejected > 0)
                 {

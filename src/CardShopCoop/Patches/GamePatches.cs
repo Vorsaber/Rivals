@@ -355,6 +355,12 @@ namespace CardShopCoop.Patches
             Try(h, typeof(InteractableCardCompartment), "OnMouseButtonUp",
                 prefix: new HarmonyMethod(typeof(GamePatches), nameof(CardPlacementPrefix)),
                 postfix: new HarmonyMethod(typeof(GamePatches), nameof(CardPlacementPostfix)));
+            // Rivals visitor: taking a displayed card BUYS it (bag charged, slot sold on the host);
+            // placing one on a rival's display is refused.
+            Try(h, typeof(InteractableCardCompartment), "OnRightMouseButtonUp",
+                prefix: new HarmonyMethod(typeof(GamePatches), nameof(VisitorCardTakePrefix)) { priority = Priority.High });
+            Try(h, typeof(InteractableCardCompartment), "OnMouseButtonUp",
+                prefix: new HarmonyMethod(typeof(GamePatches), nameof(VisitorCardPlacePrefix)) { priority = Priority.High });
 
             // Product licenses are shared: bought by either player, unlocked for both.
             // Identity travels as (itemType + box size), never a restock-list index -
@@ -589,9 +595,32 @@ namespace CardShopCoop.Patches
             __state = __instance != null ? __instance.m_StoredCardList.Count : -1;
         }
 
+        public static bool VisitorCardTakePrefix(InteractableCardCompartment __instance)
+        {
+            if (!CoopCore.IsVisiting)
+                return true;
+            try
+            {
+                return Sync.CardShelfSync.VisitorTakeDisplayedCard(__instance);
+            }
+            catch (Exception e)
+            {
+                CoopPlugin.Log.LogWarning("VisitorCardTakePrefix: " + e.Message);
+                return false;
+            }
+        }
+
+        public static bool VisitorCardPlacePrefix()
+        {
+            if (!CoopCore.IsVisiting)
+                return true;
+            Sync.HostOnlyFeatures.Notice("Visit: you can't put cards on a rival's display");
+            return false;
+        }
+
         public static void CardPlacementPostfix(InteractableCardCompartment __instance, int __state)
         {
-            if (__state != 0 || __instance == null || __instance.m_StoredCardList.Count == 0)
+            if (__state != 0 || __instance == null || __instance.m_StoredCardList.Count == 0 || CoopCore.IsVisiting)
                 return;
             try
             {

@@ -971,6 +971,19 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.ClientOnlyInGame, false);
+            _messageRouter.Register<VisitorCardBuyMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Host || !InGameLevel())
+                    return;
+                if (message is VisitorCardBuyMessage buy && IsVisitorConn(context.ConnectionId))
+                {
+                    var echo = _cardShelves.HostSellToVisitor(buy.Key, PeerNameFor(context.ConnectionId));
+                    if (echo != null && echo.Count > 0)
+                        Broadcast(new CardShelfDeltaMessage { Echo = true, Entries = echo });
+                }
+                return;
+            },
+                MessagePolicy.HostOnlyInGame, false);
             _messageRouter.Register<BagDepositMessage>((context, message) =>
             {
                 if (Role != CoopRole.Host || !InGameLevel())

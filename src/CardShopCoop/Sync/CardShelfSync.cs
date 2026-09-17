@@ -459,6 +459,116 @@ namespace CardShopCoop.Sync
             }
         }
 
+        /// <summary>The sync key of a live compartment on this machine (false when the display is
+        /// not bound yet).</summary>
+        internal static bool TryKeyOf(InteractableCardCompartment comp, out int key)
+        {
+            key = 0;
+            var self = Active;
+            if (self == null || comp == null)
+                return false;
+            try
+            {
+                var shelf = comp.GetCardShelf();
+                if (shelf == null || !self.TryKindOf(shelf, out int kind))
+                    return false;
+                int compIdx = CompartmentIndex(shelf, comp);
+                if (compIdx < 0)
+                    return false;
+                return PlacedObjectIdentity.TryMakeCompartmentKey(kind, shelf, compIdx, out key);
+            }
+            catch (Exception e)
+            {
+                Swallow.Log(e);
+                return false;
+            }
+        }
+
+        /// <summary>VISITOR (client): the right-click take on a displayed card is a purchase.
+        /// The card never reaches the hand: it is charged to the carry-out bag at the display's
+        /// price, bagged, cleared locally, and the host is told to sell it. Returns false when
+        /// the take must not happen (nothing to take is left to the game).</summary>
+        internal static bool VisitorTakeDisplayedCard(InteractableCardCompartment comp)
+        {
+            var self = Active;
+            if (self == null || comp == null)
+                return true;
+            CardData card = null;
+            try
+            {
+                if (comp.m_StoredCardList.Count == 0 || !comp.m_StoredCardList[0].IsDisplayedOnShelf())
+                    return true; // nothing on it: vanilla does nothing either
+                if (!TryReadSlot(comp, out card) || card == null)
+                    return true;
+            }
+            catch { return true; }
+            string refuse = null;
+            double price = 0;
+            try
+            {
+                price = CPlayerData.GetCardPrice(card);
+            }
+            catch { }
+            if (comp.m_ItemNotForSale)
+                refuse = "that card is not for sale";
+            else if (!Rivals.VisitorBag.IsOpen)
+                refuse = "no carry-out bag open";
+            else if (Rivals.VisitorBag.Balance < price)
+                refuse = $"your bag can't cover {GameInstance.GetPriceString(price)} (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})";
+            else if (!TryKeyOf(comp, out int key))
+                refuse = "that display isn't synced yet - try again in a moment";
+            else
+            {
+                string name = card.monsterType + (card.isFoil ? " (foil)" : "");
+                Rivals.VisitorBag.TrySpend(price, name, true);
+                Rivals.VisitorBag.AddCard(card, 1, (float)price);
+                // clear it here the way a host delta would, so the mirror stays honest
+                self.ApplyRemote(new List<Entry> { new Entry { Key = key, Occupied = false } });
+                CoopCore.Instance?.SendVisitorCardBuy(key);
+                HostOnlyFeatures.Notice($"Bought {name} for {GameInstance.GetPriceString(price)} - in your bag (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})");
+                CoopPlugin.Log.LogInfo($"rivals: bought card {name} for {price:0.00} (key {key:X})");
+                return false;
+            }
+            HostOnlyFeatures.Notice("Visit: " + refuse);
+            return false;
+        }
+
+        /// <summary>HOST: a visitor bought the card on this display slot - clear it, take the
+        /// money, and return the empty slot to echo to everyone. Null when there was nothing to
+        /// sell (already gone: the visitor's view heals on the next delta).</summary>
+        internal List<Entry> HostSellToVisitor(int key, string who)
+        {
+            var sm = Sm();
+            var comp = sm != null ? Resolve(sm, key) : null;
+            if (comp == null)
+                return null;
+            CardData card;
+            try
+            {
+                if (!TryReadSlot(comp, out card) || card == null || comp.m_ItemNotForSale)
+                    return null;
+            }
+            catch { return null; }
+            double price = 0;
+            try
+            {
+                price = CPlayerData.GetCardPrice(card);
+            }
+            catch { }
+            string name = card.monsterType + (card.isFoil ? " (foil)" : "");
+            var entries = new List<Entry> { new Entry { Key = key, Occupied = false } };
+            ApplyRemote(entries);
+            try
+            {
+                if (price > 0)
+                    CEventManager.QueueEvent(new CEventPlayer_AddCoin((float)price));
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("CardShelfSync visitor sale: " + e.Message); }
+            CoopPlugin.Log.LogInfo($"rivals: {who} bought card {name} for {price:0.00}");
+            HostOnlyFeatures.Notice($"{who} (visiting) bought {name} for {GameInstance.GetPriceString(price)}");
+            return ReadEntries(entries);
+        }
+
         /// <summary>Client: remember that a card was placed into a display slot by THIS player, so
         /// the mirror never silently adopts over it and never destroys it before the host has
         /// explicitly answered. Called from the card-compartment placement patch.</summary>

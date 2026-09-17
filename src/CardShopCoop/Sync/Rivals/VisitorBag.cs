@@ -172,11 +172,11 @@ namespace CardShopCoop.Sync.Rivals
         /// <summary>What the visitor can still spend.</summary>
         public static double Balance => IsOpen ? Current.MoneyAtDeparture - Current.Spent + Current.Earned : 0;
 
-        public static bool TrySpend(double amount, string what)
+        public static bool TrySpend(double amount, string what, bool force = false)
         {
             if (!IsOpen || amount < 0)
                 return false;
-            if (Balance < amount)
+            if (!force && Balance < amount)
                 return false;
             Current.Spent += amount;
             Current.Log.Add($"spent {amount:0.00} on {what}");
