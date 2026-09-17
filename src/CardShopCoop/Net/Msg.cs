@@ -140,6 +140,9 @@ namespace CardShopCoop.Net
         // --- fv-684 econ-app begin
         EconState = 152,         // host -> clients: the host's TcgEconomy / TcgDifficulty settings, for the TUNING phone app
         // --- fv-684 econ-app end
+        // --- fv-687 prize-entitlement begin
+        TournamentPrizeClaim = 155, // host -> one entrant: what is still theirs on the prize shelf (R9); RefusedKey bounces a card claim
+        // --- fv-687 prize-entitlement end
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

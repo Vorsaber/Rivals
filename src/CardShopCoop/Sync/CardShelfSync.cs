@@ -511,13 +511,16 @@ namespace CardShopCoop.Sync
             catch { }
             int key = 0;
             bool keyed = TryKeyOf(comp, out key);
-            // the tournament prize shelf (kind 14): the entrant's winnings are free
-            bool prize = keyed && (key >> 24) == 14 && TournamentSync.ClientPrizeFree();
+            // the tournament prize shelf (kind 14): the entrant's winnings are free - fv-687:
+            // only the cards on THEIR placement's prize list (PrizeClaim), each once; while
+            // they still have winnings to collect, anything else on that shelf is refused
+            bool prizeShelf = keyed && (key >> 24) == 14 && TournamentSync.ClientPrizeFree();
+            bool prize = false;
             if (!Rivals.VisitorBag.IsOpen)
                 refuse = "no carry-out bag open";
             else if (!keyed)
                 refuse = "that display isn't synced yet - try again in a moment";
-            else if (prize)
+            else if (prizeShelf && (prize = TournamentSync.ClientPrizeCard(card, key)))
             {
                 string pname = card.monsterType + (card.isFoil ? " (foil)" : "");
                 Rivals.VisitorBag.AddCard(card, 1, 0f);
@@ -527,6 +530,8 @@ namespace CardShopCoop.Sync
                 CoopPlugin.Log.LogInfo($"rivals: prize card {pname} (key {key:X})");
                 return false;
             }
+            else if (prizeShelf && TournamentSync.ClientPrizeRemaining())
+                refuse = "that's not your prize - yours is " + TournamentSync.ClientPrizeDescribe(); // fv-687
             else if (comp.m_ItemNotForSale)
                 refuse = "that card is not for sale";
             else if (Rivals.VisitorBag.Balance < price)
@@ -577,6 +582,22 @@ namespace CardShopCoop.Sync
             CoopCore.Instance?.SendVisitorCardBuy(key);
             HostOnlyFeatures.Notice($"Bought {name} for {GameInstance.GetPriceString(price)} - in your bag (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})");
             CoopPlugin.Log.LogInfo($"rivals: bought card {name} for {price:0.00} (key {key:X})");
+        }
+
+        /// <summary>HOST: the card on this display slot, or null (fv-687: the prize-entitlement
+        /// check needs it before the sale is decided).</summary>
+        internal CardData HostPeekSlot(int key)
+        {
+            var sm = Sm();
+            var comp = sm != null ? Resolve(sm, key) : null;
+            if (comp == null)
+                return null;
+            try
+            {
+                CardData card;
+                return TryReadSlot(comp, out card) ? card : null;
+            }
+            catch { return null; }
         }
 
         /// <summary>HOST: a visitor bought the card on this display slot - clear it, take the
