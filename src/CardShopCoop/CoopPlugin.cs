@@ -42,6 +42,7 @@ namespace CardShopCoop
         public static ConfigEntry<bool> RivalsSharedMarket;
         public static ConfigEntry<bool> RivalsSharedTuning;
         public static ConfigEntry<int> RivalsSaveSlot;
+        public static ConfigEntry<bool> RivalsConfirmPurchases;
         public static ConfigEntry<string> RivalsLeagueId;
         public static ConfigEntry<int> RivalsTeams;
         public static ConfigEntry<int> RivalsPerTeam;
@@ -107,6 +108,8 @@ namespace CardShopCoop
                 "Lobby host: the lobby host's TcgDifficulty and TcgEconomy settings apply to every shop in the league (each shop still counts its own players).");
             RivalsPriceEffect = Config.Bind("Rivals", "PriceEffect", 0.3f,
                 "Lobby host: how much the price race moves the crowd. 0.3 = the cheapest shop draws 30% more customers, the priciest 30% fewer, linear between. 0 = off.");
+            RivalsConfirmPurchases = Config.Bind("Rivals", "ConfirmPurchases", true,
+                "Visiting a rival: ask before a take is charged to the bag (Y/Enter buys, N/Esc puts it back). Off = every take buys at once.");
             RivalsSaveSlot = Config.Bind("Rivals", "SaveSlot", 8,
                 new ConfigDescription("Save slot a league shop lives in - one the game's own menus never show (0-3 are yours, 6-7 are co-op's). The league save only loads when the lobby host starts the league.", new AcceptableValueRange<int>(8, 15)));
             RivalsLeagueId = Config.Bind("Rivals", "LeagueId", "",
@@ -273,6 +276,7 @@ namespace CardShopCoop
             go.AddComponent<CoopCore>();
             go.AddComponent<UI.CheatMenu>();
             go.AddComponent<UI.ChatOverlay>();
+            go.AddComponent<UI.PurchaseConfirm>();
             go.AddComponent<Sync.Rivals.RivalsLobby>();
         }
     }

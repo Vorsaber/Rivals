@@ -359,6 +359,26 @@ namespace CardShopCoop.Sync
                         else if (Rivals.VisitorBag.Balance < cost)
                             refuse = $"your bag can't cover {GameInstance.GetPriceString(cost)} (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})";
                     }
+                    if (refuse == null && UI.PurchaseConfirm.Enabled)
+                    {
+                        // ask first: the item waits in the hand; Y sends the take (= the
+                        // purchase), N rolls it back like any refused take
+                        double cost = VisitorUnitPrice(transferType) * -delta;
+                        string what = transferType >= 0 && transferType != (int)EItemType.None ? ((EItemType)transferType).ToString() : "item";
+                        var pendingEntry = e;
+                        bool asked = UI.PurchaseConfirm.Ask(
+                            $"Buy {-delta} x {what} for {GameInstance.GetPriceString(cost)}?",
+                            $"Bag balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)} - charged to your team's carry-out bag when the shop hands it over.",
+                            () => ContinueClientMutation(comp, key, pendingEntry, delta, transferType, escrowTake),
+                            () =>
+                            {
+                                HostOnlyFeatures.Notice("Put back");
+                                FailClosedMutation(comp, key, delta, transferType, escrowTake);
+                            });
+                        if (asked)
+                            return;
+                        refuse = "answer the purchase you have open first (Y / N)";
+                    }
                     if (refuse != null)
                     {
                         HostOnlyFeatures.Notice("Visit: " + refuse);
@@ -366,27 +386,33 @@ namespace CardShopCoop.Sync
                         return;
                     }
                 }
-                if (_transfers.IsAddReserved(key) || _transfers.IsTakeReserved(key))
-                {
-                    if (!_queued.TryGetValue(key, out var q))
-                        _queued[key] = q = new Queue<QueuedMutation>();
-                    if (q.Count < PendingTransferLedger<int>.MaxOutstanding)
-                        q.Enqueue(new QueuedMutation { Entry = e, EscrowTake = escrowTake });
-                    else
-                        CoopPlugin.Log.LogError($"WorldSync: queued-transfer cap reached key={key:X}; dropping the local edit and requesting resync");
-                    return;
-                }
-                e.TransferSeq = _transfers.Begin(key, delta, transferType, out e.TransferType, escrowTake);
-                if (e.TransferSeq == 0)
-                {
-                    FailClosedMutation(comp, key, delta, transferType, escrowTake);
-                    return;
-                }
+                ContinueClientMutation(comp, key, e, delta, transferType, escrowTake);
+                return;
             }
-            else
+            e.BaseCount = (CoopCore.Role == CoopRole.Client && delta == 0) ? -1 : 0;
+            e.TransferType = -1;
+            OnLocalChanges?.Invoke(new List<Entry> { e });
+        }
+
+        /// <summary>Client: track and send a local item move (the tail of the mutation report,
+        /// split out so a visitor's purchase can wait for its confirmation first).</summary>
+        private void ContinueClientMutation(ShelfCompartment comp, int key, Entry e, int delta, int transferType, bool escrowTake)
+        {
+            if (_transfers.IsAddReserved(key) || _transfers.IsTakeReserved(key))
             {
-                e.BaseCount = (CoopCore.Role == CoopRole.Client && delta == 0) ? -1 : 0;
-                e.TransferType = -1;
+                if (!_queued.TryGetValue(key, out var q))
+                    _queued[key] = q = new Queue<QueuedMutation>();
+                if (q.Count < PendingTransferLedger<int>.MaxOutstanding)
+                    q.Enqueue(new QueuedMutation { Entry = e, EscrowTake = escrowTake });
+                else
+                    CoopPlugin.Log.LogError($"WorldSync: queued-transfer cap reached key={key:X}; dropping the local edit and requesting resync");
+                return;
+            }
+            e.TransferSeq = _transfers.Begin(key, delta, transferType, out e.TransferType, escrowTake);
+            if (e.TransferSeq == 0)
+            {
+                FailClosedMutation(comp, key, delta, transferType, escrowTake);
+                return;
             }
             OnLocalChanges?.Invoke(new List<Entry> { e });
         }

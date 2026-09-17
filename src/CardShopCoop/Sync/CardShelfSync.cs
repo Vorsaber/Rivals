@@ -517,20 +517,52 @@ namespace CardShopCoop.Sync
                 refuse = $"your bag can't cover {GameInstance.GetPriceString(price)} (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})";
             else if (!TryKeyOf(comp, out int key))
                 refuse = "that display isn't synced yet - try again in a moment";
+            else if (UI.PurchaseConfirm.Pending)
+                refuse = "answer the purchase you have open first (Y / N)";
             else
             {
                 string name = card.monsterType + (card.isFoil ? " (foil)" : "");
-                Rivals.VisitorBag.TrySpend(price, name, true);
-                Rivals.VisitorBag.AddCard(card, 1, (float)price);
-                // clear it here the way a host delta would, so the mirror stays honest
-                self.ApplyRemote(new List<Entry> { new Entry { Key = key, Occupied = false } });
-                CoopCore.Instance?.SendVisitorCardBuy(key);
-                HostOnlyFeatures.Notice($"Bought {name} for {GameInstance.GetPriceString(price)} - in your bag (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})");
-                CoopPlugin.Log.LogInfo($"rivals: bought card {name} for {price:0.00} (key {key:X})");
+                if (UI.PurchaseConfirm.Enabled)
+                {
+                    var cd = card;
+                    UI.PurchaseConfirm.Ask(
+                        $"Buy {name} for {GameInstance.GetPriceString(price)}?",
+                        $"Bag balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)} - the card goes straight into your team's carry-out bag.",
+                        () => BuyDisplayedCard(self, comp, cd, key, price, name),
+                        null);
+                }
+                else
+                    BuyDisplayedCard(self, comp, card, key, price, name);
                 return false;
             }
             HostOnlyFeatures.Notice("Visit: " + refuse);
             return false;
+        }
+
+        private static void BuyDisplayedCard(CardShelfSync self, InteractableCardCompartment comp, CardData card, int key, double price, string name)
+        {
+            // still there? (a delta may have cleared it while the question was open)
+            try
+            {
+                if (comp == null || comp.m_StoredCardList.Count == 0 || !TryReadSlot(comp, out var now) || now == null)
+                {
+                    HostOnlyFeatures.Notice("Visit: that card is gone");
+                    return;
+                }
+            }
+            catch { return; }
+            if (Rivals.VisitorBag.Balance < price)
+            {
+                HostOnlyFeatures.Notice($"Visit: your bag can't cover {GameInstance.GetPriceString(price)} any more");
+                return;
+            }
+            Rivals.VisitorBag.TrySpend(price, name, true);
+            Rivals.VisitorBag.AddCard(card, 1, (float)price);
+            // clear it here the way a host delta would, so the mirror stays honest
+            self.ApplyRemote(new List<Entry> { new Entry { Key = key, Occupied = false } });
+            CoopCore.Instance?.SendVisitorCardBuy(key);
+            HostOnlyFeatures.Notice($"Bought {name} for {GameInstance.GetPriceString(price)} - in your bag (balance {GameInstance.GetPriceString(Rivals.VisitorBag.Balance)})");
+            CoopPlugin.Log.LogInfo($"rivals: bought card {name} for {price:0.00} (key {key:X})");
         }
 
         /// <summary>HOST: a visitor bought the card on this display slot - clear it, take the
