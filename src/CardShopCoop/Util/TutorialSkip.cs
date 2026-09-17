@@ -10,6 +10,23 @@ namespace CardShopCoop.Util
         {
             CPlayerData.m_HasFinishedTutorial = true;
             CPlayerData.m_TutorialIndex = 99;
+            // what actually persists: the per-task values in the save. On load the manager
+            // re-derives every panel's finished state from these (EvaluateTaskVisibility),
+            // so without them the first panel comes back on the next load (Dan, 2026-09-16:
+            // "tutorial came back in rivals")
+            try
+            {
+                var list = CPlayerData.m_TutorialDataList ?? (CPlayerData.m_TutorialDataList = new System.Collections.Generic.List<TutorialData>());
+                foreach (ETutorialTaskCondition cond in System.Enum.GetValues(typeof(ETutorialTaskCondition)))
+                {
+                    var entry = list.Find(t => t != null && t.tutorialTaskCondition == cond);
+                    if (entry == null)
+                        list.Add(new TutorialData { tutorialTaskCondition = cond, value = 100000f });
+                    else if (entry.value < 100000f)
+                        entry.value = 100000f;
+                }
+            }
+            catch { }
             var tm = Object.FindObjectOfType<TutorialManager>();
             if (tm != null)
             {

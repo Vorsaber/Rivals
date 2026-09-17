@@ -1,4 +1,5 @@
 using System;
+using CardShopCoop.Util;
 using UnityEngine;
 
 namespace CardShopCoop.UI
@@ -94,6 +95,24 @@ namespace CardShopCoop.UI
 
             if (Owner)
             {
+                GUILayout.BeginVertical(CoopTheme.SectionBox);
+                GUILayout.Label("TUTORIAL", CoopTheme.SectionHeader);
+                bool done = false;
+                try
+                {
+                    done = CPlayerData.m_HasFinishedTutorial;
+                }
+                catch { }
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(done ? "finished" : "step " + CPlayerData.m_TutorialIndex, CoopTheme.Label, GUILayout.Width(130f));
+                if (GUILayout.Button("Skip the tutorial", CoopTheme.ButtonSecondary, GUILayout.Width(150f)))
+                {
+                    TutorialSkip.Finish();
+                    s_status = "tutorial marked finished (and saved as finished)";
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.EndVertical();
+
                 GUILayout.BeginVertical(CoopTheme.SectionBox);
                 GUILayout.Label("RIVALS SETTINGS", CoopTheme.SectionHeader);
                 if (CoopPlugin.RivalsBagMoney != null)

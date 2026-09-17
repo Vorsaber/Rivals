@@ -169,7 +169,7 @@ namespace CardShopCoop.Sync.Rivals
                 {
                     bool resume = File.Exists(SlotFile(".json"));
                     NewGame = !resume;
-                    s_tutorialPending = NewGame;
+                    s_tutorialPending = true; // a league shop never runs the tutorial - new OR resumed
                     s_hostPending = true;
                     typeof(CGameManager).GetField("m_InitLoaded", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, false);
                     gm.m_CurrentSaveLoadSlotSelectedIndex = 0; // redirected to the league slot
