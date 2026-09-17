@@ -53,6 +53,11 @@ namespace CardShopCoop
         public static ConfigEntry<int> RivalsSeasonDays;
         public static ConfigEntry<int> RivalsWeekDays;
         // --- fv-683 leaderboard-v2 end
+        // --- fv-686 standings-v2 begin
+        public static ConfigEntry<string> RivalsKpiWeights;
+        public static ConfigEntry<string> RivalsKpiDisabled;
+        public static ConfigEntry<int> RivalsHistoryDays;
+        // --- fv-686 standings-v2 end
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
         public static ConfigEntry<string> LastJoinIP;
@@ -136,6 +141,14 @@ namespace CardShopCoop
             RivalsWeekDays = Config.Bind("Rivals", "WeekDays", 7,
                 new ConfigDescription("Lobby host: declare a winner every this-many days (days 1-7, 8-14, ...) while the league runs on - the shop that GAINED the most shop value over the stretch. 0 = off. Independent of SeasonDays.", new AcceptableValueRange<int>(0, 60)));
             // --- fv-683 leaderboard-v2 end
+            // --- fv-686 standings-v2 begin
+            RivalsKpiWeights = Config.Bind("Rivals", "KpiWeights", "",
+                "Lobby host: weight of each end-of-day KPI in the standings points, as key=weight pairs (profit=2,revenue=1,customers=1,checkouts=1,cards=1,items=1,satisfaction=1,money=1,level=1). Unlisted keys weigh 1. Shipped to every member so all PCs rank alike; editable on the LEAGUE phone app.");
+            RivalsKpiDisabled = Config.Bind("Rivals", "KpiDisabled", "",
+                "Lobby host: end-of-day KPIs that do not count towards the standings, comma-separated keys (see KpiWeights). They still show in the table, dimmed.");
+            RivalsHistoryDays = Config.Bind("Rivals", "HistoryDays", 7,
+                new ConfigDescription("Lobby host: how many recent days the LAST N DAYS standings view sums over. Season totals always cover every day kept.", new AcceptableValueRange<int>(1, 60)));
+            // --- fv-686 standings-v2 end
             MaxPlayers = Config.Bind("Network", "MaxPlayers", 4,
                 new ConfigDescription("Host: players in the shop including you (2-8). Sets the Steam lobby size and refuses LAN joins past it. Everything is relayed through the host, so above 4 expect the host's upload to be the limit.", new AcceptableValueRange<int>(2, 8)));
             LastJoinIP = Config.Bind("Network", "LastJoinIP", "192.168.1.100",

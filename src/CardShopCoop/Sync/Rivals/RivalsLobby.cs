@@ -421,6 +421,10 @@ namespace CardShopCoop.Sync.Rivals
                     _net.Broadcast(new RivalsChatMessage { From = "lobby", Text = _shops[msg.ConnId].Name + " joined the league" });
                     _members[msg.ConnId] = new LeagueMember { Id = msg.ConnId, Name = _shops[msg.ConnId].Name };
                     SendSetup();
+                    // --- fv-686 standings-v2 begin
+                    if (_dayReports.Count > 0 || LeagueHistory.Rows.Count > 0)
+                        _net.Send(msg.ConnId, BuildDayBoard());
+                    // --- fv-686 standings-v2 end
                     break;
                 case RivalsWelcomeMessage welcome:
                     if (Role != LobbyRole.Client)
@@ -473,6 +477,9 @@ namespace CardShopCoop.Sync.Rivals
                         return;
                     day.Report.ShopId = msg.ConnId;
                     _dayReports[msg.ConnId] = day.Report;
+                    // --- fv-686 standings-v2 begin
+                    LeagueHistory.Record(day.Report);
+                    // --- fv-686 standings-v2 end
                     BroadcastDayBoard();
                     break;
                 case RivalsDayBoardMessage dayBoard:
@@ -936,6 +943,11 @@ namespace CardShopCoop.Sync.Rivals
             LeagueId = CoopPlugin.RivalsLeagueId != null ? (CoopPlugin.RivalsLeagueId.Value ?? "").Trim() : "";
             if (string.IsNullOrEmpty(LeagueId))
                 MintLeagueId();
+            // --- fv-686 standings-v2 begin
+            LeagueHistory.Use(LeagueId);
+            _dayReports.Clear();
+            LeagueDay.Apply(BuildDayBoard()); // the season so far, before anyone ends a day
+            // --- fv-686 standings-v2 end
             LoadTeamBags();
             LeagueTeams = CoopPlugin.RivalsTeams != null ? CoopPlugin.RivalsTeams.Value : 2;
             LeaguePerTeam = CoopPlugin.RivalsPerTeam != null ? CoopPlugin.RivalsPerTeam.Value : 1;
@@ -965,6 +977,11 @@ namespace CardShopCoop.Sync.Rivals
             if (me == null || Role != LobbyRole.Server)
                 return;
             MintLeagueId();
+            // --- fv-686 standings-v2 begin
+            LeagueHistory.Use(LeagueId);
+            me._dayReports.Clear();
+            me.BroadcastDayBoard();
+            // --- fv-686 standings-v2 end
             LeagueStarted = false;
             // --- fv-683 leaderboard-v2 begin
             me.SeasonReset();
@@ -1243,6 +1260,9 @@ namespace CardShopCoop.Sync.Rivals
             if (Role == LobbyRole.Server)
             {
                 me._dayReports[0] = r;
+                // --- fv-686 standings-v2 begin
+                LeagueHistory.Record(r);
+                // --- fv-686 standings-v2 end
                 me.BroadcastDayBoard();
             }
             else
@@ -1252,14 +1272,37 @@ namespace CardShopCoop.Sync.Rivals
 
         private void BroadcastDayBoard()
         {
-            var board = new RivalsDayBoardMessage();
-            foreach (var kv in _dayReports)
-                if (kv.Value != null)
-                    board.Reports.Add(kv.Value);
+            var board = BuildDayBoard();
             _net.Broadcast(board);
             LeagueDay.Apply(board);
             CoopCore.Instance?.RelayRivalsDayBoard(board);
         }
+
+        // --- fv-686 standings-v2 begin
+        /// <summary>Server: latest report per shop, plus the season's history and the host's
+        /// KPI weights/toggles so every member ranks the same way.</summary>
+        private RivalsDayBoardMessage BuildDayBoard()
+        {
+            var board = new RivalsDayBoardMessage();
+            foreach (var kv in _dayReports)
+                if (kv.Value != null)
+                    board.Reports.Add(kv.Value);
+            board.History.AddRange(LeagueHistory.Rows);
+            board.Kpis = LeagueDay.HostSettings();
+            board.HistoryDays = LeagueDay.HostHistoryDays();
+            return board;
+        }
+
+        /// <summary>Server: the host changed a weight, a toggle or the history window - resend
+        /// the board so everyone re-ranks now rather than at the next day's end.</summary>
+        public static void RebroadcastDayBoard()
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server || me._net == null)
+                return;
+            me.BroadcastDayBoard();
+        }
+        // --- fv-686 standings-v2 end
 
         /// <summary>A co-op GUEST gets the day board from its host.</summary>
         public static void ApplyRelayedDayBoard(RivalsDayBoardMessage board)

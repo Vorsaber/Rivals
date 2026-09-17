@@ -347,6 +347,15 @@ namespace CardShopCoop.Net.Messages
                 return MsgType.RivalsDayBoard;
             }
         }
+        // --- fv-686 standings-v2 begin
+        /// <summary>Every shop-day the lobby has kept for this league (season history). Reports
+        /// above stays "latest per shop"; older builds ignore these fields.</summary>
+        public List<RivalsDayReport> History = new List<RivalsDayReport>();
+        /// <summary>The lobby host's KPI weights and toggles - shipped so every PC ranks alike.</summary>
+        public List<RivalsKpiSetting> Kpis = new List<RivalsKpiSetting>();
+        /// <summary>The host's "last N days" window for the history view.</summary>
+        public int HistoryDays;
+        // --- fv-686 standings-v2 end
     }
 
     // --- fv-683 leaderboard-v2 begin
@@ -364,6 +373,16 @@ namespace CardShopCoop.Net.Messages
         public List<double> Deltas = new List<double>();
     }
     // --- fv-683 leaderboard-v2 end
+    // --- fv-686 standings-v2 begin
+    /// <summary>One KPI's standing in the league's scoring: its weight in the points sum and
+    /// whether it counts at all. Keys match LeagueDay.Kpis.</summary>
+    public sealed class RivalsKpiSetting
+    {
+        public string Key = "";
+        public float Weight = 1f;
+        public bool Enabled = true;
+    }
+    // --- fv-686 standings-v2 end
 
     [NetworkMessage(MsgType.RivalsPing, Policy = MessagePolicy.Any)]
     public sealed class RivalsPingMessage : INetMessage
