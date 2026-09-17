@@ -137,6 +137,9 @@ namespace CardShopCoop.Net
         BagWithdrawResult = 144, // host -> that client: what actually left the till
         RivalsDayReport = 145,   // league: a shop's end-of-day numbers (member -> server)
         RivalsDayBoard = 146,    // league: every shop's latest day report (server -> all; team host -> guests)
+        // --- fv-682 b5-ledger-hardening begin
+        BagDepositAck = 158,     // host -> that client: the bag deposit with this id was applied (or already had been) - the guest may clear it
+        // --- fv-682 b5-ledger-hardening end
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.
