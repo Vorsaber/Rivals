@@ -16,6 +16,7 @@ namespace CardShopCoop.Sync.Rivals
         private static readonly string[] Gated = { "OnPressStartGame", "OnPressLoadGame", "OpenLoadGameSlotScreen", "OnPressConfirmOverwrite" };
         private static readonly List<GameObject> s_hidden = new List<GameObject>();
         private static bool s_hiding;
+        private static readonly List<CanvasGroup> s_addedGroups = new List<CanvasGroup>();
         private static float s_lastScan = -10f;
 
         private static bool InLobby => RivalsLobby.Role != RivalsLobby.LobbyRole.None;
@@ -42,7 +43,11 @@ namespace CardShopCoop.Sync.Rivals
             return false;
         }
 
-        /// <summary>Ticked from RivalsLobby.Update (every frame; scans once a second).</summary>
+        /// <summary>Ticked from RivalsLobby.Update (every frame; re-applied once a second, because
+        /// the title screen's controller extension re-enables its selectables). A gated button is
+        /// hidden with a CanvasGroup (alpha 0, no raycasts) and deactivated; when every Button
+        /// under its parent is gated, the parent FRAME goes too (the game draws the button's
+        /// backing on that frame, which is what stayed on screen greyed out).</summary>
         public static void Tick()
         {
             bool want = InLobby;
@@ -64,16 +69,67 @@ namespace CardShopCoop.Sync.Rivals
                     s_hidden.RemoveAll(g => g == null);
                     return;
                 }
+                var gated = new List<Button>();
                 foreach (var b in title.GetComponentsInChildren<Button>(true))
+                    if (b != null && IsGated(b, title))
+                        gated.Add(b);
+                var targets = new HashSet<GameObject>();
+                foreach (var b in gated)
                 {
-                    if (b == null || !b.gameObject.activeSelf || !IsGated(b, title))
+                    targets.Add(b.gameObject);
+                    var parent = b.transform.parent;
+                    if (parent == null || parent == title.transform)
                         continue;
-                    b.gameObject.SetActive(false);
-                    s_hidden.Add(b.gameObject);
+                    bool allGated = true;
+                    foreach (var other in parent.GetComponentsInChildren<Button>(true))
+                        if (!gated.Contains(other))
+                        {
+                            allGated = false;
+                            break;
+                        }
+                    if (allGated)
+                        targets.Add(parent.gameObject);
+                }
+                foreach (var go in targets)
+                    Hide(go);
+                if (!s_hiding)
+                {
+                    var names = new List<string>();
+                    foreach (var go in targets)
+                        names.Add(Path(go.transform));
+                    CoopPlugin.Log.LogInfo("TitleGate: hiding " + string.Join(", ", names));
                 }
                 s_hiding = true;
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("TitleGate: " + e.Message); }
+        }
+
+        private static void Hide(GameObject go)
+        {
+            var cg = go.GetComponent<CanvasGroup>();
+            if (cg == null)
+            {
+                cg = go.AddComponent<CanvasGroup>();
+                s_addedGroups.Add(cg);
+            }
+            cg.alpha = 0f;
+            cg.interactable = false;
+            cg.blocksRaycasts = false;
+            if (go.activeSelf)
+                go.SetActive(false);
+            if (!s_hidden.Contains(go))
+                s_hidden.Add(go);
+        }
+
+        private static string Path(Transform t)
+        {
+            string p = t.name;
+            while (t.parent != null)
+            {
+                t = t.parent;
+                p = t.name + "/" + p;
+            }
+            return p;
         }
 
         private static bool IsGated(Button b, TitleScreen title)
@@ -98,6 +154,10 @@ namespace CardShopCoop.Sync.Rivals
             foreach (var g in s_hidden)
                 if (g != null)
                     g.SetActive(true);
+            foreach (var cg in s_addedGroups)
+                if (cg != null)
+                    UnityEngine.Object.Destroy(cg);
+            s_addedGroups.Clear();
             s_hidden.Clear();
             s_hiding = false;
         }
