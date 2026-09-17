@@ -31,6 +31,10 @@ namespace CardShopCoop.Net.Messages
         public DeckEntry HostDeck = new DeckEntry();
         public string HostName = "";
         public double Ante;              // each side's stake; the guest's comes out of its bag now
+        // --- fv-680 guest-vs-guest pvp begin
+        public bool Relay;               // the opponent is ANOTHER GUEST; the host forwards actions and runs no engine
+        public bool SideA;               // relay: this guest is side A (decides who goes first, drives the rematch)
+        // --- fv-680 guest-vs-guest pvp end
         public MsgType Type
         {
             get
@@ -87,6 +91,11 @@ namespace CardShopCoop.Net.Messages
     {
         public byte TableIndex;
         public string Reason = "";
+        // --- fv-680 guest-vs-guest pvp begin
+        public bool HasResult;           // the sender's engine reported a winner before it left
+        public bool PlayerWin;           // ...from the SENDER's side
+        public bool Draw;
+        // --- fv-680 guest-vs-guest pvp end
         public MsgType Type
         {
             get
@@ -157,6 +166,25 @@ namespace CardShopCoop.Net.Messages
             }
         }
     }
+    // --- fv-680 guest-vs-guest pvp begin
+    /// <summary>Host -> the sitter: nobody was waiting at that table, so the sitter now waits
+    /// there (Waiting) for the host or another guest to right-click it - or stopped waiting.</summary>
+    [NetworkMessage(MsgType.PvpWait, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class PvpWaitMessage : INetMessage
+    {
+        public byte TableIndex;
+        public bool Waiting;
+        public string Text = "";
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.PvpWait;
+            }
+        }
+    }
+    // --- fv-680 guest-vs-guest pvp end
+
     /// <summary>Client -> host: the guest is (or is no longer) ready to end the day.</summary>
     [NetworkMessage(MsgType.SleepVote, Policy = MessagePolicy.HostOnlyInGame)]
     public sealed class SleepVoteMessage : INetMessage

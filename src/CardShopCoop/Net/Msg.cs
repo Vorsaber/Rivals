@@ -137,6 +137,9 @@ namespace CardShopCoop.Net
         BagWithdrawResult = 144, // host -> that client: what actually left the till
         RivalsDayReport = 145,   // league: a shop's end-of-day numbers (member -> server)
         RivalsDayBoard = 146,    // league: every shop's latest day report (server -> all; team host -> guests)
+        // --- fv-680 guest-vs-guest pvp begin
+        PvpWait = 147,           // host -> one client: you are (or are no longer) waiting at a table for a second player
+        // --- fv-680 guest-vs-guest pvp end
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.
