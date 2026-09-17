@@ -181,12 +181,10 @@ namespace CardShopCoop.Sync
                 HostOnlyFeatures.Notice("Decks can't change mid-battle");
                 return false;
             }
-            if (IsDeckListOpen())
-            {
-                CoopPlugin.Log.LogInfo("DeckSync: phone deck builder refused - the workbench deck list is open");
-                HostOnlyFeatures.Notice("Close the workbench deck list first");
-                return false;
-            }
+            // The workbench deck list is deliberately NOT consulted here: the phone builder only
+            // ever runs with the phone up (the player cannot be at the bench at the same time),
+            // and the screen object's active state tripped this for every owner (2026-09-16).
+            // Both editors take the same lock, so the list stays consistent either way.
             if (self == null || CoopCore.Role == CoopRole.None)
             {
                 RemoteEditing = true;
