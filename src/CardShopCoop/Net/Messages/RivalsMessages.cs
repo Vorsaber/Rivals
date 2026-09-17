@@ -176,6 +176,32 @@ namespace CardShopCoop.Net.Messages
         }
     }
 
+    /// <summary>The team's ONE carry-out bag, kept by the lobby server so two teammates out
+    /// visiting draw on the same balance and bring home one bag. Member -> server: "open",
+    /// "spend", "earn", "item", "card", "back". Server -> team: "state" (the mirror),
+    /// "deliver" (to the captain, when the last teammate is home).</summary>
+    [NetworkMessage(MsgType.RivalsBag, Policy = MessagePolicy.Any)]
+    public sealed class RivalsBagMessage : INetMessage
+    {
+        public string Op = "";
+        public CardShopCoop.Sync.Rivals.VisitorBag.State State;
+        public double Amount;
+        public string What = "";
+        public int ItemType;
+        public int Count;
+        public int Expansion;
+        public int Index;
+        public bool IsDestiny;
+        public float Paid;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.RivalsBag;
+            }
+        }
+    }
+
     [NetworkMessage(MsgType.RivalsPing, Policy = MessagePolicy.Any)]
     public sealed class RivalsPingMessage : INetMessage
     {

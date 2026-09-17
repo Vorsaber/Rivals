@@ -84,6 +84,8 @@ namespace CardShopCoop.Sync.Rivals
         /// <summary>The host has started this league: members holding its save may return to
         /// their shop on their own (after a visit) - still only through this lobby.</summary>
         public static bool LeagueStarted;
+        /// <summary>Server: one carry-out bag per team, keyed by <see cref="BagKeyFor"/>.</summary>
+        private readonly Dictionary<string, VisitorBag.State> _teamBags = new Dictionary<string, VisitorBag.State>();
 
         private void Awake()
         {
@@ -326,6 +328,7 @@ namespace CardShopCoop.Sync.Rivals
                         _welcomed.Remove(d);
                         if (_members.Remove(d))
                             SendSetup();
+                        BagMemberGone(d);
                     }
                     else
                     {
@@ -443,6 +446,9 @@ namespace CardShopCoop.Sync.Rivals
                     break;
                 case RivalsLeagueMessage league:
                     OnLeagueMessage(msg.ConnId, league);
+                    break;
+                case RivalsBagMessage bag:
+                    OnBagMessage(msg.ConnId, bag);
                     break;
                 case MarketStateMessage market:
                     if (Role != LobbyRole.Client)
@@ -1038,6 +1044,205 @@ namespace CardShopCoop.Sync.Rivals
                 _joinedOnce = false;
                 _lastJoinTry = -100f;
                 Status = cap != null ? "waiting for " + cap.Name + "'s shop to open..." : "your team has no captain";
+            }
+        }
+
+        // ================================================================ team bag
+
+        /// <summary>Which bag a member shares: its league team, else its own shop.</summary>
+        private string BagKeyFor(int memberId)
+        {
+            var m = Roster.Find(x => x.Id == memberId);
+            if (m != null && m.Team > 0)
+                return "team:" + m.Team;
+            return "shop:" + (m != null ? m.Name : memberId.ToString());
+        }
+
+        /// <summary>Member: our bag opens - hand it to the lobby. Returns false when there is
+        /// no lobby (the bag stays local, as before).</summary>
+        public static bool ShareBag(VisitorBag.State s)
+        {
+            var me = Instance;
+            if (me == null || Role == LobbyRole.None || me._net == null || s == null)
+                return false;
+            var msg = new RivalsBagMessage { Op = "open", State = s };
+            if (Role == LobbyRole.Server)
+                me.OnBagMessage(0, msg);
+            else
+                me._net.Send(1, msg);
+            return true;
+        }
+
+        public static void SendBagOp(RivalsBagMessage msg)
+        {
+            var me = Instance;
+            if (me == null || Role == LobbyRole.None || me._net == null)
+                return;
+            if (Role == LobbyRole.Server)
+                me.OnBagMessage(0, msg);
+            else
+                me._net.Send(1, msg);
+        }
+
+        public static bool SendBagBack()
+        {
+            var me = Instance;
+            if (me == null || Role == LobbyRole.None || me._net == null)
+                return false;
+            SendBagOp(new RivalsBagMessage { Op = "back" });
+            return true;
+        }
+
+        private void OnBagMessage(int conn, RivalsBagMessage m)
+        {
+            if (Role == LobbyRole.Client)
+            {
+                if (m.Op == "state")
+                    VisitorBag.ApplyShared(m.State);
+                else if (m.Op == "deliver")
+                    VisitorBag.Deliver(m.State);
+                return;
+            }
+            if (Role != LobbyRole.Server)
+                return;
+            string key = BagKeyFor(conn);
+            _teamBags.TryGetValue(key, out var bag);
+            switch (m.Op)
+            {
+                case "open":
+                    if (m.State == null)
+                        return;
+                    if (bag == null || !bag.Open)
+                    {
+                        bag = m.State.Clone(); // never the opener's own object (the server opens too)
+                        bag.Key = key;
+                        bag.Shared = true;
+                        bag.Out = new List<int> { conn };
+                        _teamBags[key] = bag;
+                        CoopPlugin.Log.LogInfo($"Rivals: team bag {key} opened by {NameOf(conn)} (wallet {bag.MoneyAtDeparture:0.00})");
+                    }
+                    else
+                    {
+                        if (!bag.Out.Contains(conn))
+                            bag.Out.Add(conn);
+                        bag.VisitingShop = m.State.VisitingShop;
+                        bag.Log.Add(NameOf(conn) + " joined the trip");
+                        CoopPlugin.Log.LogInfo($"Rivals: {NameOf(conn)} piggybacks on team bag {key} ({bag.Out.Count} out)");
+                    }
+                    BroadcastBag(key, bag);
+                    break;
+                case "spend":
+                    if (bag == null)
+                        return;
+                    bag.Spent += Math.Max(0, m.Amount);
+                    bag.Log.Add($"{NameOf(conn)} spent {m.Amount:0.00} on {m.What}");
+                    BroadcastBag(key, bag);
+                    break;
+                case "earn":
+                    if (bag == null)
+                        return;
+                    bag.Earned += Math.Max(0, m.Amount);
+                    bag.Log.Add($"{NameOf(conn)} earned {m.Amount:0.00} from {m.What}");
+                    BroadcastBag(key, bag);
+                    break;
+                case "item":
+                    if (bag == null)
+                        return;
+                    VisitorBag.AddItemTo(bag, m.ItemType, m.Count, m.Paid);
+                    BroadcastBag(key, bag);
+                    break;
+                case "card":
+                    if (bag == null)
+                        return;
+                    VisitorBag.AddCardTo(bag, m.Expansion, m.Index, m.IsDestiny, m.Count, m.Paid);
+                    BroadcastBag(key, bag);
+                    break;
+                case "back":
+                    if (bag == null)
+                    {
+                        // nothing to hand over: clear the member's stale mirror
+                        SendBagTo(conn, new RivalsBagMessage { Op = "state", State = new VisitorBag.State { Key = key } });
+                        return;
+                    }
+                    bag.Out.Remove(conn);
+                    CoopPlugin.Log.LogInfo($"Rivals: {NameOf(conn)} is home; team bag {key} has {bag.Out.Count} still out");
+                    if (bag.Out.Count == 0)
+                        DeliverBag(key, bag);
+                    else
+                        BroadcastBag(key, bag);
+                    break;
+            }
+        }
+
+        private string NameOf(int conn)
+        {
+            var m = Roster.Find(x => x.Id == conn);
+            return m != null ? m.Name : "member " + conn;
+        }
+
+        private void SendBagTo(int conn, RivalsBagMessage msg)
+        {
+            if (conn == 0)
+            {
+                if (msg.Op == "state")
+                    VisitorBag.ApplyShared(msg.State?.Clone());
+                else if (msg.Op == "deliver")
+                    VisitorBag.Deliver(msg.State?.Clone());
+            }
+            else
+                _net.Send(conn, msg);
+        }
+
+        private void BroadcastBag(string key, VisitorBag.State bag)
+        {
+            foreach (var m in Roster)
+                if (BagKeyFor(m.Id) == key && bag.Out.Contains(m.Id))
+                    SendBagTo(m.Id, new RivalsBagMessage { Op = "state", State = bag });
+        }
+
+        /// <summary>Everyone on the team is home: the captain (save holder) gets the bag; the
+        /// team's mirrors clear.</summary>
+        private void DeliverBag(string key, VisitorBag.State bag)
+        {
+            _teamBags.Remove(key);
+            int to = -1;
+            if (key.StartsWith("team:"))
+            {
+                int team = int.Parse(key.Substring(5));
+                var cap = Roster.Find(x => x.Team == team && x.Captain);
+                if (cap != null)
+                    to = cap.Id;
+            }
+            else
+            {
+                var owner = Roster.Find(x => "shop:" + x.Name == key);
+                if (owner != null)
+                    to = owner.Id;
+            }
+            foreach (var m in Roster)
+                if (BagKeyFor(m.Id) == key && m.Id != to)
+                    SendBagTo(m.Id, new RivalsBagMessage { Op = "state", State = new VisitorBag.State { Key = key } });
+            if (to < 0)
+            {
+                CoopPlugin.Log.LogWarning($"Rivals: team bag {key} has nobody to deliver to - dropped (net {bag.Earned - bag.Spent:0.00})");
+                return;
+            }
+            CoopPlugin.Log.LogInfo($"Rivals: team bag {key} delivered to {NameOf(to)}");
+            SendBagTo(to, new RivalsBagMessage { Op = "deliver", State = bag });
+        }
+
+        private void BagMemberGone(int conn)
+        {
+            var keys = new List<string>(_teamBags.Keys);
+            foreach (string key in keys)
+            {
+                var bag = _teamBags[key];
+                if (!bag.Out.Remove(conn))
+                    continue;
+                if (bag.Out.Count == 0)
+                    DeliverBag(key, bag);
+                else
+                    BroadcastBag(key, bag);
             }
         }
 

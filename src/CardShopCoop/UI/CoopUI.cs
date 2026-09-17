@@ -497,7 +497,10 @@ namespace CardShopCoop.UI
             if (Sync.Rivals.VisitorBag.IsOpen)
             {
                 var bag = Sync.Rivals.VisitorBag.Current;
-                GUILayout.Label($"<size=10>carry-out bag: visiting {bag.VisitingShop} - balance {GameInstance.GetPriceString(Sync.Rivals.VisitorBag.Balance)}, {bag.Cards.Count} card line(s), {bag.Items.Count} item line(s). Applied to save slot {bag.HomeSaveIndex} when you load it.</size>", CoopTheme.LabelWarn);
+                string where = bag.Shared ? $"TEAM bag ({bag.Out.Count} out) - goes to the captain's shop when everyone is home"
+                    : bag.HomeIsTeam ? "goes to your team's shop when you rejoin it"
+                    : bag.HomeSaveIndex >= 0 ? $"applied to save slot {bag.HomeSaveIndex} when you load it" : "applied to your shop";
+                GUILayout.Label($"<size=10>carry-out bag: visiting {bag.VisitingShop} - balance {GameInstance.GetPriceString(Sync.Rivals.VisitorBag.Balance)}, {bag.Cards.Count} card line(s), {bag.Items.Count} item line(s). {where}.</size>", CoopTheme.LabelWarn);
             }
             if (Sync.Rivals.RivalsLobby.MyPriceRank >= 0)
                 GUILayout.Label($"<size=10>your price rank: {Sync.Rivals.RivalsLobby.MyPriceRank + 1} of {shops.Count}  ->  customers x{Sync.Rivals.RivalsLobby.CrowdMultiplier:0.00}</size>", CoopTheme.LabelDim);

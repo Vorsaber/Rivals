@@ -45,6 +45,11 @@ namespace CardShopCoop.Sync.Rivals
             /// <summary>Opened by a co-op GUEST: home is the team's shop (the world it plays
             /// in), not a save of its own; applied by handing the bag to that shop's host.</summary>
             public bool HomeIsTeam;
+            /// <summary>Kept by the league lobby server as the TEAM's bag; this copy is a mirror.
+            /// Ops go to the server, the server's state comes back.</summary>
+            public bool Shared;
+            public string Key = "";
+            public List<int> Out = new List<int>();   // server: members currently out with it
             public string HomeShop = "";
             public string VisitingShop = "";
             public double MoneyAtDeparture;
@@ -54,6 +59,13 @@ namespace CardShopCoop.Sync.Rivals
             public List<Card> Cards = new List<Card>();
             public List<string> Log = new List<string>();
             public string OpenedAt = "";
+
+            /// <summary>A detached copy: the lobby server's ledger and its own mirror must
+            /// never be the same object (an op would count twice).</summary>
+            public State Clone()
+            {
+                return JsonUtility.FromJson<State>(JsonUtility.ToJson(this)) ?? new State();
+            }
         }
 
         public static State Current = new State();
@@ -112,8 +124,47 @@ namespace CardShopCoop.Sync.Rivals
                 MoneyAtDeparture = SafeMoney(),
                 OpenedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
             };
+            // in a league: the lobby keeps ONE bag per team - a teammate already out carries it,
+            // we piggyback (same balance, same haul); otherwise ours becomes the team's
+            if (RivalsLobby.ShareBag(Current))
+                Current.Shared = true;
             Save();
-            CoopPlugin.Log.LogInfo($"VisitorBag: opened - home {(Current.HomeIsTeam ? "team shop '" + Current.HomeShop + "'" : "slot " + Current.HomeSaveIndex)}, wallet {Current.MoneyAtDeparture:0.00}, visiting {Current.VisitingShop}");
+            CoopPlugin.Log.LogInfo($"VisitorBag: opened{(Current.Shared ? " (team bag via the lobby)" : "")} - home {(Current.HomeIsTeam ? "team shop '" + Current.HomeShop + "'" : "slot " + Current.HomeSaveIndex)}, wallet {Current.MoneyAtDeparture:0.00}, visiting {Current.VisitingShop}");
+        }
+
+        /// <summary>The lobby's copy of the team bag arrived: mirror it (Open=false clears).</summary>
+        public static void ApplyShared(State s)
+        {
+            if (s == null)
+                return;
+            if (!s.Open)
+            {
+                if (IsOpen && Current.Shared)
+                {
+                    Current = new State();
+                    Save();
+                }
+                return;
+            }
+            s.Shared = true;
+            Current = s;
+            Save();
+        }
+
+        /// <summary>The lobby delivers the team's bag to us (the captain): everyone is home.
+        /// Applied to the world we are in - or the next one we load - as long as it is ours.</summary>
+        public static void Deliver(State s)
+        {
+            if (s == null)
+                return;
+            s.Shared = false;
+            s.HomeIsTeam = false;
+            s.HomeSaveIndex = -1; // any world of our own
+            s.Open = true;
+            Current = s;
+            Save();
+            CoopPlugin.Log.LogInfo($"VisitorBag: team bag delivered - net {s.Earned - s.Spent:0.00}, {s.Cards.Count} card line(s), {s.Items.Count} item line(s)");
+            ApplyIfHome();
         }
 
         public static bool IsOpen => Current != null && Current.Open;
@@ -130,6 +181,8 @@ namespace CardShopCoop.Sync.Rivals
             Current.Spent += amount;
             Current.Log.Add($"spent {amount:0.00} on {what}");
             Save();
+            if (Current.Shared)
+                RivalsLobby.SendBagOp(new Net.Messages.RivalsBagMessage { Op = "spend", Amount = amount, What = what ?? "" });
             return true;
         }
 
@@ -140,22 +193,43 @@ namespace CardShopCoop.Sync.Rivals
             Current.Earned += amount;
             Current.Log.Add($"earned {amount:0.00} from {what}");
             Save();
+            if (Current.Shared)
+                RivalsLobby.SendBagOp(new Net.Messages.RivalsBagMessage { Op = "earn", Amount = amount, What = what ?? "" });
         }
 
         public static void AddItem(EItemType type, int count, float paid)
         {
             if (!IsOpen || count <= 0)
                 return;
-            var existing = Current.Items.Find(i => i.ItemType == (int)type);
+            AddItemTo(Current, (int)type, count, paid);
+            Current.Log.Add($"item {type} x{count}");
+            Save();
+            if (Current.Shared)
+                RivalsLobby.SendBagOp(new Net.Messages.RivalsBagMessage { Op = "item", ItemType = (int)type, Count = count, Paid = paid });
+        }
+
+        public static void AddItemTo(State s, int type, int count, float paid)
+        {
+            var existing = s.Items.Find(i => i.ItemType == type);
             if (existing != null)
             {
                 existing.Count += count;
                 existing.Paid += paid;
             }
             else
-                Current.Items.Add(new Item { ItemType = (int)type, Count = count, Paid = paid });
-            Current.Log.Add($"item {type} x{count}");
-            Save();
+                s.Items.Add(new Item { ItemType = type, Count = count, Paid = paid });
+        }
+
+        public static void AddCardTo(State s, int expansion, int index, bool destiny, int amount, float paid)
+        {
+            var existing = s.Cards.Find(c => c.Expansion == expansion && c.Index == index && c.IsDestiny == destiny);
+            if (existing != null)
+            {
+                existing.Amount += amount;
+                existing.Paid += paid;
+            }
+            else
+                s.Cards.Add(new Card { Expansion = expansion, Index = index, IsDestiny = destiny, Amount = amount, Paid = paid });
         }
 
         public static void AddCard(CardData cd, int amount, float paid)
@@ -168,16 +242,11 @@ namespace CardShopCoop.Sync.Rivals
                 index = CPlayerData.GetCardSaveIndex(cd);
             }
             catch { return; }
-            var existing = Current.Cards.Find(c => c.Expansion == (int)cd.expansionType && c.Index == index && c.IsDestiny == cd.isDestiny);
-            if (existing != null)
-            {
-                existing.Amount += amount;
-                existing.Paid += paid;
-            }
-            else
-                Current.Cards.Add(new Card { Expansion = (int)cd.expansionType, Index = index, IsDestiny = cd.isDestiny, Amount = amount, Paid = paid });
+            AddCardTo(Current, (int)cd.expansionType, index, cd.isDestiny, amount, paid);
             Current.Log.Add($"card {cd.monsterType} ({cd.expansionType}) x{amount}");
             Save();
+            if (Current.Shared)
+                RivalsLobby.SendBagOp(new Net.Messages.RivalsBagMessage { Op = "card", Expansion = (int)cd.expansionType, Index = index, IsDestiny = cd.isDestiny, Count = amount, Paid = paid });
         }
 
         /// <summary>Home again, own save loaded: apply everything once and close the bag.
@@ -187,13 +256,34 @@ namespace CardShopCoop.Sync.Rivals
         {
             if (!IsOpen)
                 return;
+            if (CoopCore.IsVisiting)
+                return; // the rival's world, not home
+            if (Current.Shared)
+            {
+                // the team's bag lives on the lobby: tell it we are home; it delivers to the
+                // captain when the last of us is
+                if (RivalsLobby.SendBagBack())
+                    CoopPlugin.Log.LogInfo("VisitorBag: home - told the lobby");
+                else
+                {
+                    // no lobby to report to: the server delivers on its own when it saw us
+                    // leave; a mirror of the team's bag must not be applied a second time here
+                    CoopPlugin.Log.LogWarning("VisitorBag: home without the lobby - dropping the mirror of the team bag (the lobby delivers it)");
+                    Current = new State();
+                    Save();
+                }
+                return;
+            }
             if (Current.HomeIsTeam)
             {
                 DepositToTeam();
                 return;
             }
+            var gmh = CSingleton<CGameManager>.Instance;
+            if (gmh == null || !gmh.m_IsGameLevel)
+                return;
             int slot = SafeSaveIndex();
-            if (slot != Current.HomeSaveIndex)
+            if (Current.HomeSaveIndex >= 0 && slot != Current.HomeSaveIndex)
             {
                 CoopPlugin.Log.LogInfo($"VisitorBag: save slot {slot} loaded, bag belongs to slot {Current.HomeSaveIndex} - waiting");
                 return;

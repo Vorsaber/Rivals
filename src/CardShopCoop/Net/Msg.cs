@@ -128,6 +128,7 @@ namespace CardShopCoop.Net
         RivalsPing = 135,
         RivalsLeague = 136, // league setup / ready state / START (server <-> members)
         BagDeposit = 137,   // co-op: a teammate back from a visit hands the bag to the shop (client -> host)
+        RivalsBag = 138,    // league: the TEAM's carry-out bag, kept by the lobby server (open/spend/earn/item/card/back/state/deliver)
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.
