@@ -71,6 +71,12 @@ namespace CardShopCoop.Patches
         private static readonly MethodInfo MiScannerTotals = AccessTools.Method(typeof(ScannerRestockScreen), "UpdateTotalCostAndBoxCount");
         public static void ApplyAll(Harmony h)
         {
+            // --- fv-688 r11-bag-overlay begin
+            // A visitor's album is the rival's collection; badge the cards the bag also holds
+            // (BinderPageGrp.SetCard/SetSingleCard postfixes live in UI/BagOverlay.cs).
+            UI.BagOverlay.ApplyPatches(h);
+            // --- fv-688 r11-bag-overlay end
+
             // The CMF camera reads Mouse X/Y directly from its own CameraMouseInput
             // component. InteractionPlayerController.EnterUIMode disables the game's
             // secondary camera controller, but cannot stop this independent input path.
