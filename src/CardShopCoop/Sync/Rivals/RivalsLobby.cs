@@ -633,9 +633,9 @@ namespace CardShopCoop.Sync.Rivals
             var core = CoopCore.Instance;
             if (core == null || shop == null)
                 return;
-            if (CoopCore.Role != CoopRole.None)
+            if (CoopCore.IsVisiting)
             {
-                Status = "leave your current session first";
+                Status = "finish this visit first (go to the title screen)";
                 return;
             }
             if (!shop.Visitable)
@@ -649,20 +649,29 @@ namespace CardShopCoop.Sync.Rivals
                 // the bag must know home before the world changes; the join itself needs the
                 // title screen: save, close our own session (a captain's teammates rejoin when
                 // we are back), go to the title and finish the visit from there
-                VisitorBag.Open(shop.Name);
+                VisitorBag.Open(shop.Name); // a co-op guest's bag comes home to the team's shop
                 Instance._pendingVisit = shop.Id;
                 Instance._pendingVisitAt = Time.unscaledTime;
-                if (CoopCore.Role == CoopRole.Host)
+                bool guest = CoopCore.Role == CoopRole.Client;
+                if (CoopCore.Role != CoopRole.None)
                     core.Disconnect();
-                try
+                if (!guest)
                 {
-                    CSingleton<ShelfManager>.Instance.SaveInteractableObjectData();
+                    try
+                    {
+                        CSingleton<ShelfManager>.Instance.SaveInteractableObjectData();
+                    }
+                    catch { }
+                    gm.SaveGameData(0);
                 }
-                catch { }
-                gm.SaveGameData(0);
                 gm.LoadMainLevelAsync("Title");
                 Status = "saved - heading to " + shop.Name + "...";
                 CoopPlugin.Log.LogInfo("Rivals: " + Status);
+                return;
+            }
+            if (CoopCore.Role != CoopRole.None)
+            {
+                Status = "leave your current session first";
                 return;
             }
             if (!VisitorBag.IsOpen)

@@ -1184,6 +1184,13 @@ namespace CardShopCoop
         }
 
         /// <summary>Team host: the Rivals board goes down to the guests over the co-op session.</summary>
+        /// <summary>Client: hand the carry-out bag to the shop we play in (our team's).</summary>
+        internal void SendBagDeposit(BagDepositMessage dep)
+        {
+            if (Role == CoopRole.Client && _net != null)
+                Send(1, dep);
+        }
+
         internal void RelayRivalsBoard(RivalsBoardMessage board)
         {
             if (Role == CoopRole.Host && _net != null && _net.ConnectionCount > 0)

@@ -971,6 +971,15 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.ClientOnlyInGame, false);
+            _messageRouter.Register<BagDepositMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Host || !InGameLevel())
+                    return;
+                if (message is BagDepositMessage dep && !IsVisitorConn(context.ConnectionId))
+                    Sync.Rivals.VisitorBag.HostApplyDeposit(dep);
+                return;
+            },
+                MessagePolicy.HostOnlyInGame, false);
             _messageRouter.Register<CheatRequestMessage>((context, message) =>
             {
                 if (Role != CoopRole.Host || !InGameLevel())

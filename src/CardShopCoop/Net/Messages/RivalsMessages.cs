@@ -153,6 +153,29 @@ namespace CardShopCoop.Net.Messages
         }
     }
 
+    /// <summary>A co-op guest back from visiting a rival hands its carry-out bag to the shop it
+    /// plays in (its team's shop): the host applies money, cards and items there.</summary>
+    [NetworkMessage(MsgType.BagDeposit, Policy = MessagePolicy.HostOnlyInGame)]
+    public sealed class BagDepositMessage : INetMessage
+    {
+        public string From = "";
+        public string VisitedShop = "";
+        public double Net;
+        public List<int> ItemTypes = new List<int>();
+        public List<int> ItemCounts = new List<int>();
+        public List<int> CardExpansions = new List<int>();
+        public List<int> CardIndices = new List<int>();
+        public List<bool> CardDestiny = new List<bool>();
+        public List<int> CardAmounts = new List<int>();
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.BagDeposit;
+            }
+        }
+    }
+
     [NetworkMessage(MsgType.RivalsPing, Policy = MessagePolicy.Any)]
     public sealed class RivalsPingMessage : INetMessage
     {

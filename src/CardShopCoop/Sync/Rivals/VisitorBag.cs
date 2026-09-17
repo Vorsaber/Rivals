@@ -42,6 +42,9 @@ namespace CardShopCoop.Sync.Rivals
         {
             public bool Open;
             public int HomeSaveIndex = -1;
+            /// <summary>Opened by a co-op GUEST: home is the team's shop (the world it plays
+            /// in), not a save of its own; applied by handing the bag to that shop's host.</summary>
+            public bool HomeIsTeam;
             public string HomeShop = "";
             public string VisitingShop = "";
             public double MoneyAtDeparture;
@@ -103,13 +106,14 @@ namespace CardShopCoop.Sync.Rivals
             {
                 Open = true,
                 HomeSaveIndex = SafeSaveIndex(),
+                HomeIsTeam = CoopCore.Role == CoopRole.Client,
                 HomeShop = SafeShopName(),
                 VisitingShop = visitingShop ?? "",
                 MoneyAtDeparture = SafeMoney(),
                 OpenedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
             };
             Save();
-            CoopPlugin.Log.LogInfo($"VisitorBag: opened - home slot {Current.HomeSaveIndex}, wallet {Current.MoneyAtDeparture:0.00}, visiting {Current.VisitingShop}");
+            CoopPlugin.Log.LogInfo($"VisitorBag: opened - home {(Current.HomeIsTeam ? "team shop '" + Current.HomeShop + "'" : "slot " + Current.HomeSaveIndex)}, wallet {Current.MoneyAtDeparture:0.00}, visiting {Current.VisitingShop}");
         }
 
         public static bool IsOpen => Current != null && Current.Open;
@@ -183,6 +187,11 @@ namespace CardShopCoop.Sync.Rivals
         {
             if (!IsOpen)
                 return;
+            if (Current.HomeIsTeam)
+            {
+                DepositToTeam();
+                return;
+            }
             int slot = SafeSaveIndex();
             if (slot != Current.HomeSaveIndex)
             {
@@ -193,39 +202,104 @@ namespace CardShopCoop.Sync.Rivals
                 return; // the rival's world in the scratch slot, not home
             try
             {
-                double net = Current.Earned - Current.Spent;
-                if (net > 0.005)
-                    CEventManager.QueueEvent(new CEventPlayer_AddCoin((float)net));
-                else if (net < -0.005)
-                    CEventManager.QueueEvent(new CEventPlayer_ReduceCoin((float)(-net)));
-                int cards = 0;
-                foreach (var c in Current.Cards)
-                {
-                    var cd = CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Expansion, c.IsDestiny);
-                    if (cd == null || c.Amount <= 0)
-                        continue;
-                    CPlayerData.AddCard(cd, c.Amount);
-                    cards += c.Amount;
-                }
-                int items = 0;
-                foreach (var it in Current.Items)
-                {
-                    if (it.Count <= 0)
-                        continue;
-                    try
-                    {
-                        RestockManager.SpawnPackageBoxItem((EItemType)it.ItemType, it.Count, false);
-                        items += it.Count;
-                    }
-                    catch (Exception e) { CoopPlugin.Log.LogWarning($"VisitorBag: item {(EItemType)it.ItemType} could not be delivered: {e.Message}"); }
-                }
-                string summary = $"back from {Current.VisitingShop}: wallet {(net >= 0 ? "+" : "")}{net:0.00}, {cards} card(s), {items} item(s) at the door";
-                CoopPlugin.Log.LogInfo("VisitorBag: applied - " + summary);
-                HostOnlyFeatures.Notice("Co-op: " + summary);
+                ApplyContents(Current.Earned - Current.Spent, Current.Cards, Current.Items, SafeShopName(), Current.VisitingShop);
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("VisitorBag apply: " + e.Message); }
             Current = new State();
             Save();
+        }
+
+        /// <summary>Put a bag's contents into the running world: the wallet takes the net,
+        /// cards go into the collection, items arrive as a delivery box at the door.</summary>
+        private static void ApplyContents(double net, List<Card> cards, List<Item> items, string who, string visited)
+        {
+            if (net > 0.005)
+                CEventManager.QueueEvent(new CEventPlayer_AddCoin((float)net));
+            else if (net < -0.005)
+                CEventManager.QueueEvent(new CEventPlayer_ReduceCoin((float)(-net)));
+            int nCards = 0;
+            foreach (var c in cards)
+            {
+                var cd = CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Expansion, c.IsDestiny);
+                if (cd == null || c.Amount <= 0)
+                    continue;
+                CPlayerData.AddCard(cd, c.Amount);
+                nCards += c.Amount;
+            }
+            int nItems = 0;
+            foreach (var it in items)
+            {
+                if (it.Count <= 0)
+                    continue;
+                try
+                {
+                    RestockManager.SpawnPackageBoxItem((EItemType)it.ItemType, it.Count, false);
+                    nItems += it.Count;
+                }
+                catch (Exception e) { CoopPlugin.Log.LogWarning($"VisitorBag: item {(EItemType)it.ItemType} could not be delivered: {e.Message}"); }
+            }
+            string summary = $"{who} back from {visited}: wallet {(net >= 0 ? "+" : "")}{net:0.00}, {nCards} card(s), {nItems} item(s) at the door";
+            CoopPlugin.Log.LogInfo("VisitorBag: applied - " + summary);
+            HostOnlyFeatures.Notice("Co-op: " + summary);
+        }
+
+        /// <summary>A co-op guest's bag: once we stand in our team's shop again (a client world
+        /// whose shop name is the one we left), hand it to the host and close it.</summary>
+        private static void DepositToTeam()
+        {
+            if (CoopCore.Role != CoopRole.Client || CoopCore.Instance == null || CoopCore.IsVisiting)
+                return;
+            string shop = SafeShopName();
+            if (!string.IsNullOrEmpty(Current.HomeShop) && shop != Current.HomeShop)
+            {
+                CoopPlugin.Log.LogInfo($"VisitorBag: in '{shop}', bag belongs to team shop '{Current.HomeShop}' - waiting");
+                return;
+            }
+            var dep = new Net.Messages.BagDepositMessage
+            {
+                From = CoopCore.Instance.EffectivePlayerName,
+                VisitedShop = Current.VisitingShop,
+                Net = Current.Earned - Current.Spent,
+            };
+            foreach (var it in Current.Items)
+            {
+                dep.ItemTypes.Add(it.ItemType);
+                dep.ItemCounts.Add(it.Count);
+            }
+            foreach (var c in Current.Cards)
+            {
+                dep.CardExpansions.Add(c.Expansion);
+                dep.CardIndices.Add(c.Index);
+                dep.CardDestiny.Add(c.IsDestiny);
+                dep.CardAmounts.Add(c.Amount);
+            }
+            CoopCore.Instance.SendBagDeposit(dep);
+            CoopPlugin.Log.LogInfo($"VisitorBag: handed to the team shop - net {dep.Net:0.00}, {Current.Cards.Count} card line(s), {Current.Items.Count} item line(s)");
+            HostOnlyFeatures.Notice($"Co-op: your bag from {Current.VisitingShop} went to the shop");
+            Current = new State();
+            Save();
+        }
+
+        /// <summary>Host: a teammate's bag arrives - apply it to this shop.</summary>
+        public static void HostApplyDeposit(Net.Messages.BagDepositMessage dep)
+        {
+            try
+            {
+                var cards = new List<Card>();
+                for (int i = 0; i < dep.CardIndices.Count; i++)
+                    cards.Add(new Card
+                    {
+                        Expansion = i < dep.CardExpansions.Count ? dep.CardExpansions[i] : 0,
+                        Index = dep.CardIndices[i],
+                        IsDestiny = i < dep.CardDestiny.Count && dep.CardDestiny[i],
+                        Amount = i < dep.CardAmounts.Count ? dep.CardAmounts[i] : 0,
+                    });
+                var items = new List<Item>();
+                for (int i = 0; i < dep.ItemTypes.Count; i++)
+                    items.Add(new Item { ItemType = dep.ItemTypes[i], Count = i < dep.ItemCounts.Count ? dep.ItemCounts[i] : 0 });
+                ApplyContents(dep.Net, cards, items, dep.From ?? "a teammate", dep.VisitedShop ?? "a rival");
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("VisitorBag deposit: " + e.Message); }
         }
 
         /// <summary>The save SLOT the game last loaded or saved (CSaveLoad.Load/Save patches).
@@ -233,6 +307,7 @@ namespace CardShopCoop.Sync.Rivals
         /// resolution, not a slot.</summary>
         public static int LastSlot = -1;
         private static bool s_applyPending;
+        private static float s_levelUpAt = -1f;
 
         public static void ApplyPatches(HarmonyLib.Harmony h)
         {
@@ -270,9 +345,17 @@ namespace CardShopCoop.Sync.Rivals
             try
             {
                 var gm = CSingleton<CGameManager>.Instance;
-                if (gm == null || !gm.m_IsGameLevel)
+                if (gm == null || !gm.m_IsGameLevel || !GameInstance.m_FinishedSavefileLoading)
                     return;
+                if (s_levelUpAt < 0f)
+                {
+                    s_levelUpAt = Time.unscaledTime;
+                    return;
+                }
+                if (Time.unscaledTime - s_levelUpAt < 2f)
+                    return; // let the world settle (a client's shop name arrives with the load)
                 s_applyPending = false;
+                s_levelUpAt = -1f;
                 ApplyIfHome();
             }
             catch (Exception e)

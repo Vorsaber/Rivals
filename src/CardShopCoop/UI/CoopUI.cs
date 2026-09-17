@@ -479,9 +479,10 @@ namespace CardShopCoop.UI
                 bool mine = s.Id == Sync.Rivals.RivalsLobby.MyId;
                 var gmv = CSingleton<CGameManager>.Instance;
                 bool inGame = gmv != null && gmv.m_IsGameLevel;
-                // a co-op guest's home is the shop it stands in; owners (solo or hosting) may go
-                if (!mine && s.Visitable && CoopCore.Role != CoopRole.Client
-                    && GUILayout.Button(inGame ? "Save & visit" : "Visit", CoopTheme.ButtonSecondary, GUILayout.Width(inGame ? 90f : 60f)))
+                // anyone may go: an owner saves first, a co-op guest's bag comes home to its team's shop
+                bool guest = CoopCore.Role == CoopRole.Client;
+                if (!mine && s.Visitable && !CoopCore.IsVisiting
+                    && GUILayout.Button(inGame && !guest ? "Save & visit" : "Visit", CoopTheme.ButtonSecondary, GUILayout.Width(inGame && !guest ? 90f : 60f)))
                     Sync.Rivals.RivalsLobby.Visit(s);
                 GUILayout.EndHorizontal();
                 string open = s.Visitable ? "  open to visitors" : "  not hosting (can't be visited)";
