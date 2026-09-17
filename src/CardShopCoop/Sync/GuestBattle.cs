@@ -166,6 +166,17 @@ namespace CardShopCoop.Sync
                         HostOnlyFeatures.Notice("Co-op: waiting for " + "the shop's player" + " to sit at this table");
                     return true;
                 }
+                // --- fv-680 guest-vs-guest pvp begin
+                // R4, the other chair: this guest holds the shop's entry and the challenger is
+                // another guest - the round is PvP relayed by the host, not a battle vs the NPC
+                if (dayOn && TournamentSync.ClientHoldsEntry() && TournamentSync.ClientEntryVsChallenger()
+                    && table.GetTournamentPlayTableNumber() == TournamentSync.ClientProxyTable())
+                {
+                    if (!PvpBattle.ClientRequestPvp(table, index))
+                        HostOnlyFeatures.Notice("Co-op: waiting for the challenger to sit at this table");
+                    return true;
+                }
+                // --- fv-680 guest-vs-guest pvp end
                 if (CPlayerData.m_CurrentSelectedDeckIndex >= CPlayerData.m_DeckCompactCardDataList.Count
                     || CPlayerData.m_DeckCompactCardDataList[CPlayerData.m_CurrentSelectedDeckIndex].GetTotalCardCount() < GameInstance.GetMaxDeckCardCount())
                 {
