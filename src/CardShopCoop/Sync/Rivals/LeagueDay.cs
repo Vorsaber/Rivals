@@ -343,6 +343,15 @@ namespace CardShopCoop.Sync.Rivals
                 History.AddRange(board.History);
             if (History.Count == 0)
                 History.AddRange(Reports); // a lobby without history: today is all there is
+            if (Reports.Count == 0 && History.Count > 0)
+            {
+                // a lobby restarted mid-season: "today" is each shop's latest day on file
+                var latest = new Dictionary<string, RivalsDayReport>();
+                foreach (var r in History)
+                    if (r != null && (!latest.TryGetValue(r.Name ?? "", out var have) || r.Day >= have.Day))
+                        latest[r.Name ?? ""] = r;
+                Reports.AddRange(latest.Values);
+            }
             Settings.Clear();
             if (board.Kpis != null)
                 Settings.AddRange(board.Kpis);

@@ -935,6 +935,8 @@ namespace CardShopCoop.Sync.Rivals
                 MintLeagueId();
             // --- fv-686 standings-v2 begin
             LeagueHistory.Use(LeagueId);
+            _dayReports.Clear();
+            LeagueDay.Apply(BuildDayBoard()); // the season so far, before anyone ends a day
             // --- fv-686 standings-v2 end
             LoadTeamBags();
             LeagueTeams = CoopPlugin.RivalsTeams != null ? CoopPlugin.RivalsTeams.Value : 2;

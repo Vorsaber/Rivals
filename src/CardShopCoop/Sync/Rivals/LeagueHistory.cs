@@ -66,12 +66,6 @@ namespace CardShopCoop.Sync.Rivals
             Save();
         }
 
-        public static void Forget()
-        {
-            s_rows.Clear();
-            Save();
-        }
-
         private static void Trim()
         {
             var days = new SortedSet<int>();
