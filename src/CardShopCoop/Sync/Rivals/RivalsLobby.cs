@@ -1412,8 +1412,6 @@ namespace CardShopCoop.Sync.Rivals
                 }
                 if (now - bag.OrphanedAtUnix < OrphanGraceSec)
                     continue;
-                if (CaptainFor(key) < 0)
-                    continue; // nobody to take it yet - keeps waiting, no log spam
                 CoopPlugin.Log.LogInfo($"Rivals: team bag {key} (trip {bag.TripId}) orphaned for {now - bag.OrphanedAtUnix}s - delivering");
                 DeliverBag(key, bag);
             }
@@ -1425,11 +1423,13 @@ namespace CardShopCoop.Sync.Rivals
                     continue;
                 int to = CaptainFor(bag.Key ?? "");
                 if (to < 0)
-                    continue;
+                    continue; // held until someone of that team is here
+                bool first = bag.DeliverAtUnix <= 0;
                 bag.DeliverTo = to;
                 bag.DeliverAtUnix = now;
-                CoopPlugin.Log.LogInfo($"Rivals: deliver of trip {trip} to {NameOf(to)} not acknowledged - resending");
-                SendBagTo(to, new RivalsBagMessage { Op = "deliver", State = bag, TripId = trip });
+                CoopPlugin.Log.LogInfo(first ? $"Rivals: held trip {trip} delivered to {NameOf(to)} - waiting for the ack"
+                                             : $"Rivals: deliver of trip {trip} to {NameOf(to)} not acknowledged - resending");
+                SendBagTo(to, new RivalsBagMessage { Op = "deliver", State = bag.Clone(), TripId = trip });
             }
         }
 
@@ -1501,12 +1501,8 @@ namespace CardShopCoop.Sync.Rivals
                             BroadcastBag(key, bag);
                         break;
                     }
-                    if (bag != null && bag.Open && bag.Out.Count == 0)
-                    {
-                        // a bag kept from an earlier trip nobody was home for: deliver it now
-                        DeliverBag(key, bag);
-                        bag = null;
-                    }
+                    // fv-682: a live bag with nobody out is one whose members dropped (orphan grace)
+                    // - a teammate opening now piggybacks on it; kept bags live in _pendingDeliveries
                     if (bag == null || !bag.Open)
                     {
                         bag = m.State.Clone(); // never the opener's own object (the server opens too)
@@ -1659,45 +1655,43 @@ namespace CardShopCoop.Sync.Rivals
         private void BroadcastBag(string key, VisitorBag.State bag)
         {
             SaveTeamBags();
-            foreach (var m in Roster)
-                if (BagKeyFor(m.Id) == key && bag.Out.Contains(m.Id))
-                    SendBagTo(m.Id, new RivalsBagMessage { Op = "state", State = bag });
+            // fv-682: Out is the membership (a reconnected member's team may not be re-stated yet)
+            foreach (int id in new List<int>(bag.Out))
+                if (id == 0 || _welcomed.Contains(id))
+                    SendBagTo(id, new RivalsBagMessage { Op = "state", State = bag });
         }
 
         /// <summary>Everyone on the team is home: the captain (save holder) gets the bag; the
         /// team's mirrors clear.</summary>
         private void DeliverBag(string key, VisitorBag.State bag)
         {
-            int to = CaptainFor(key);
-            if (to < 0)
-            {
-                // nobody of that team is here to take it: keep it until one comes back (a
-                // reconnecting member's "back"/"open" delivers it) - never drop money on a disconnect
-                bag.Out.Clear();
-                if (bag.OrphanedAtUnix <= 0)
-                    bag.OrphanedAtUnix = Now();
-                _teamBags[key] = bag;
-                SaveTeamBags();
-                CoopPlugin.Log.LogInfo($"Rivals: team bag {key} has nobody to deliver to right now - kept (cash {bag.MoneyAtDeparture:0.00}, net {bag.Earned - bag.Spent:0.00})");
-                return;
-            }
             // fv-682: the bag is HELD under its trip id until the captain says "delivered" -
-            // a delivery that never arrives is resent (PumpBags), never lost; the copy sent is
-            // detached so the ack path (the server can be its own captain) cannot recurse into it
-            _teamBags.Remove(key);
+            // a delivery that never arrives is resent (PumpBags), never lost; with nobody of
+            // that team here it simply waits there for one (never drop money on a disconnect).
+            // Only the live entry that IS this bag leaves _teamBags (a mirror recovered from a
+            // member is not the key's live bag)
+            if (_teamBags.TryGetValue(key, out var live) && ReferenceEquals(live, bag))
+                _teamBags.Remove(key);
             if (string.IsNullOrEmpty(bag.TripId))
                 bag.TripId = BagLedger.NewId();
+            int to = CaptainFor(key);
             bag.Key = key;
             bag.Out.Clear();
             bag.OrphanedAtUnix = 0;
             bag.DeliverTo = to;
-            bag.DeliverAtUnix = Now();
+            bag.DeliverAtUnix = to >= 0 ? Now() : 0;
             _pendingDeliveries[bag.TripId] = bag;
             SaveTeamBags();
             foreach (var m in Roster)
                 if (BagKeyFor(m.Id) == key && m.Id != to)
                     SendBagTo(m.Id, new RivalsBagMessage { Op = "state", State = new VisitorBag.State { Key = key } });
+            if (to < 0)
+            {
+                CoopPlugin.Log.LogInfo($"Rivals: team bag {key} (trip {bag.TripId}) has nobody to deliver to right now - held (cash {bag.MoneyAtDeparture:0.00}, net {bag.Earned - bag.Spent:0.00})");
+                return;
+            }
             CoopPlugin.Log.LogInfo($"Rivals: team bag {key} (trip {bag.TripId}) delivered to {NameOf(to)} - waiting for the ack");
+            // the copy sent is detached: the ack path (the server can be its own captain) must not touch the held one
             SendBagTo(to, new RivalsBagMessage { Op = "deliver", State = bag.Clone(), TripId = bag.TripId });
         }
 

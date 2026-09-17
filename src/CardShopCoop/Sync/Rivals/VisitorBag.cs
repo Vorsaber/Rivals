@@ -228,6 +228,14 @@ namespace CardShopCoop.Sync.Rivals
             s.Delivered = true;
             s.DepositPending = false;
             bool sameTrip = IsOpen && !string.IsNullOrEmpty(s.TripId) && Current.TripId == s.TripId;
+            if (sameTrip)
+            {
+                // the server's copy replaces ours (it may be our still-shared mirror of this very
+                // trip) - but what we already folded into it stays owed an ack
+                foreach (string t in Current.MergedTrips)
+                    if (!s.MergedTrips.Contains(t))
+                        s.MergedTrips.Add(t);
+            }
             if (!sameTrip && IsOpen && !Current.Shared && !Current.DepositPending)
             {
                 // a private bag of ours is still unapplied: the delivery rides in with it, one apply
