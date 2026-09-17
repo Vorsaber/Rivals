@@ -227,9 +227,23 @@ namespace CardShopCoop.Sync.Rivals
             {
                 existing.Amount += amount;
                 existing.Paid += paid;
+                if (existing.Amount <= 0)
+                    s.Cards.Remove(existing); // a trade gave it away
             }
-            else
+            else if (amount > 0)
                 s.Cards.Add(new Card { Expansion = expansion, Index = index, IsDestiny = destiny, Amount = amount, Paid = paid });
+        }
+
+        /// <summary>A card leaves the bag (traded away to the shop).</summary>
+        public static void RemoveCard(int expansion, int index, bool destiny, int amount)
+        {
+            if (!IsOpen || amount <= 0)
+                return;
+            AddCardTo(Current, expansion, index, destiny, -amount, 0f);
+            Current.Log.Add($"card {index}/{expansion} x{amount} traded away");
+            Save();
+            if (Current.Shared)
+                RivalsLobby.SendBagOp(new Net.Messages.RivalsBagMessage { Op = "card", Expansion = expansion, Index = index, IsDestiny = destiny, Count = -amount, Paid = 0f });
         }
 
         public static void AddCard(CardData cd, int amount, float paid)

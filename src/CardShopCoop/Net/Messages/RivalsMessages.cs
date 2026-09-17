@@ -217,6 +217,46 @@ namespace CardShopCoop.Net.Messages
         }
     }
 
+    /// <summary>One line of a trade offer: a card by its save identity.</summary>
+    public sealed class TradeCard
+    {
+        public int Exp;
+        public int Index;
+        public bool Destiny;
+        public int Amount;
+    }
+
+    /// <summary>One side of the trade window.</summary>
+    public sealed class TradeOffer
+    {
+        public double Money;
+        public List<TradeCard> Cards = new List<TradeCard>();
+        public bool Confirmed;
+    }
+
+    /// <summary>The trade window between a VISITOR and the SHOP. Visitor -> host: "open",
+    /// "offer" (GuestMoney/GuestCards), "confirm" (GuestConfirmed), "cancel". Host -> visitor:
+    /// "open"/"state" (both offers and confirmations), "done" (executed: move exactly this in
+    /// the bag), "cancel".</summary>
+    [NetworkMessage(MsgType.Trade, Policy = MessagePolicy.InGameOnly)]
+    public sealed class TradeMessage : INetMessage
+    {
+        public string Op = "";
+        public double HostMoney;
+        public List<TradeCard> HostCards = new List<TradeCard>();
+        public bool HostConfirmed;
+        public double GuestMoney;
+        public List<TradeCard> GuestCards = new List<TradeCard>();
+        public bool GuestConfirmed;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.Trade;
+            }
+        }
+    }
+
     [NetworkMessage(MsgType.RivalsPing, Policy = MessagePolicy.Any)]
     public sealed class RivalsPingMessage : INetMessage
     {

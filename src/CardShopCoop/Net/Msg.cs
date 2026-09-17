@@ -132,6 +132,7 @@ namespace CardShopCoop.Net
         VisitorCardBuy = 139, // co-op: a visitor takes a displayed card = buys it (client -> host)
         PvpOffer = 140,      // host -> one client: this table plays for an ante - accept by sitting again with it
         PvpSettle = 141,     // host -> one client: the ante pot (or a refund) for the visitor's bag
+        Trade = 142,         // both ways: the trade window between a visitor and the shop (open/offer/confirm/state/done/cancel)
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

@@ -989,6 +989,20 @@ namespace CardShopCoop
                 return;
             },
                 MessagePolicy.ClientOnlyInGame, false);
+            _messageRouter.Register<TradeMessage>((context, message) =>
+            {
+                if (!InGameLevel() || !(message is TradeMessage trade))
+                    return;
+                if (Role == CoopRole.Host)
+                {
+                    if (IsVisitorConn(context.ConnectionId))
+                        Sync.Rivals.TradeSync.HostOnMessage(context.ConnectionId, trade, PeerNameFor(context.ConnectionId));
+                }
+                else if (Role == CoopRole.Client)
+                    Sync.Rivals.TradeSync.GuestOnMessage(trade);
+                return;
+            },
+                MessagePolicy.InGameOnly, false, heal: null);
             _messageRouter.Register<VisitorCardBuyMessage>((context, message) =>
             {
                 if (Role != CoopRole.Host || !InGameLevel())

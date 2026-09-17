@@ -1185,6 +1185,27 @@ namespace CardShopCoop
         }
 
         /// <summary>Team host: the Rivals board goes down to the guests over the co-op session.</summary>
+        internal void SendTrade(TradeMessage msg)
+        {
+            if (Role == CoopRole.Client && _net != null)
+                Send(1, msg);
+        }
+
+        internal void SendTradeTo(int conn, TradeMessage msg)
+        {
+            if (Role == CoopRole.Host && _net != null && conn >= 0)
+                Send(conn, msg);
+        }
+
+        /// <summary>Host: the visitors in the shop right now (conn, name), for the trade window.</summary>
+        internal List<KeyValuePair<int, string>> Visitors()
+        {
+            var list = new List<KeyValuePair<int, string>>();
+            foreach (int c in _visitorConns)
+                list.Add(new KeyValuePair<int, string>(c, PeerNameFor(c)));
+            return list;
+        }
+
         /// <summary>Visitor: I took this displayed card - charge me, clear it there.</summary>
         internal void SendVisitorCardBuy(int key)
         {
@@ -3974,7 +3995,8 @@ namespace CardShopCoop
                 string name = PeerNames.TryGetValue(left, out var n) ? n : ("player " + left);
                 PeerNames.Remove(left);
                 _peerWireNames.Remove(left);
-                _visitorConns.Remove(left);
+                if (_visitorConns.Remove(left))
+                    Sync.Rivals.TradeSync.HostPeerGone(left);
                 _peerSteamIds.Remove(left);
                 _avatars.Remove(left);
                 _movePreview.RemoveSource(left);
@@ -4884,6 +4906,7 @@ namespace CardShopCoop
                 case MsgType.NpcSpeech:
                 case MsgType.ShelfRequest:   // buy-by-taking: WorldSync.ApplyRequest keeps only their takes
                 case MsgType.VisitorCardBuy: // buy-by-taking: a displayed card
+                case MsgType.Trade:          // the trade window
                     return true;
                 default:
                     return false;
