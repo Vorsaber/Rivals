@@ -289,6 +289,9 @@ namespace CardShopCoop
             go.AddComponent<UI.PurchaseConfirm>();
             go.AddComponent<UI.PhoneApps>();
             go.AddComponent<Sync.Rivals.RivalsLobby>();
+            // --- fv-688 r11-bag-overlay begin
+            go.AddComponent<UI.BagOverlay>();
+            // --- fv-688 r11-bag-overlay end
         }
     }
 }
