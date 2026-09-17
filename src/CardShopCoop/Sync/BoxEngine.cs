@@ -701,6 +701,14 @@ namespace CardShopCoop.Sync
                 owner = localPoss == BoxPossession.Held || localPoss == BoxPossession.Placing
                     ? HostConn : NoOwner;
                 lease.Owner = owner;
+                // fv-691: the host's own hold (player or worker) revokes a former client
+                // owner's release right, exactly as an accepted client claim does. Without
+                // this, LastOwner stayed on the guest who last carried the box, so a guest's
+                // spurious Free (its mirror reads loose while the host carries the box) that
+                // landed after the host's drop was accepted and snapped the box back to the
+                // pickup spot - the transient furniture-box carry glitch.
+                if (owner == HostConn)
+                    lease.LastOwner = HostConn;
                 lease.Possession = localPoss;
                 lease.LastSeen = _leaseClock;
                 _leases[id] = lease;
@@ -1419,7 +1427,12 @@ namespace CardShopCoop.Sync
                     }
                     if (w.Possession != BoxPossession.Removed)
                     {
-                        _reported[box] = w.Possession;
+                        // fv-691: the baseline is what THIS machine's read of the mirror
+                        // returns, and a mirror is never in the local hand or local
+                        // placement, so it reads Free even while another player holds or
+                        // places it. Seeding the remote possession here made the next scan
+                        // see a Free "edge" and report the mirror's stale pose to the host.
+                        _reported[box] = BoxPossession.Free;
                         _reportedContent[box] = family.ContentSignature(box);
                         _baselineItemCount[box] = family.ReadItemCount(box);
                         _baselineItemType[box] = family.ReadItemType(box);
