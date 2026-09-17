@@ -17,17 +17,16 @@ namespace CardShopCoop.UI
     ///
     /// Not a gameplay feature. It exists because a fresh 1.0 save has no money, no
     /// licenses, no cards and no play table, and every co-op test needs all four.
+    ///
+    /// The buttons are drawn by <see cref="CheatPanel"/>, which serves both this F4 window
+    /// and the CHEATS phone tile; this class owns the ops, the host/guest routing and the key.
     /// </summary>
     public sealed class CheatMenu : MonoBehaviour
     {
         private bool _visible;
         private Rect _rect = new Rect(40, 40, 470, 620);
-        private Vector2 _scroll;
-        private string _filter = "";
         private string _status = "";
         private float _statusAt;
-        private int _tab;
-        private static readonly string[] Tabs = { "Shop", "Cards", "Boxes", "Furniture" };
 
         /// <summary>Every button is one of these, so a guest's press can travel to the host
         /// as a <see cref="CheatRequestMessage"/> and run there through the same code.</summary>
@@ -56,9 +55,6 @@ namespace CardShopCoop.UI
             DiffTuning,      // A = per-player scale x100, B = staff cost per player x100
         }
 
-        // slider scratch (drawn every frame; applied on the button)
-        private float _slCap = -1f, _slRate = -1f, _slPer = -1f, _slStaff = -1f;
-
         // set by StarterDeck / DuplicateDeck: the index of the deck just made, for the requester
         private int _madeDeckIndex = -1;
 
@@ -78,6 +74,26 @@ namespace CardShopCoop.UI
         private void Awake()
         {
             s_instance = this;
+        }
+
+        /// <summary>A button press from either surface (F4 window or the phone app): run it
+        /// here (host / solo) or ship it to the host (guest).</summary>
+        internal static void Request(Op op, int a = 0, int b = 0)
+        {
+            s_instance?.Do(op, a, b);
+        }
+
+        /// <summary>The last status line, while it is fresh (4 s); the phone app and the F4
+        /// window both show it.</summary>
+        internal static string Status
+        {
+            get
+            {
+                var me = s_instance;
+                if (me == null || string.IsNullOrEmpty(me._status) || Time.unscaledTime - me._statusAt >= 4f)
+                    return null;
+                return me._status;
+            }
         }
 
         /// <summary>Run an action here (host / solo) or ship it to the host (guest).</summary>
@@ -240,13 +256,6 @@ namespace CardShopCoop.UI
         private bool _uiModeHeld;
         private InteractionPlayerController _uiModeController;
 
-        private static readonly ECardExpansionType[] Expansions =
-        {
-            ECardExpansionType.Tetramon, ECardExpansionType.Destiny, ECardExpansionType.Ghost,
-            ECardExpansionType.Megabot, ECardExpansionType.FantasyRPG, ECardExpansionType.CatJob,
-            ECardExpansionType.Ascension,
-        };
-
         private void Update()
         {
             if (CoopPlugin.CheatsEnabled == null || !CoopPlugin.CheatsEnabled.Value)
@@ -268,7 +277,7 @@ namespace CardShopCoop.UI
         /// <summary>Same test the co-op window uses (CGameManager.m_IsGameLevel): the shop scene
         /// is up. InteractionPlayerController.m_Instance is NOT reliable here - it stayed null on a
         /// loaded save (2026-09-16, "Load a save first" while standing in the shop).</summary>
-        private static bool InGame()
+        internal static bool InGame()
         {
             var gm = CSingleton<CGameManager>.Instance;
             return gm != null && gm.m_IsGameLevel;
@@ -316,169 +325,20 @@ namespace CardShopCoop.UI
 
         private void DrawWindow(int id)
         {
-            if (CoopCore.Role == CoopRole.Client)
-                GUILayout.Label("Guest: every button here is a REQUEST to the host, who runs it on the real shop. The host can turn these off (Cheats > AllowGuestRequests).");
             if (!InGame())
             {
+                if (CoopCore.Role == CoopRole.Client)
+                    GUILayout.Label("Guest: every button here is a REQUEST to the host, who runs it on the real shop. The host can turn these off (Cheats > AllowGuestRequests).");
                 GUILayout.Label("Load a save first.");
                 GUI.DragWindow();
                 return;
             }
-            _tab = GUILayout.Toolbar(_tab, Tabs);
-            GUILayout.Space(6);
-            try
-            {
-                switch (_tab)
-                {
-                    case 0:
-                        DrawShop();
-                        break;
-                    case 1:
-                        DrawCards();
-                        break;
-                    case 2:
-                        DrawBoxes();
-                        break;
-                    case 3:
-                        DrawFurniture();
-                        break;
-                }
-            }
-            catch (Exception e)
-            {
-                Say("error: " + e.Message);
-                CoopPlugin.Log.LogWarning("CheatMenu: " + e);
-            }
+            CheatPanel.DrawBody(false);
             GUILayout.FlexibleSpace();
-            if (!string.IsNullOrEmpty(_status) && Time.unscaledTime - _statusAt < 4f)
-                GUILayout.Label(_status);
             GUI.DragWindow();
         }
 
         // ------------------------------------------------------------------ Shop
-
-        private void DrawShop()
-        {
-            GUILayout.Label($"Money: {GameInstance.GetPriceString(CPlayerData.m_CoinAmountDouble)}    Level: {CPlayerData.m_ShopLevel}    Tutorial: {(CPlayerData.m_HasFinishedTutorial ? "done" : "step " + CPlayerData.m_TutorialIndex)}");
-            GUILayout.Space(4);
-            GUILayout.Label("Money");
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("+ $10,000"))
-                Do(Op.AddMoney, 10000);
-            if (GUILayout.Button("+ $100,000"))
-                Do(Op.AddMoney, 100000);
-            if (GUILayout.Button("+ $1,000,000"))
-                Do(Op.AddMoney, 1000000);
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(4);
-            GUILayout.Label("Shop level");
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("+1"))
-                Do(Op.LevelAdd, 1);
-            if (GUILayout.Button("+5"))
-                Do(Op.LevelAdd, 5);
-            if (GUILayout.Button("Set 10"))
-                Do(Op.LevelSet, 10);
-            if (GUILayout.Button("Set 20"))
-                Do(Op.LevelSet, 20);
-            if (GUILayout.Button("Set 40"))
-                Do(Op.LevelSet, 40);
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(4);
-            if (GUILayout.Button("Unlock every item license"))
-                Do(Op.Licenses);
-            GUILayout.Space(4);
-            GUILayout.Label("Shop expansion (mirrored to guests by the shop-state sync)");
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Next shop room"))
-                Do(Op.Rooms, 1, 0);
-            if (GUILayout.Button("All shop rooms"))
-                Do(Op.Rooms, int.MaxValue, 0);
-            if (GUILayout.Button("Unlock warehouse"))
-                Do(Op.Warehouse);
-            if (GUILayout.Button("All warehouse rooms"))
-                Do(Op.Rooms, int.MaxValue, 1);
-            GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Own every wallpaper"))
-                Do(Op.Deco, 0);
-            if (GUILayout.Button("Own every floor"))
-                Do(Op.Deco, 1);
-            if (GUILayout.Button("Own every ceiling"))
-                Do(Op.Deco, 2);
-            GUILayout.EndHorizontal();
-            GUILayout.Space(4);
-            GUILayout.Label("Difficulty (TcgDifficulty plugin): " + Util.Companions.Difficulty.Describe());
-            if (Util.Companions.Difficulty.Present)
-            {
-                GUILayout.BeginHorizontal();
-                var dp = Util.Companions.Difficulty.Profiles;
-                for (int i = 0; i < dp.Length; i++)
-                    if (GUILayout.Button(dp[i]))
-                        Do(Op.Difficulty, i);
-                GUILayout.EndHorizontal();
-            }
-            // live sliders: dragged freely, written on Apply
-            GUILayout.Label("Live tuning (host config; applies without a relaunch)");
-            if (_slCap < 0f)
-            {
-                _slCap = CoopPlugin.MaxCustomers != null ? CoopPlugin.MaxCustomers.Value : 0;
-                _slRate = CoopPlugin.SpawnRateMultiplier != null ? CoopPlugin.SpawnRateMultiplier.Value : 1f;
-            }
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"customer cap {(_slCap < 0.5f ? "auto" : Mathf.RoundToInt(_slCap).ToString())}", GUILayout.Width(150));
-            _slCap = GUILayout.HorizontalSlider(_slCap, 0f, 100f);
-            GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"arrivals x{_slRate:0.00}", GUILayout.Width(150));
-            _slRate = GUILayout.HorizontalSlider(_slRate, 0.25f, 4f);
-            if (GUILayout.Button("Apply", GUILayout.Width(60)))
-                Do(Op.Population, Mathf.RoundToInt(_slCap), Mathf.RoundToInt(_slRate * 100f));
-            GUILayout.EndHorizontal();
-            if (Util.Companions.Difficulty.Present)
-            {
-                if (_slPer < 0f)
-                {
-                    Util.Companions.TryGetFloat(Util.Companions.Difficulty.Guid, "Difficulty", "PerPlayerScale", out _slPer);
-                    Util.Companions.TryGetFloat(Util.Companions.Difficulty.Guid, "Difficulty", "StaffCostPerPlayer", out _slStaff);
-                }
-                GUILayout.BeginHorizontal();
-                GUILayout.Label($"crowd +{Mathf.RoundToInt(_slPer * 100f)}% per player", GUILayout.Width(150));
-                _slPer = GUILayout.HorizontalSlider(_slPer, 0f, 2f);
-                GUILayout.EndHorizontal();
-                GUILayout.BeginHorizontal();
-                GUILayout.Label($"staff cost +{Mathf.RoundToInt(_slStaff * 100f)}% per player", GUILayout.Width(150));
-                _slStaff = GUILayout.HorizontalSlider(_slStaff, 0f, 3f);
-                if (GUILayout.Button("Apply", GUILayout.Width(60)))
-                    Do(Op.DiffTuning, Mathf.RoundToInt(_slPer * 100f), Mathf.RoundToInt(_slStaff * 100f));
-                GUILayout.EndHorizontal();
-            }
-            GUILayout.Label("Economy (TcgEconomy plugin): " + Util.Companions.Economy.Describe());
-            if (Util.Companions.Economy.Present)
-            {
-                GUILayout.BeginHorizontal();
-                var ep = Util.Companions.Economy.Profiles;
-                for (int i = 0; i < ep.Length; i++)
-                    if (GUILayout.Button(ep[i]))
-                        Do(Op.Economy, i);
-                GUILayout.EndHorizontal();
-            }
-            GUILayout.Space(4);
-            GUILayout.Label("Play table fee (a new shop has no review rating, so customers read a market fee as 10x market and refuse to sit)");
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Fee = $0 (everyone plays)"))
-                Do(Op.TableFees, 0);
-            if (GUILayout.Button("Fee = market"))
-                Do(Op.TableFees, 1);
-            GUILayout.EndHorizontal();
-            GUILayout.Space(4);
-            if (GUILayout.Button("Free all play tables (evict, forget guest seats)"))
-                Do(Op.FreeTables);
-            if (GUILayout.Button("Finish the tutorial"))
-                Do(Op.Tutorial);
-        }
 
         private void FinishTutorial()
         {
@@ -559,36 +419,6 @@ namespace CardShopCoop.UI
         }
 
         // ------------------------------------------------------------------ Cards
-
-        private void DrawCards()
-        {
-            GUILayout.Label("Add cards to the collection (CPlayerData.AddCard, so the guest gets them too). Go easy: the deck editor and binder build UI from the whole collection - 5x of everything is ~34,000 cards and stalls them.");
-            foreach (var exp in Expansions)
-            {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(exp.ToString(), GUILayout.Width(110));
-                if (GUILayout.Button("full set x1"))
-                    Do(Op.GiveSet, (int)exp, 1);
-                if (GUILayout.Button("base cards x1"))
-                    Do(Op.GiveBase, (int)exp, 1);
-                GUILayout.EndHorizontal();
-            }
-            GUILayout.Space(8);
-            GUILayout.Label("Starter deck: 50 different Tetramon base cards, added to the collection and saved as a new deck, then selected.");
-            if (GUILayout.Button("Give and select a 50-card starter deck"))
-                Do(Op.StarterDeck);
-            GUILayout.Space(4);
-            GUILayout.Label("Duplicate a deck (its cards are added to the collection so the copy is real). On a guest the copy is selected for you.");
-            var dl = CPlayerData.m_DeckCompactCardDataList;
-            for (int i = 0; dl != null && i < dl.Count && i < 12; i++)
-            {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label((dl[i] != null ? dl[i].deckName : "?") + (i == CPlayerData.m_CurrentSelectedDeckIndex ? "  (selected)" : ""), GUILayout.Width(260));
-                if (GUILayout.Button("duplicate", GUILayout.Width(90)))
-                    Do(Op.DuplicateDeck, i);
-                GUILayout.EndHorizontal();
-            }
-        }
 
         private void GiveSet(ECardExpansionType exp, int amount)
         {
@@ -738,42 +568,7 @@ namespace CardShopCoop.UI
 
         // ------------------------------------------------------------------ Boxes
 
-        private void DrawBoxes()
-        {
-            GUILayout.Label("Deliver a box through the game's own restock spawner (RestockManager.SpawnPackageBoxItemMultipleFrame). Same as a phone order landing.");
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("filter", GUILayout.Width(40));
-            _filter = GUILayout.TextField(_filter);
-            GUILayout.EndHorizontal();
-            var inv = CSingleton<InventoryBase>.Instance;
-            var list = inv != null && inv.m_StockItemData_SO != null ? inv.m_StockItemData_SO.m_RestockDataList : null;
-            if (list == null)
-            {
-                GUILayout.Label("restock catalog not loaded");
-                return;
-            }
-            _scroll = GUILayout.BeginScrollView(_scroll, GUILayout.Height(400));
-            string f = (_filter ?? "").Trim().ToLowerInvariant();
-            for (int i = 0; i < list.Count; i++)
-            {
-                var rd = list[i];
-                if (rd == null)
-                    continue;
-                string name = ItemName(rd);
-                if (f.Length > 0 && name.ToLowerInvariant().IndexOf(f, StringComparison.Ordinal) < 0)
-                    continue;
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(name, GUILayout.Width(280));
-                if (GUILayout.Button("+1", GUILayout.Width(40)))
-                    Do(Op.Deliver, i, 1);
-                if (GUILayout.Button("+5", GUILayout.Width(40)))
-                    Do(Op.Deliver, i, 5);
-                GUILayout.EndHorizontal();
-            }
-            GUILayout.EndScrollView();
-        }
-
-        private static string ItemName(RestockData rd)
+        internal static string ItemName(RestockData rd)
         {
             try
             {
@@ -802,47 +597,6 @@ namespace CardShopCoop.UI
         }
 
         // ------------------------------------------------------------------ Furniture
-
-        private static string[] s_objNames;
-        private static EObjectType[] s_objValues;
-
-        private void DrawFurniture()
-        {
-            GUILayout.Label("Drop a boxed piece of furniture in front of you (ShelfManager.SpawnInteractableObjectInPackageBox - the delivery recipe). Open the box to place it.");
-            if (s_objValues == null)
-            {
-                var vals = (EObjectType[])Enum.GetValues(typeof(EObjectType));
-                var names = new List<string>();
-                var keep = new List<EObjectType>();
-                foreach (var v in vals)
-                {
-                    string n = v.ToString();
-                    if (n == "None" || n == "MAX" || n.StartsWith("Card3d") || n.StartsWith("PackageBox"))
-                        continue;
-                    names.Add(n);
-                    keep.Add(v);
-                }
-                s_objNames = names.ToArray();
-                s_objValues = keep.ToArray();
-            }
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("filter", GUILayout.Width(40));
-            _filter = GUILayout.TextField(_filter);
-            GUILayout.EndHorizontal();
-            _scroll = GUILayout.BeginScrollView(_scroll, GUILayout.Height(400));
-            string f = (_filter ?? "").Trim().ToLowerInvariant();
-            for (int i = 0; i < s_objNames.Length; i++)
-            {
-                if (f.Length > 0 && s_objNames[i].ToLowerInvariant().IndexOf(f, StringComparison.Ordinal) < 0)
-                    continue;
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(s_objNames[i], GUILayout.Width(300));
-                if (GUILayout.Button("spawn", GUILayout.Width(60)))
-                    Do(Op.Furniture, (int)s_objValues[i]);
-                GUILayout.EndHorizontal();
-            }
-            GUILayout.EndScrollView();
-        }
 
         private void SpawnFurniture(EObjectType type)
         {
@@ -943,6 +697,12 @@ namespace CardShopCoop.UI
             _status = s;
             _statusAt = Time.unscaledTime;
             CoopPlugin.Log.LogInfo("CheatMenu: " + s);
+        }
+
+        /// <summary>The panel's own status line (a draw fault) on whichever surface is up.</summary>
+        internal static void Note(string s)
+        {
+            s_instance?.Say(s);
         }
     }
 }

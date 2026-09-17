@@ -16,7 +16,10 @@ namespace CardShopCoop.UI
     {
         public enum App
         {
-            None, Trade, Decks, Shop, Coop, League
+            None, Trade, Decks, Shop, Coop, League,
+            // --- fv-685 cheat-app begin
+            Cheats,
+            // --- fv-685 cheat-app end
         }
 
         public static App Current
@@ -37,6 +40,9 @@ namespace CardShopCoop.UI
         private const string ShopId = "CoopShop";
         private const string CoopId = "CoopTeam";
         private const string LeagueId = "CoopLeague";
+        // --- fv-685 cheat-app begin
+        private const string CheatsId = "CoopCheats";
+        // --- fv-685 cheat-app end
 
         private void Update()
         {
@@ -120,6 +126,9 @@ namespace CardShopCoop.UI
                 register.Invoke(registry, new[] { MakeSpec(specType, ShopId, "Shop", () => Open(App.Shop, true)) });
                 register.Invoke(registry, new[] { MakeSpec(specType, CoopId, "Co-op", () => Open(App.Coop, true)) });
                 register.Invoke(registry, new[] { MakeSpec(specType, LeagueId, "League", () => Open(App.League, true)) });
+                // --- fv-685 cheat-app begin
+                register.Invoke(registry, new[] { MakeSpec(specType, CheatsId, "Cheats", () => Open(App.Cheats, true)) });
+                // --- fv-685 cheat-app end
                 s_registered = true;
                 CoopPlugin.Log.LogInfo("PhoneApps: registered Trade, Decks, Shop, Co-op and League on the phone");
             }
@@ -335,6 +344,10 @@ namespace CardShopCoop.UI
             GUI.Box(rect, GUIContent.none, CoopTheme.Window);
             GUILayout.BeginArea(rect);
             string title = Current == App.Trade ? "TRADE" : Current == App.Decks ? "DECKS" : Current == App.Shop ? "SHOP" : Current == App.Coop ? "CO-OP" : "LEAGUE";
+            // --- fv-685 cheat-app begin
+            if (Current == App.Cheats)
+                title = "CHEATS";
+            // --- fv-685 cheat-app end
             CoopTheme.DrawWindowChrome(new Rect(0f, 0f, w, h), title, "");
             if (GUI.Button(new Rect(w - 74f, 4f, 66f, 22f), "Back", CoopTheme.ButtonSecondary))
             {
@@ -371,8 +384,12 @@ namespace CardShopCoop.UI
                     ShopPanel.Draw(w - 24f);
                 else if (Current == App.Coop)
                     CoopPanel.Draw(core, w - 24f);
-                else
+                else if (Current == App.League)
                     LeaguePanel.Draw(w - 24f);
+                // --- fv-685 cheat-app begin
+                else if (Current == App.Cheats)
+                    CheatPanel.Draw(w - 24f);
+                // --- fv-685 cheat-app end
             }
             catch (Exception e)
             {
