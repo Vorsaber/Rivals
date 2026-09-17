@@ -701,6 +701,14 @@ namespace CardShopCoop.Sync
                 owner = localPoss == BoxPossession.Held || localPoss == BoxPossession.Placing
                     ? HostConn : NoOwner;
                 lease.Owner = owner;
+                // fv-691: the host's own hold (player or worker) revokes a former client
+                // owner's release right, exactly as an accepted client claim does. Without
+                // this, LastOwner stayed on the guest who last carried the box, so a guest's
+                // spurious Free (its mirror reads loose while the host carries the box) that
+                // landed after the host's drop was accepted and snapped the box back to the
+                // pickup spot - the transient furniture-box carry glitch.
+                if (owner == HostConn)
+                    lease.LastOwner = HostConn;
                 lease.Possession = localPoss;
                 lease.LastSeen = _leaseClock;
                 _leases[id] = lease;
@@ -932,7 +940,20 @@ namespace CardShopCoop.Sync
             }
 
             var next = BoxAuthority.NextBoxOwner(sender, w.Possession);
-            BoxShared.DebugLog("box-rx", $"id={w.Id} fam={w.Family} sender={connId} state={w.Possession} open={w.Open} accepted=true owner={lease.Owner}->{next}");
+            if (BoxShared.Debug)
+            {
+                // fv-691 forensics: a release accepted on the remembered owner, how far the
+                // incoming pose is from the host's copy, and what the box holds - enough to
+                // name the box and the dropper if a carry glitch recurs.
+                string via = currentOwner.IsOwned ? "owner" : "last-owner";
+                string jump = "";
+                if (w.Possession == BoxPossession.Free && knownBox != null)
+                    jump = $" jump={Vector3.Distance(BoxPlacement.PhysicsPosition(knownBox), w.Pos):F2}";
+                string content = w.Family == BoxFamily.Furniture
+                    ? $" obj={(EnumMap.TryFromWire(EnumKind.ObjectType, w.ObjType, out int objType) ? ((EObjectType)objType).ToString() : w.ObjType.ToString())}"
+                    : w.Family == BoxFamily.Item ? $" item={w.ItemType}x{w.ItemCount}" : "";
+                BoxShared.DebugLog("box-rx", $"id={w.Id} fam={w.Family} sender={connId} state={w.Possession} open={w.Open} accepted=true via={via} owner={lease.Owner}->{next}{jump}{content}");
+            }
             // The client does not know the host's owner id for itself; stamp the sender so
             // the families resolve the correct avatar for a remote Held/Placing box.
             w.OwnerConn = connId;
@@ -1419,7 +1440,12 @@ namespace CardShopCoop.Sync
                     }
                     if (w.Possession != BoxPossession.Removed)
                     {
-                        _reported[box] = w.Possession;
+                        // fv-691: the baseline is what THIS machine's read of the mirror
+                        // returns, and a mirror is never in the local hand or local
+                        // placement, so it reads Free even while another player holds or
+                        // places it. Seeding the remote possession here made the next scan
+                        // see a Free "edge" and report the mirror's stale pose to the host.
+                        _reported[box] = BoxPossession.Free;
                         _reportedContent[box] = family.ContentSignature(box);
                         _baselineItemCount[box] = family.ReadItemCount(box);
                         _baselineItemType[box] = family.ReadItemType(box);
