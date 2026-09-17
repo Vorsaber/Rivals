@@ -682,6 +682,7 @@ namespace CardShopCoop
             _decks.PeerName = PeerNameFor;
             _tournament.SendToHost = Send(1);
             _tournament.SendToClient = Send;
+            Sync.Rivals.PrizeClaim.SendToClient = Send; // fv-687
             _tournament.PeerName = PeerNameFor;
             _pvp.SendToHost = Send(1);
             _pvp.SendToClient = Send;

@@ -347,8 +347,11 @@ namespace CardShopCoop.Sync
                     // ApplyTransferResult). Nothing else touches the shop: no stocking, no
                     // container moves. Refuse those - and a take the bag cannot cover - closed.
                     string refuse = null;
-                    // the tournament's prize shelf (kind 14): the entrant's winnings are free
-                    bool prize = (key >> 24) == 14 && TournamentSync.ClientPrizeFree();
+                    // the tournament's prize shelf (kind 14): the entrant's winnings are free -
+                    // fv-687: only the items on THEIR placement's prize list, all of the take at
+                    // once; while winnings remain, anything else on that shelf is refused
+                    bool prizeShelf = (key >> 24) == 14 && TournamentSync.ClientPrizeFree();
+                    bool prize = prizeShelf && delta < 0 && TournamentSync.ClientPrizeItems((EItemType)transferType, -delta);
                     if (delta > 0)
                         refuse = "visitors can't stock the shelves";
                     else if (!escrowTake)
@@ -357,6 +360,8 @@ namespace CardShopCoop.Sync
                     {
                         // nothing to check or confirm: it is theirs
                     }
+                    else if (prizeShelf && TournamentSync.ClientPrizeRemaining())
+                        refuse = "that's not your prize - yours is " + TournamentSync.ClientPrizeDescribe();
                     else
                     {
                         double cost = VisitorUnitPrice(transferType) * -delta;
@@ -585,7 +590,8 @@ namespace CardShopCoop.Sync
                     // hand rolls back, and nothing absolute of theirs reaches the shop
                     if (e.TransferSeq == 0)
                         continue;
-                    if (e.Count - e.BaseCount >= 0)
+                    if (e.Count - e.BaseCount >= 0
+                        || ((e.Key >> 24) == 14 && TournamentSync.HostRefusePrizeShelfTake(connId, (EItemType)e.TransferType, e.BaseCount - e.Count))) // fv-687
                     {
                         _hostAcks.Store(connId, e.TransferSeq, 0);
                         SendResult?.Invoke(new ShelfTransferResultMessage { Key = e.Key, TransferSeq = e.TransferSeq, AcceptedDelta = 0 }, connId);
@@ -600,7 +606,7 @@ namespace CardShopCoop.Sync
                         (authoritative ?? (authoritative = new List<Entry>())).Add(actual.Value);
                     if (visitor && _lastAccepted < 0)
                     {
-                        if ((e.Key >> 24) == 14 && TournamentSync.HostPrizeFree(connId))
+                        if ((e.Key >> 24) == 14 && TournamentSync.HostPrizeItems(connId, (EItemType)_lastAcceptedType, -_lastAccepted)) // fv-687
                             CoopPlugin.Log.LogInfo($"rivals: {(CoopCore.Instance != null ? CoopCore.Instance.PeerNameFor(connId) : "visitor")} collected a tournament prize ({-_lastAccepted} x {(_lastAcceptedType >= 0 ? ((EItemType)_lastAcceptedType).ToString() : "item")})");
                         else
                             VisitorPaid(connId, _lastAcceptedType, -_lastAccepted);
@@ -825,7 +831,7 @@ namespace CardShopCoop.Sync
                     if (purchase && accepted > 0)
                     {
                         string what = pending.TransferType >= 0 ? ((EItemType)pending.TransferType).ToString() : "item";
-                        bool prize = (pending.Target >> 24) == 14 && TournamentSync.ClientPrizeFree();
+                        bool prize = (pending.Target >> 24) == 14 && TournamentSync.ClientPrizeItemsTaken((EItemType)pending.TransferType, accepted); // fv-687: consumes the ledger
                         double cost = prize ? 0 : VisitorUnitPrice(pending.TransferType) * accepted;
                         if (cost > 0)
                             Rivals.VisitorBag.TrySpend(cost, $"{accepted} x {what}", true);

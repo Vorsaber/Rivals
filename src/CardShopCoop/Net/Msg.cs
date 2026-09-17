@@ -137,6 +137,9 @@ namespace CardShopCoop.Net
         BagWithdrawResult = 144, // host -> that client: what actually left the till
         RivalsDayReport = 145,   // league: a shop's end-of-day numbers (member -> server)
         RivalsDayBoard = 146,    // league: every shop's latest day report (server -> all; team host -> guests)
+        // --- fv-687 prize-entitlement begin
+        TournamentPrizeClaim = 155, // host -> one entrant: what is still theirs on the prize shelf (R9); RefusedKey bounces a card claim
+        // --- fv-687 prize-entitlement end
     }
 
     /// <summary>One received message, already reassembled and decoded from the wire.

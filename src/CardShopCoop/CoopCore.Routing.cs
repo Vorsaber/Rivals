@@ -1044,7 +1044,15 @@ namespace CardShopCoop
                     return;
                 if (message is VisitorCardBuyMessage buy && IsVisitorConn(context.ConnectionId))
                 {
-                    bool free = buy.Prize && (buy.Key >> 24) == 14 && Sync.TournamentSync.HostPrizeFree(context.ConnectionId);
+                    // fv-687: free only when that card is on the entrant's own prize ledger; a
+                    // Prize claim the ledger does not cover is bounced, never sold
+                    bool free = buy.Prize && (buy.Key >> 24) == 14 && Sync.TournamentSync.HostPrizeCard(context.ConnectionId, _cardShelves.HostPeekSlot(buy.Key));
+                    if (buy.Prize && !free)
+                    {
+                        CoopPlugin.Log.LogInfo($"rivals: {PeerNameFor(context.ConnectionId)} claimed a prize card (key {buy.Key:X}) that is not theirs - bounced");
+                        Sync.TournamentSync.HostBouncePrizeCard(context.ConnectionId, buy.Key);
+                        return;
+                    }
                     var echo = _cardShelves.HostSellToVisitor(buy.Key, PeerNameFor(context.ConnectionId), free);
                     if (echo != null && echo.Count > 0)
                         Broadcast(new CardShelfDeltaMessage { Echo = true, Entries = echo });
@@ -1439,6 +1447,17 @@ namespace CardShopCoop
                     _register.ClientApplyChange(message);
             },
                 MessagePolicy.InGameOnly, true, heal: () => _register.ForceResend());
+            // --- fv-687 prize-entitlement begin
+            _messageRouter.Register<TournamentPrizeClaimMessage>((context, message) =>
+            {
+                if (Role != CoopRole.Client || !InGameLevel())
+                    return;
+                if (message is TournamentPrizeClaimMessage claim)
+                    _tournament.ClientApplyPrizeClaim(claim);
+                return;
+            },
+                MessagePolicy.ClientOnlyInGame, false);
+            // --- fv-687 prize-entitlement end
         }
     }
 }

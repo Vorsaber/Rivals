@@ -121,6 +121,7 @@ namespace CardShopCoop.Sync
             s_proxyVsPlayer = false;
             s_proxyFinished = false;
             s_proxyNoticedTable = -1;
+            ResetPrizeClaims(); // fv-687
         }
 
         public TournamentSync()
@@ -324,6 +325,7 @@ namespace CardShopCoop.Sync
             if (self == null || CoopCore.Role != CoopRole.Host || __instance != self._proxyCustomer)
                 return;
             int placed = tournamentPlacementIndex;
+            self._proxyPlaced = placed; // fv-687: the challenger's entitlement is this placement's prize list
             tournamentPlacementIndex = 99;
             string who = NameOfStatic(self._proxyConn);
             CoopPlugin.Log.LogInfo($"TournamentSync: challenger {who} placed #{placed + 1} - prizes left on the shelf for them");
@@ -453,8 +455,109 @@ namespace CardShopCoop.Sync
             return (s_entryMine || s_proxyMine) && TournamentOver();
         }
 
+        // --- fv-687 prize-entitlement begin
+        // R9: HostPrizeFree/ClientPrizeFree say "this visitor is an entrant and the tournament is
+        // over"; the ledger in Rivals.PrizeClaim says WHICH cards / items are theirs (their
+        // placement's prize list, once). Every free take goes through the methods below.
+        private int _proxyPlaced = -1;                 // host: the challenger's placement (ProxyEndedPrefix), -1 none
+
+        private static void ResetPrizeClaims()
+        {
+            Rivals.PrizeClaim.Reset();
+            if (s_instance != null)
+                s_instance._proxyPlaced = -1;
+        }
+
+        /// <summary>Host tick: the tournament just ended - grant each human entrant its placement's
+        /// prize list (the vanilla end loop writes the player's placement and the NPC prefix wrote
+        /// the challenger's before it flips DayOver, so both are in by the time this sees it).
+        /// A new day clears every ledger, as vanilla clears DayOver.</summary>
+        private void TickPrizeClaims(TournamentData td)
+        {
+            if (!td.m_IsTournamentDayOver)
+            {
+                Rivals.PrizeClaim.HostRevokeAll();
+                if (!td.m_IsTournamentDay)
+                    _proxyPlaced = -1;
+                return;
+            }
+            if (_entryConn != NoEntry && _entryConn != HostEntry && !Rivals.PrizeClaim.HostHas(_entryConn))
+            {
+                var ptd = CPlayerData.m_PlayerTournamentData;
+                int placed = ptd != null ? ptd.m_TournamentPlacementIndex : 99;
+                Rivals.PrizeClaim.HostGrant(_entryConn, placed, td);
+                HostOnlyFeatures.Notice($"Co-op: {s_entryHolder} placed #{placed + 1}" + (Rivals.PrizeClaim.HostHasRemaining(_entryConn) ? " - their prize is on the shelf" : ""));
+            }
+            if (_proxyConn != NoEntry && _proxyPlaced >= 0 && !Rivals.PrizeClaim.HostHas(_proxyConn))
+                Rivals.PrizeClaim.HostGrant(_proxyConn, _proxyPlaced, td);
+        }
+
+        /// <summary>Host: this displayed card is the visitor's prize - consumed off their ledger.
+        /// False = charge it or refuse it like any other take.</summary>
+        public static bool HostPrizeCard(int conn, CardData card)
+        {
+            return HostPrizeFree(conn) && Rivals.PrizeClaim.HostClaimCard(conn, card);
+        }
+
+        /// <summary>Host: these items are the visitor's prize (all of them) - consumed off their ledger.</summary>
+        public static bool HostPrizeItems(int conn, EItemType type, int count)
+        {
+            return HostPrizeFree(conn) && Rivals.PrizeClaim.HostClaimItems(conn, type, count);
+        }
+
+        /// <summary>Host: an entrant with winnings still on the shelf is taking something that is
+        /// not theirs - refuse the take (the client refuses it locally too; this catches a stale mirror).</summary>
+        public static bool HostRefusePrizeShelfTake(int conn, EItemType type, int count)
+        {
+            return HostPrizeFree(conn) && Rivals.PrizeClaim.HostShouldRefuseItems(conn, type, count);
+        }
+
+        /// <summary>Host: a card claim (VisitorCardBuy Prize=true) it did not honour - bounce it so
+        /// the visitor's bag gives the card back.</summary>
+        public static void HostBouncePrizeCard(int conn, int key)
+        {
+            Rivals.PrizeClaim.HostSend(conn, key);
+        }
+
+        /// <summary>Visitor: this displayed card is my prize (consumed optimistically; the host's
+        /// mirror confirms or bounces).</summary>
+        public static bool ClientPrizeCard(CardData card, int key)
+        {
+            return ClientPrizeFree() && Rivals.PrizeClaim.ClientClaimCard(card, key);
+        }
+
+        /// <summary>Visitor: all these items are my prize? (check before the take is sent)</summary>
+        public static bool ClientPrizeItems(EItemType type, int count)
+        {
+            return ClientPrizeFree() && Rivals.PrizeClaim.ClientHasItems(type, count);
+        }
+
+        /// <summary>Visitor: the host accepted the take - was it my prize? (consumes)</summary>
+        public static bool ClientPrizeItemsTaken(EItemType type, int count)
+        {
+            return ClientPrizeFree() && Rivals.PrizeClaim.ClientClaimItems(type, count);
+        }
+
+        /// <summary>Visitor: I still have winnings to collect (a non-prize take off that shelf is refused).</summary>
+        public static bool ClientPrizeRemaining()
+        {
+            return ClientPrizeFree() && Rivals.PrizeClaim.ClientHasRemaining;
+        }
+
+        public static string ClientPrizeDescribe()
+        {
+            return Rivals.PrizeClaim.ClientDescribeRemaining();
+        }
+
+        public void ClientApplyPrizeClaim(TournamentPrizeClaimMessage msg)
+        {
+            Guarded("prize-claim", () => Rivals.PrizeClaim.ClientApply(msg));
+        }
+        // --- fv-687 prize-entitlement end
+
         private void HostSetEntry(int conn)
         {
+            if (_entryConn != conn && _entryConn != NoEntry && _entryConn != HostEntry) Rivals.PrizeClaim.HostRevoke(_entryConn); // fv-687
             _entryConn = conn;
             s_entryHolder = conn == NoEntry ? "" : NameOf(conn);
             _gate.Force();
@@ -644,10 +747,12 @@ namespace CardShopCoop.Sync
                 if (td == null)
                     return;
                 TickProxy(td);
+                TickPrizeClaims(td); // fv-687
                 int hash = ComputeHash(td);
                 if (!_gate.ShouldSend(hash))
                     return;
                 BroadcastState?.Invoke(BuildState(td));
+                Rivals.PrizeClaim.HostSendAll(); // fv-687: the ledgers ride the same heal cadence
             });
         }
 
@@ -763,6 +868,8 @@ namespace CardShopCoop.Sync
             if (_proxyConn != conn)
                 return;
             CoopPlugin.Log.LogInfo($"TournamentSync: challenger {NameOf(conn)} left - the NPC plays on by itself");
+            Rivals.PrizeClaim.HostRevoke(conn); // fv-687
+            _proxyPlaced = -1; // fv-687
             _proxyConn = NoEntry;
             _proxyCustomer = null;
             _proxyResult = -1;

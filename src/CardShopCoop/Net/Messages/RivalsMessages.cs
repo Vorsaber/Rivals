@@ -337,4 +337,24 @@ namespace CardShopCoop.Net.Messages
             }
         }
     }
+    // --- fv-687 prize-entitlement begin
+    /// <summary>Host -> one entrant: the prize-shelf winnings still theirs (R9). Sent when the
+    /// tournament ends, after every honoured claim, and with each tournament heal. Placement
+    /// -1 = not an entrant. RefusedKey != 0: a card claim (VisitorCardBuy Prize) the host did
+    /// not honour - the client takes that card back out of its bag.</summary>
+    [NetworkMessage(MsgType.TournamentPrizeClaim, Policy = MessagePolicy.ClientOnlyInGame)]
+    public sealed class TournamentPrizeClaimMessage : INetMessage
+    {
+        public int Placement = -1;
+        public List<TournamentPrizeEntry> Remaining = new List<TournamentPrizeEntry>();
+        public int RefusedKey;
+        public MsgType Type
+        {
+            get
+            {
+                return MsgType.TournamentPrizeClaim;
+            }
+        }
+    }
+    // --- fv-687 prize-entitlement end
 }
