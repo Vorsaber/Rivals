@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Newtonsoft.Json;
 using UnityEngine;
 
 namespace CardShopCoop.Sync.Rivals
@@ -70,7 +71,10 @@ namespace CardShopCoop.Sync.Rivals
             /// never be the same object (an op would count twice).</summary>
             public State Clone()
             {
-                return JsonUtility.FromJson<State>(JsonUtility.ToJson(this)) ?? new State();
+                // Json.NET, not JsonUtility: JsonUtility silently dropped the Items and Cards
+                // lists of this nested type (2026-09-16: a bag came home with the money and
+                // none of the five purchases) - the wire codec is Json.NET and proven
+                return JsonConvert.DeserializeObject<State>(JsonConvert.SerializeObject(this)) ?? new State();
             }
         }
 
@@ -88,7 +92,7 @@ namespace CardShopCoop.Sync.Rivals
                 string p = PathOnDisk();
                 if (File.Exists(p))
                 {
-                    Current = JsonUtility.FromJson<State>(File.ReadAllText(p)) ?? new State();
+                    Current = JsonConvert.DeserializeObject<State>(File.ReadAllText(p)) ?? new State();
                     if (Current.Open)
                         CoopPlugin.Log.LogInfo($"VisitorBag: an open bag from {Current.OpenedAt} (home slot {Current.HomeSaveIndex}, {Current.Items.Count} items, {Current.Cards.Count} cards, spent {Current.Spent:0.00}, earned {Current.Earned:0.00}) - applied when that save loads");
                 }
@@ -104,7 +108,7 @@ namespace CardShopCoop.Sync.Rivals
         {
             try
             {
-                File.WriteAllText(PathOnDisk(), JsonUtility.ToJson(Current, true));
+                File.WriteAllText(PathOnDisk(), JsonConvert.SerializeObject(Current, Formatting.Indented));
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("VisitorBag save: " + e.Message); }
         }

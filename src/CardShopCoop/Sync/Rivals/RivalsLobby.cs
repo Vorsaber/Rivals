@@ -884,11 +884,49 @@ namespace CardShopCoop.Sync.Rivals
             return MyShopName();
         }
 
+        private static string TeamBagsPath() => System.IO.Path.Combine(BepInEx.Paths.ConfigPath, "CardShopCoop.teambags.json");
+
+        /// <summary>Server: the team bags outlive the process - a host restart used to destroy
+        /// every bag still out (2026-09-16: five purchases gone, money survived only because
+        /// the member's mirror carried it).</summary>
+        private void SaveTeamBags()
+        {
+            try
+            {
+                System.IO.File.WriteAllText(TeamBagsPath(), Newtonsoft.Json.JsonConvert.SerializeObject(_teamBags, Newtonsoft.Json.Formatting.Indented));
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals: team bags save: " + e.Message); }
+        }
+
+        private void LoadTeamBags()
+        {
+            _teamBags.Clear();
+            try
+            {
+                string p = TeamBagsPath();
+                if (!System.IO.File.Exists(p))
+                    return;
+                var loaded = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, VisitorBag.State>>(System.IO.File.ReadAllText(p));
+                if (loaded == null)
+                    return;
+                foreach (var kv in loaded)
+                    if (kv.Value != null && kv.Value.Open)
+                    {
+                        kv.Value.Out.Clear(); // connection ids are from the old process: nobody is "out" until they say so
+                        _teamBags[kv.Key] = kv.Value;
+                    }
+                if (_teamBags.Count > 0)
+                    CoopPlugin.Log.LogInfo($"Rivals: {_teamBags.Count} team bag(s) restored from disk");
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals: team bags load: " + e.Message); }
+        }
+
         private void InitLeagueAsServer()
         {
             LeagueId = CoopPlugin.RivalsLeagueId != null ? (CoopPlugin.RivalsLeagueId.Value ?? "").Trim() : "";
             if (string.IsNullOrEmpty(LeagueId))
                 MintLeagueId();
+            LoadTeamBags();
             LeagueTeams = CoopPlugin.RivalsTeams != null ? CoopPlugin.RivalsTeams.Value : 2;
             LeaguePerTeam = CoopPlugin.RivalsPerTeam != null ? CoopPlugin.RivalsPerTeam.Value : 1;
             _members.Clear();
@@ -1393,6 +1431,7 @@ namespace CardShopCoop.Sync.Rivals
 
         private void BroadcastBag(string key, VisitorBag.State bag)
         {
+            SaveTeamBags();
             foreach (var m in Roster)
                 if (BagKeyFor(m.Id) == key && bag.Out.Contains(m.Id))
                     SendBagTo(m.Id, new RivalsBagMessage { Op = "state", State = bag });
@@ -1403,6 +1442,7 @@ namespace CardShopCoop.Sync.Rivals
         private void DeliverBag(string key, VisitorBag.State bag)
         {
             _teamBags.Remove(key);
+            SaveTeamBags();
             int to = -1;
             if (key.StartsWith("team:"))
             {
@@ -1426,6 +1466,7 @@ namespace CardShopCoop.Sync.Rivals
                 // reconnecting member's "back"/"open" delivers it) - never drop money on a disconnect
                 bag.Out.Clear();
                 _teamBags[key] = bag;
+                SaveTeamBags();
                 CoopPlugin.Log.LogInfo($"Rivals: team bag {key} has nobody to deliver to right now - kept (cash {bag.MoneyAtDeparture:0.00}, net {bag.Earned - bag.Spent:0.00})");
                 return;
             }
