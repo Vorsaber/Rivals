@@ -163,6 +163,10 @@ namespace CardShopCoop.Net.Messages
         public int SeasonDays;         // "setup": the host's season length (0 = endless)
         public int WeekDays;           // "setup": the host's weekly-winner stretch (0 = off)
         // --- fv-683 leaderboard-v2 end
+        // --- fv-827 scoring-in-lobby begin
+        public List<RivalsKpiSetting> Kpis = new List<RivalsKpiSetting>(); // "setup": the host's KPI weights/toggles (empty = defaults)
+        public int HistoryDays;        // "setup": the host's "last N days" window (0 = unknown)
+        // --- fv-827 scoring-in-lobby end
         public MsgType Type
         {
             get
