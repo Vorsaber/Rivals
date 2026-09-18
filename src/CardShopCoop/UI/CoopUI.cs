@@ -649,6 +649,9 @@ namespace CardShopCoop.UI
                 SeasonPanel.DrawStatus(Sync.Rivals.RivalsLobby.Board);
             SeasonPanel.DrawWeeks(Sync.Rivals.RivalsLobby.Board, 5);
             // --- fv-683 leaderboard-v2 end
+            // --- fv-827 scoring-in-lobby begin
+            GUILayout.Label("<size=11>" + Sync.Rivals.ScoringLine.Build() + (server ? "  (LEAGUE phone app > Scoring to change)" : "") + "</size>", CoopTheme.LabelWarn);
+            // --- fv-827 scoring-in-lobby end
 
             // roster
             if (roster.Count == 0)
