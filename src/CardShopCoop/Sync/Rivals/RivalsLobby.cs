@@ -1211,6 +1211,10 @@ namespace CardShopCoop.Sync.Rivals
             msg.SeasonDays = SeasonDays;
             msg.WeekDays = WeekDays;
             // --- fv-683 leaderboard-v2 end
+            // --- fv-827 scoring-in-lobby begin
+            msg.Kpis = LeagueDay.HostSettings();
+            msg.HistoryDays = LeagueDay.HostHistoryDays();
+            // --- fv-827 scoring-in-lobby end
             Roster.Clear();
             Roster.AddRange(list);
             _net.Broadcast(msg);
@@ -1244,6 +1248,15 @@ namespace CardShopCoop.Sync.Rivals
                     SeasonDays = Mathf.Max(0, m.SeasonDays);
                     WeekDays = Mathf.Max(0, m.WeekDays);
                     // --- fv-683 leaderboard-v2 end
+                    // --- fv-827 scoring-in-lobby begin
+                    if (m.Kpis != null && m.Kpis.Count > 0)
+                    {
+                        LeagueDay.Settings.Clear();
+                        LeagueDay.Settings.AddRange(m.Kpis);
+                    }
+                    if (m.HistoryDays > 0)
+                        LeagueDay.HistoryDays = m.HistoryDays;
+                    // --- fv-827 scoring-in-lobby end
                     if (_myTeam > LeagueTeams)
                         _myTeam = 0;
                     if (newId)
@@ -1394,6 +1407,9 @@ namespace CardShopCoop.Sync.Rivals
             if (me == null || Role != LobbyRole.Server || me._net == null)
                 return;
             me.BroadcastDayBoard();
+            // --- fv-827 scoring-in-lobby begin
+            me.SendSetup(); // members still in the lobby read the scoring line from setup, not the day board
+            // --- fv-827 scoring-in-lobby end
         }
         // --- fv-686 standings-v2 end
 
