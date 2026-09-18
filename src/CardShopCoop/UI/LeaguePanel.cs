@@ -165,9 +165,34 @@ namespace CardShopCoop.UI
                 ? "green = best of the window on that measure, red = last; points = each day's placings summed (weighted, (off) columns do not score); money and level are the latest; costs include rent, bills, wages, stock and upgrades"
                 : "green = best of the league on that measure, red = last; points = sum of placings, weighted by the host's scoring ((off) columns do not score); costs include rent, bills, wages, stock and upgrades";
             GUILayout.Label("<size=10>" + note + "</size>", CoopTheme.LabelDim);
+            // --- fv-826 weeks-under-season begin
+            if (s_view == View.Season)
+                DrawSeasonWeeks();
+            // --- fv-826 weeks-under-season end
             if (boxed)
                 GUILayout.EndVertical();
         }
+
+        // --- fv-826 weeks-under-season begin
+        /// <summary>Season tab only: every weekly winner the host has declared so far
+        /// (RivalsLobby.Board.Weeks), newest first, under the season totals.</summary>
+        private static void DrawSeasonWeeks()
+        {
+            var board = RivalsLobby.Board;
+            if (board == null || board.Weeks == null || board.Weeks.Count == 0)
+                return;
+            int wk = Mathf.Max(1, board.WeekDays);
+            GUILayout.Space(4f);
+            GUILayout.Label("WEEKS", CoopTheme.SectionHeader);
+            for (int i = board.Weeks.Count - 1; i >= 0; i--)
+            {
+                var w = board.Weeks[i];
+                GUILayout.BeginHorizontal((board.Weeks.Count - 1 - i) % 2 == 0 ? CoopTheme.RowEven : CoopTheme.RowOdd);
+                GUILayout.Label($"week {w.Week} <size=10>(days {(w.Week - 1) * wk + 1}-{w.LastDay})</size> - <b>{w.WinnerName}</b> <color=#7CFC00>{(w.WinnerDelta >= 0 ? "+" : "")}{GameInstance.GetPriceString(w.WinnerDelta)}</color> <size=10>close {GameInstance.GetPriceString(w.WinnerClose)}</size>", CoopTheme.Label);
+                GUILayout.EndHorizontal();
+            }
+        }
+        // --- fv-826 weeks-under-season end
 
         private static void ViewButton(View v, string text)
         {
