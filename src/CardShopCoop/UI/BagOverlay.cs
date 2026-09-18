@@ -78,6 +78,11 @@ namespace CardShopCoop.UI
                 _albumExpansion = FiExpansion != null ? (ECardExpansionType)FiExpansion.GetValue(ctrl) : ECardExpansionType.None;
                 _albumGraded = FiGraded != null && (bool)FiGraded.GetValue(ctrl);
                 Rebuild();
+                // fv-831: the sort / expansion selector is drawn over the album's right side, where the
+                // panel sits. Hide the panel while either is up; the page badges are static patches and
+                // do not depend on _show, so they are untouched.
+                if (SelectorOpen(ctrl))
+                    return;
                 _show = true;
             }
             catch (Exception e)
@@ -85,6 +90,16 @@ namespace CardShopCoop.UI
                 _show = false;
                 CoopPlugin.Log.LogWarning("BagOverlay: " + e.Message);
             }
+        }
+
+        /// <summary>True while the album's sort screen or expansion select screen is showing.</summary>
+        private static bool SelectorOpen(CollectionBinderFlipAnimCtrl ctrl)
+        {
+            var ui = ctrl.m_CollectionBinderUI;
+            if (ui == null)
+                return false;
+            return (ui.m_SortAlbumScreen != null && ui.m_SortAlbumScreen.activeSelf)
+                || (ui.m_ExpansionSelectScreen != null && ui.m_ExpansionSelectScreen.activeSelf);
         }
 
         /// <summary>Rebuild the card lines when the bag (or the open album) changed.</summary>
