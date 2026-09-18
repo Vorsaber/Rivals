@@ -19,7 +19,7 @@ namespace CardShopCoop.UI
         private static readonly string[] Tabs = { "Shop", "Cards", "Boxes", "Furniture" };
 
         // slider scratch (drawn every frame; applied on the button)
-        private static float s_slCap = -1f, s_slRate = -1f, s_slPer = -1f, s_slStaff = -1f;
+        private static float s_slCap = -1f, s_slRate = -1f;
 
         private static readonly ECardExpansionType[] Expansions =
         {
@@ -217,20 +217,11 @@ namespace CardShopCoop.UI
                 Do(CheatMenu.Op.Deco, 2);
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
-            Section("Difficulty (TcgDifficulty plugin)");
-            GUILayout.Label(Util.Companions.Difficulty.Describe(), LblDim);
-            if (Util.Companions.Difficulty.Present)
-            {
-                GUILayout.BeginHorizontal();
-                var dp = Util.Companions.Difficulty.Profiles;
-                for (int i = 0; i < dp.Length; i++)
-                    if (Button(dp[i]))
-                        Do(CheatMenu.Op.Difficulty, i);
-                GUILayout.EndHorizontal();
-            }
-            // live sliders: dragged freely, written on Apply
+            // fv-828: the Economy / Difficulty profile buttons and the TcgDifficulty sliders left
+            // this menu; the TUNING phone app is their one home. What stays is CardShopCoop's own
+            // population override (customer cap / arrivals), which TUNING does not carry.
             Section("Live tuning");
-            GUILayout.Label("Host config; applies without a relaunch.", LblDim);
+            GUILayout.Label("Host config; applies without a relaunch. Economy and difficulty profiles + their knobs: TUNING phone app.", LblDim);
             if (s_slCap < 0f)
             {
                 s_slCap = CoopPlugin.MaxCustomers != null ? CoopPlugin.MaxCustomers.Value : 0;
@@ -246,35 +237,6 @@ namespace CardShopCoop.UI
             if (Button("Apply", 60))
                 Do(CheatMenu.Op.Population, Mathf.RoundToInt(s_slCap), Mathf.RoundToInt(s_slRate * 100f));
             GUILayout.EndHorizontal();
-            if (Util.Companions.Difficulty.Present)
-            {
-                if (s_slPer < 0f)
-                {
-                    Util.Companions.TryGetFloat(Util.Companions.Difficulty.Guid, "Difficulty", "PerPlayerScale", out s_slPer);
-                    Util.Companions.TryGetFloat(Util.Companions.Difficulty.Guid, "Difficulty", "StaffCostPerPlayer", out s_slStaff);
-                }
-                GUILayout.BeginHorizontal();
-                GUILayout.Label($"crowd +{Mathf.RoundToInt(s_slPer * 100f)}% per player", Lbl, GUILayout.Width(150));
-                s_slPer = GUILayout.HorizontalSlider(s_slPer, 0f, 2f);
-                GUILayout.EndHorizontal();
-                GUILayout.BeginHorizontal();
-                GUILayout.Label($"staff cost +{Mathf.RoundToInt(s_slStaff * 100f)}% per player", Lbl, GUILayout.Width(150));
-                s_slStaff = GUILayout.HorizontalSlider(s_slStaff, 0f, 3f);
-                if (Button("Apply", 60))
-                    Do(CheatMenu.Op.DiffTuning, Mathf.RoundToInt(s_slPer * 100f), Mathf.RoundToInt(s_slStaff * 100f));
-                GUILayout.EndHorizontal();
-            }
-            Section("Economy (TcgEconomy plugin)");
-            GUILayout.Label(Util.Companions.Economy.Describe(), LblDim);
-            if (Util.Companions.Economy.Present)
-            {
-                GUILayout.BeginHorizontal();
-                var ep = Util.Companions.Economy.Profiles;
-                for (int i = 0; i < ep.Length; i++)
-                    if (Button(ep[i]))
-                        Do(CheatMenu.Op.Economy, i);
-                GUILayout.EndHorizontal();
-            }
             GUILayout.Space(4);
             Section("Play table fee");
             GUILayout.Label("A new shop has no review rating, so customers read a market fee as 10x market and refuse to sit.", LblDim);
