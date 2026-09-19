@@ -63,6 +63,9 @@ namespace CardShopCoop.UI
         public static Action<int, INetMessage> SendToClient;
         public static Func<int, string> PeerName;
         public static Func<int, (bool ok, Vector3 pos, Vector3 fwd)> PeerPose;
+        // --- fv-875 guest-cheats-toggle begin
+        public static Action<INetMessage> Broadcast;   // host -> every guest (the AllowGuestRequests state)
+        // --- fv-875 guest-cheats-toggle end
         private static CheatMenu s_instance;
 
         // while a guest's request runs on the host, "in front of you" means in front of them
@@ -96,6 +99,63 @@ namespace CardShopCoop.UI
             }
         }
 
+        // --- fv-875 guest-cheats-toggle begin
+        // Host: Cheats > AllowGuestRequests, flipped from the CHEATS tile / F4 window (persists to
+        // the cfg through the ConfigEntry). Guest: the host's state as last told to us; -1 until
+        // the host answers. Every CheatResult carries it, and a flip is pushed to every guest, so a
+        // guest's buttons grey out the moment the host turns them off.
+        private static int s_guestCheatsKnown = -1;
+        private static float s_guestCheatsAskedAt = -100f;
+
+        /// <summary>Host / solo: is the switch on? (null = the entry is not bound.)</summary>
+        internal static bool? HostGuestCheats
+        {
+            get
+            {
+                var e = CoopPlugin.CheatsForGuests;
+                return e != null ? e.Value : (bool?)null;
+            }
+        }
+
+        /// <summary>Host: flip the switch, save it, tell every guest.</summary>
+        internal static void SetGuestCheats(bool on)
+        {
+            var e = CoopPlugin.CheatsForGuests;
+            if (e == null || CoopCore.Role == CoopRole.Client)
+                return;
+            e.Value = on;   // BepInEx saves the cfg on set
+            s_instance?.Say("guest cheats " + (on ? "ON" : "OFF"));
+            if (CoopCore.Role == CoopRole.Host)
+                Broadcast?.Invoke(new CheatResultMessage { Text = "", GuestCheats = on ? 1 : 0 });
+        }
+
+        /// <summary>Guest: what the host last told us (null = not yet answered / not a guest).
+        /// Asks the host (an Op.None request) while unknown, at most every 3 s.</summary>
+        internal static bool? GuestCheatsAllowed
+        {
+            get
+            {
+                if (CoopCore.Role != CoopRole.Client)
+                {
+                    s_guestCheatsKnown = -1;    // forget the last host's answer once we leave
+                    return null;
+                }
+                if (s_guestCheatsKnown < 0 && SendToHost != null && Time.unscaledTime - s_guestCheatsAskedAt > 3f)
+                {
+                    s_guestCheatsAskedAt = Time.unscaledTime;
+                    SendToHost(new CheatRequestMessage { Op = (int)Op.None });
+                }
+                return s_guestCheatsKnown < 0 ? (bool?)null : s_guestCheatsKnown == 1;
+            }
+        }
+
+        private static int HostGuestCheatsWire()
+        {
+            var e = CoopPlugin.CheatsForGuests;
+            return e == null || e.Value ? 1 : 0;
+        }
+        // --- fv-875 guest-cheats-toggle end
+
         /// <summary>Run an action here (host / solo) or ship it to the host (guest).</summary>
         private void Do(Op op, int a = 0, int b = 0)
         {
@@ -123,6 +183,14 @@ namespace CardShopCoop.UI
             int madeDeck = -1;
             try
             {
+                // --- fv-875 guest-cheats-toggle begin
+                if (msg.Op == (int)Op.None)
+                {
+                    // a guest opened the menu and asked "are my buttons live?" - state only, no status line
+                    SendToClient?.Invoke(conn, new CheatResultMessage { Text = "", GuestCheats = HostGuestCheatsWire() });
+                    return;
+                }
+                // --- fv-875 guest-cheats-toggle end
                 if (CoopPlugin.CheatsEnabled == null || !CoopPlugin.CheatsEnabled.Value)
                     text = "the host has cheats turned off";
                 else if (CoopPlugin.CheatsForGuests != null && !CoopPlugin.CheatsForGuests.Value)
@@ -161,11 +229,17 @@ namespace CardShopCoop.UI
                 text = "failed: " + e.Message;
                 CoopPlugin.Log.LogWarning("CheatMenu request: " + e);
             }
-            SendToClient?.Invoke(conn, new CheatResultMessage { Text = text ?? "", SelectDeck = madeDeck });
+            SendToClient?.Invoke(conn, new CheatResultMessage { Text = text ?? "", SelectDeck = madeDeck, GuestCheats = HostGuestCheatsWire() }); // fv-875: every answer carries the switch
         }
 
         public static void ClientApplyResult(CheatResultMessage msg)
         {
+            // --- fv-875 guest-cheats-toggle begin
+            if (msg.GuestCheats >= 0)
+                s_guestCheatsKnown = msg.GuestCheats == 1 ? 1 : 0;
+            if (string.IsNullOrEmpty(msg.Text))
+                return;     // a pure state push (the host flipped the switch, or answered our query)
+            // --- fv-875 guest-cheats-toggle end
             s_instance?.Say("host: " + (msg.Text ?? ""));
             if (msg.SelectDeck >= 0)
                 Sync.DeckSync.PendingSelect = msg.SelectDeck; // lands with the next deck mirror
