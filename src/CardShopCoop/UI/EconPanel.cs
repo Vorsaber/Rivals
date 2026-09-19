@@ -21,6 +21,7 @@ namespace CardShopCoop.UI
         private static string s_status = "";
         private static float s_statusAt = -100f;
         private static float s_openedAt = -1f;
+        private static bool s_statusShown; // fv-910: latched on Layout, see Draw
 
         // slider drags: value held here until the mouse is let go, then written once
         private static readonly Dictionary<string, float> s_pending = new Dictionary<string, float>();
@@ -67,11 +68,17 @@ namespace CardShopCoop.UI
         {
             if (s_openedAt < 0f)
                 s_openedAt = Time.unscaledTime;
+            // --- fv-910 slider-crash begin
+            // whether the status line draws is decided on Layout and held for the frame, so a
+            // Say() from any later event can never add a control Layout did not count
+            if (Event.current.type == EventType.Layout)
+                s_statusShown = Time.unscaledTime - s_statusAt < 6f && s_status.Length > 0;
+            // --- fv-910 slider-crash end
             if (Owner)
                 DrawOwner(width);
             else
                 DrawGuest(width);
-            if (Time.unscaledTime - s_statusAt < 6f && s_status.Length > 0)
+            if (s_statusShown)
                 GUILayout.Label(s_status, CoopTheme.LabelDimWrap);
         }
 
