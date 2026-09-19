@@ -9,14 +9,16 @@ namespace CardShopCoop.Sync.Rivals
     /// <summary>
     /// fv-871: league shops close and open the day TOGETHER. Every shop in a league runs its own
     /// clock, so without this shops ended and started days minutes apart and the day board
-    /// compared shops at different points. Two lobby ready-ups fix it:
-    ///   END  - at closing time the captain's Enter (the same key as co-op's sleep vote) no longer
-    ///          opens the recap; it is the shop's READY-TO-END vote to the league. The lobby shows
-    ///          who is ready; the recap opens on every shop at once when the last shop is ready.
-    ///   OPEN - next morning the captain's click on the OPEN sign is the READY-TO-OPEN vote; the
-    ///          signs flip open on every shop at once when the last shop is ready.
-    /// Teammates in a co-op shop keep the in-shop sleep vote (and their sign click reaches the
-    /// captain's shop as before): the captain's PC casts the shop's vote.
+    /// compared shops at different points. Two ready-ups on the LEAGUE CARD fix it (Dan, mid-test:
+    /// "the advance the day should require everyone hit ready on the league card" / "when they go
+    /// to flip the sign they get a league card that has a ready up menu"):
+    ///   ADVANCE - the recap opens as always (Enter at closing time; co-op's sleep vote applies),
+    ///             but nothing on it advances the day any more. The league card beside it has
+    ///             READY; the day advances on every shop at once when the last shop is ready.
+    ///   OPEN    - next morning the OPEN sign does not open the shop: it raises the league card
+    ///             with the same READY; the signs flip open on every shop at once when the last
+    ///             shop is ready. Later flips that day (close, reopen) are free.
+    /// The captain's PC casts the shop's vote; a teammate's sign click reaches it as before.
     ///
     /// The lobby server never keeps a "phase": each playing captain reports (Day, Stage, Ready)
     /// once a second when it changes, and a shop that is ready is RELEASED when every other
@@ -43,12 +45,15 @@ namespace CardShopCoop.Sync.Rivals
         private static bool s_ready;
         private static string s_readyKey = "";      // (day|stage) the ready vote belongs to
         private static string s_sentKey = "";
+        private static float s_sentAt = -100f;
         private static float s_pumpTimer;
         private static string s_firedKey = "";      // (day|stage) an auto-release was already acted on
         private static float s_firedAt = -100f;
         private static InteractableOpenCloseSign s_sign;
 
         public static bool Playing => LeagueSession.Active && LeagueSession.IsCaptain && InGame();
+        /// <summary>Anyone in a league shop (captain or teammate) with a lobby: the card is shown.</summary>
+        public static bool InLeague => LeagueSession.Active && RivalsLobby.Role != RivalsLobby.LobbyRole.None && InGame();
         public static bool MyReady => s_ready && s_readyKey == Key(MyDay(), MyStage());
 
         private static readonly System.Reflection.FieldInfo FiLoadingNextDay = AccessTools.Field(typeof(EndOfDayReportScreen), "m_IsLoadingNextDay");
@@ -101,7 +106,7 @@ namespace CardShopCoop.Sync.Rivals
         }
 
         private static string Key(int day, string stage) => day + "|" + stage;
-        private static bool IsWaitingStage(string stage) => stage == StageClosed || stage == StageMorning;
+        private static bool IsWaitingStage(string stage) => stage == StageReport || stage == StageMorning;
 
         /// <summary>My row of the last sync, if it still describes where I stand.</summary>
         public static RivalsDayState Mine()
@@ -111,6 +116,23 @@ namespace CardShopCoop.Sync.Rivals
             if (me == null || me.Day != MyDay() || me.Stage != MyStage())
                 return null;
             return me;
+        }
+
+        /// <summary>The row that speaks for MY SHOP: mine when I run it, my team's captain's when
+        /// I am a teammate in it (the card shows the same picture on every PC of the shop).</summary>
+        public static RivalsDayState MyShopRow()
+        {
+            if (Playing)
+                return Mine();
+            int team = RivalsLobby.MyTeam;
+            var cap = RivalsLobby.Roster.Find(m => m.Team == team && m.Captain);
+            return cap != null ? Shops.Find(s => s.Id == cap.Id) : null;
+        }
+
+        /// <summary>The point a shop's READY at its current stage stands for (Pos with the vote cast).</summary>
+        public static double ReadyPoint(RivalsDayState s)
+        {
+            return Pos(new RivalsDayState { Day = s.Day, Stage = s.Stage, Ready = true });
         }
 
         /// <summary>The lobby has released me at my current point (every shop is here, or the
@@ -146,6 +168,8 @@ namespace CardShopCoop.Sync.Rivals
 
         // ---------------------------------------------------------------- the two gates (patched in)
 
+        private static readonly System.Reflection.FieldInfo FiIsLerping = AccessTools.Field(typeof(EndOfDayReportScreen), "m_IsLerpingNumber");
+
         public static void ApplyPatches(Harmony h)
         {
             try
@@ -153,50 +177,87 @@ namespace CardShopCoop.Sync.Rivals
                 var sign = AccessTools.Method(typeof(InteractableOpenCloseSign), "OnMouseButtonUp");
                 if (sign != null)
                     h.Patch(sign, prefix: new HarmonyMethod(typeof(LeagueDaySync), nameof(SignPrefix)));
+                var btn = AccessTools.Method(typeof(EndOfDayReportScreen), "OnPressGoNextButton");
+                if (btn != null)
+                    h.Patch(btn, prefix: new HarmonyMethod(typeof(LeagueDaySync), nameof(NextButtonPrefix)));
+                var next = AccessTools.Method(typeof(EndOfDayReportScreen), "OnPressGoNextDay");
+                if (next != null)
+                    h.Patch(next, prefix: new HarmonyMethod(typeof(LeagueDaySync), nameof(NextDayPrefix)));
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("LeagueDaySync patch: " + e.Message); }
         }
 
-        /// <summary>Closing time, the captain pressed Enter (co-op's sleep vote already let it
-        /// through). True = open the recap. In a league the first press is the shop's ready vote
-        /// and the recap waits for the lobby's release; the release itself calls back in here.</summary>
-        public static bool CaptainMayEnd()
+        /// <summary>A gate applies on this PC: a captain running the league save, in a lobby.</summary>
+        private static bool Gated => Playing && RivalsLobby.Role != RivalsLobby.LobbyRole.None && CoopCore.Role != CoopRole.Client;
+
+        /// <summary>The recap's click-anywhere / Enter: the count-up fast-forward stays; the
+        /// advance waits for the league card's READY (a guest's copy is ReportSync's business).</summary>
+        public static bool NextButtonPrefix(EndOfDayReportScreen __instance)
         {
             try
             {
-                if (!Playing || RivalsLobby.Role == RivalsLobby.LobbyRole.None)
+                if (!Gated || MyStage() != StageReport)
                     return true;
-                if (MyStage() != StageClosed)
+                bool lerping = FiIsLerping != null && __instance != null && (bool)FiIsLerping.GetValue(__instance);
+                if (lerping)
                     return true;
                 if (Released())
                     return true;
-                Toggle("end day " + MyDay());
+                // the keyboard path gets a hint; a mouse click is most likely the card's own button
+                if (!MyReady && (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || Input.GetKeyUp(KeyCode.Return) || Input.GetKeyUp(KeyCode.KeypadEnter)))
+                    HostOnlyFeatures.Notice("League: press READY on the league card - the day advances when every shop is ready");
                 return false;
             }
             catch (Exception e)
             {
-                CoopPlugin.Log.LogWarning("LeagueDaySync end: " + e.Message);
+                CoopPlugin.Log.LogWarning("LeagueDaySync next: " + e.Message);
+                return true;
+            }
+        }
+
+        /// <summary>The recap's NEXT DAY button (and any other path into the day advance).</summary>
+        public static bool NextDayPrefix()
+        {
+            try
+            {
+                if (!Gated || MyStage() != StageReport)
+                    return true;
+                if (Released())
+                    return true;
+                if (!MyReady)
+                    HostOnlyFeatures.Notice("League: press READY on the league card - the day advances when every shop is ready");
+                return false;
+            }
+            catch (Exception e)
+            {
+                CoopPlugin.Log.LogWarning("LeagueDaySync next-day: " + e.Message);
                 return true;
             }
         }
 
         /// <summary>The OPEN sign was clicked (a teammate's click arrives here on the captain's
-        /// PC, as it always did). The first open of a day is the shop's ready-to-open vote.</summary>
+        /// PC, as it always did). The first open of a day raises the league card instead.</summary>
         public static bool SignPrefix()
         {
             try
             {
-                if (!Playing || RivalsLobby.Role == RivalsLobby.LobbyRole.None)
-                    return true;
                 if (CoopCore.Role == CoopRole.Client)
-                    return true; // a guest's click is forwarded to the host; the gate runs there
+                {
+                    // a teammate: the click is forwarded to the captain's PC (ShopStateSync), where
+                    // the gate runs; show the card here too so the click is not a silent nothing
+                    if (InLeague && !CPlayerData.m_IsShopOnceOpen && MyStage() == StageMorning)
+                        UI.DaySyncCard.Open();
+                    return true;
+                }
+                if (!Gated)
+                    return true;
                 if (CPlayerData.m_IsShopOnceOpen || MyStage() != StageMorning)
                     return true; // closing / reopening during the day is free
                 if (CPlayerData.m_TutorialIndex < 5 && CPlayerData.m_ShopLevel < 1)
                     return true; // vanilla's own "can't open yet" popup
                 if (Released())
                     return true;
-                Toggle("open day " + MyDay());
+                UI.DaySyncCard.Open();
                 return false;
             }
             catch (Exception e)
@@ -206,9 +267,17 @@ namespace CardShopCoop.Sync.Rivals
             }
         }
 
-        private static void Toggle(string what)
+        /// <summary>May this PC press READY right now (a captain at a waiting point)?</summary>
+        public static bool CanVote => Gated && IsWaitingStage(MyStage());
+
+        /// <summary>The league card's READY button: the shop's vote for its current point.</summary>
+        public static void ToggleReady()
         {
-            string key = Key(MyDay(), MyStage());
+            if (!CanVote)
+                return;
+            string stage = MyStage();
+            string what = (stage == StageReport ? "advance to day " + (MyDay() + 1) : "open day " + MyDay());
+            string key = Key(MyDay(), stage);
             if (s_readyKey != key)
                 s_ready = false;
             s_readyKey = key;
@@ -218,7 +287,7 @@ namespace CardShopCoop.Sync.Rivals
             if (s_ready)
             {
                 string waiting = WaitingFor();
-                HostOnlyFeatures.Notice("League: ready to " + what + (waiting.Length > 0 ? " - waiting for " + waiting : " - waiting for the other shops") + " (press again to cancel)");
+                HostOnlyFeatures.Notice("League: ready to " + what + (waiting.Length > 0 ? " - waiting for " + waiting : " - waiting for the other shops"));
             }
             else
                 HostOnlyFeatures.Notice("League: no longer ready to " + what);
@@ -253,9 +322,10 @@ namespace CardShopCoop.Sync.Rivals
             string stage = playing ? MyStage() : "";
             bool ready = playing && MyReady;
             string key = $"{playing}|{day}|{stage}|{ready}";
-            if (key == s_sentKey)
-                return;
+            if (key == s_sentKey && Time.unscaledTime - s_sentAt < 10f)
+                return; // unchanged: still re-sent every 10 s (a lobby that restarted, a send before the welcome)
             s_sentKey = key;
+            s_sentAt = Time.unscaledTime;
             var m = new RivalsLeagueMessage { Op = "daystate", LeagueId = RivalsLobby.LeagueId, Playing = playing, Day = day, Stage = stage, Ready = ready };
             if (RivalsLobby.Role == RivalsLobby.LobbyRole.Server)
                 ServerApply(0, m);
@@ -263,14 +333,14 @@ namespace CardShopCoop.Sync.Rivals
                 RivalsLobby.SendToLobby(m);
         }
 
-        /// <summary>Released at a waiting point: do what the captain's press would have done.
-        /// END: open the recap (the vanilla path, so co-op's report mirror and the league's day
-        /// report fire as always). OPEN: flip the sign (vanilla click: animation, tutorial task,
-        /// the clock starts). Retried once a second while the point holds - co-op's sleep vote
-        /// may hold the first attempt.</summary>
+        /// <summary>Released at a waiting point: do what the press would have done. ADVANCE: the
+        /// recap's own next-day (vanilla path: close, GoNextDay, the loading curtain; co-op's
+        /// report mirror follows the host as always). OPEN: flip the sign (vanilla click:
+        /// animation, tutorial task, the clock starts). Retried once a second while the point
+        /// holds - the sign's swap debounce may drop the first click.</summary>
         private static void ActOnRelease()
         {
-            if (!Playing || !Released())
+            if (!Gated || !Released())
                 return;
             string stage = MyStage();
             string key = Key(MyDay(), stage);
@@ -278,14 +348,14 @@ namespace CardShopCoop.Sync.Rivals
                 return;
             s_firedKey = key;
             s_firedAt = Time.unscaledTime;
-            if (stage == StageClosed)
+            if (stage == StageReport)
             {
-                var pc = CSingleton<InteractionPlayerController>.Instance;
-                if (pc != null)
+                var scr = CSingleton<EndOfDayReportScreen>.Instance;
+                if (scr != null && EndOfDayReportScreen.IsActive())
                 {
-                    CoopPlugin.Log.LogInfo($"LeagueDaySync: released - ending day {MyDay()}");
-                    HostOnlyFeatures.Notice("League: every shop is ready - day " + MyDay() + " ends");
-                    pc.ShowGoNextDayScreen();
+                    CoopPlugin.Log.LogInfo($"LeagueDaySync: released - advancing past day {MyDay()}");
+                    HostOnlyFeatures.Notice("League: every shop is ready - day " + (MyDay() + 1) + " begins");
+                    scr.OnPressGoNextDay();
                 }
             }
             else if (stage == StageMorning)
@@ -376,7 +446,7 @@ namespace CardShopCoop.Sync.Rivals
             else if (s.WaitingSince < 0f || before != after)
                 s.WaitingSince = Time.unscaledTime;
             if (before != after && waiting)
-                RivalsLobby.LobbyChat($"{st.Name} is ready to {(st.Stage == StageClosed ? "end" : "open")} day {st.Day}");
+                RivalsLobby.LobbyChat($"{st.Name} is ready to {(st.Stage == StageReport ? "advance past" : "open")} day {st.Day}");
             ServerSync(before != after);
         }
 
@@ -479,7 +549,7 @@ namespace CardShopCoop.Sync.Rivals
             if (changed)
                 foreach (var st in list)
                     if (st.Released)
-                        RivalsLobby.LobbyChat($"day {st.Day} {(st.Stage == StageClosed ? "ends" : "opens")} for {st.Name}");
+                        RivalsLobby.LobbyChat($"{(st.Stage == StageReport ? "day " + (st.Day + 1) + " begins" : "day " + st.Day + " opens")} for {st.Name}");
         }
 
         // ---------------------------------------------------------------- UI text
@@ -491,13 +561,13 @@ namespace CardShopCoop.Sync.Rivals
                 return "";
             string stage = MyStage();
             int day = MyDay();
-            if (stage == StageClosed)
+            if (stage == StageReport)
             {
                 if (Released())
-                    return $"day {day}: every shop is ready - ending";
+                    return $"day {day}: every shop is ready - day {day + 1} begins";
                 if (MyReady)
-                    return $"day {day}: READY to end - waiting for {WaitingFor()}{Countdown()}";
-                return $"day {day}: closing time - press Enter when you are ready to end the day";
+                    return $"day {day}: READY to advance - waiting for {WaitingFor()}{Countdown()}";
+                return $"day {day}: on the report - press READY on the league card; the day advances when every shop is ready";
             }
             if (stage == StageMorning)
             {
@@ -505,10 +575,10 @@ namespace CardShopCoop.Sync.Rivals
                     return $"day {day}: every shop is ready - opening";
                 if (MyReady)
                     return $"day {day}: READY to open - waiting for {WaitingFor()}{Countdown()}";
-                return $"day {day}: click the OPEN sign when you are ready - the shops open together";
+                return $"day {day}: click the OPEN sign for the league card - the shops open together";
             }
-            if (stage == StageReport)
-                return $"day {day}: end-of-day report";
+            if (stage == StageClosed)
+                return $"day {day}: closing time - Enter opens the report";
             return $"day {day}: trading";
         }
 
@@ -524,10 +594,10 @@ namespace CardShopCoop.Sync.Rivals
         {
             switch (s.Stage)
             {
-                case StageMorning: return s.Ready ? "ready to open" : "morning, not open yet";
+                case StageMorning: return s.Ready ? "READY to open" : "morning, not ready";
                 case StageTrading: return "trading";
-                case StageClosed: return s.Ready ? "ready to end" : "closed, not ready";
-                case StageReport: return "on the report";
+                case StageClosed: return "closing time";
+                case StageReport: return s.Ready ? "READY to advance" : "on the report, not ready";
                 default: return s.Stage;
             }
         }

@@ -325,6 +325,9 @@ namespace CardShopCoop
             go.AddComponent<UI.PurchaseConfirm>();
             go.AddComponent<UI.PhoneApps>();
             go.AddComponent<Sync.Rivals.RivalsLobby>();
+            // --- fv-871 league-day-sync begin
+            go.AddComponent<UI.DaySyncCard>(); // the league card the OPEN sign raises
+            // --- fv-871 league-day-sync end
             // --- fv-688 r11-bag-overlay begin
             go.AddComponent<UI.BagOverlay>();
             // --- fv-688 r11-bag-overlay end

@@ -652,6 +652,9 @@ namespace CardShopCoop.UI
             // --- fv-827 scoring-in-lobby begin
             GUILayout.Label("<size=11>" + Sync.Rivals.ScoringLine.Build() + (server ? "  (LEAGUE phone app > Scoring to change)" : "") + "</size>", CoopTheme.LabelWarn);
             // --- fv-827 scoring-in-lobby end
+            // --- fv-871 league-day-sync begin
+            DaySyncCard.DrawReadyBlock(true); // the day sync: where the shops stand, READY at a waiting point
+            // --- fv-871 league-day-sync end
 
             // roster
             if (roster.Count == 0)

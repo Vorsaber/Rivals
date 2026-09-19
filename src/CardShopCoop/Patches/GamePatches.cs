@@ -77,8 +77,10 @@ namespace CardShopCoop.Patches
             UI.BagOverlay.ApplyPatches(h);
             // --- fv-688 r11-bag-overlay end
             // --- fv-871 league-day-sync begin
-            // The OPEN sign's first flip of a day is a league shop's ready-to-open vote
-            // (InteractableOpenCloseSign.OnMouseButtonUp prefix lives in Sync/Rivals/LeagueDaySync.cs).
+            // League day sync: the recap's "next day" waits for every shop's READY on the league
+            // card, and the OPEN sign's first flip of a day raises that card instead of opening
+            // (prefixes on EndOfDayReportScreen.OnPressGoNextButton/OnPressGoNextDay and
+            // InteractableOpenCloseSign.OnMouseButtonUp live in Sync/Rivals/LeagueDaySync.cs).
             Sync.Rivals.LeagueDaySync.ApplyPatches(h);
             // --- fv-871 league-day-sync end
 
@@ -1362,13 +1364,9 @@ namespace CardShopCoop.Patches
                 SleepVote.ClientPressed(); // the guest's Enter becomes a "ready" toggle
                 return false;
             }
-            // --- fv-871 league-day-sync begin
-            // A league captain's Enter, once the in-shop sleep vote lets it through, is the
-            // shop's ready-to-end vote to the league; the recap opens on the lobby's release.
             if (CoopCore.Role == CoopRole.Host)
-                return SleepVote.HostMayProceed() && Sync.Rivals.LeagueDaySync.CaptainMayEnd(); // guests first, then the league
-            return Sync.Rivals.LeagueDaySync.CaptainMayEnd();
-            // --- fv-871 league-day-sync end
+                return SleepVote.HostMayProceed(); // waits for the guests once, then goes
+            return true;
         }
 
         public static bool ClientLightTogglePrefix()
