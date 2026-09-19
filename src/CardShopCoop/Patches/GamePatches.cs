@@ -84,7 +84,7 @@ namespace CardShopCoop.Patches
             Sync.Rivals.LeagueDaySync.ApplyPatches(h);
             // --- fv-871 league-day-sync end
             // --- fv-914 cardseller-graded begin
-            // CardSeller sells graded cards too, behind CardSeller.IncludeGraded (prefix/postfix on
+            // CardSeller sells graded cards ONLY, behind CardSeller.GradedOnly (prefix/postfix on
             // its private scan, plus identity-gated ReduceCard/GetCardAmount prefixes - Util/CardSellerInterop.cs).
             Util.CardSellerInterop.ApplyPatches(h);
             // --- fv-914 cardseller-graded end
