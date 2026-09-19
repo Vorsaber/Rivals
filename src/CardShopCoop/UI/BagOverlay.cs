@@ -56,10 +56,37 @@ namespace CardShopCoop.UI
             return CoopCore.IsVisiting && VisitorBag.IsOpen;
         }
 
+        // fv-872: InteractionPlayerController.m_Instance is a dead static - the game declares it
+        // and never assigns it (CoopCore.ResolvePlayer / CheatMenu.InGame say the same). Reading
+        // it here left Binder() null on every frame, so the panel never drew. Find the controller
+        // in the scene instead and cache it; a scene change destroys it (Unity == null) and the
+        // next look-up re-finds it. Not CSingleton<>.Instance - that spawns one when none exists.
+        private static InteractionPlayerController _ipc;
+        private static float _nextIpcLookup;
+
         private static CollectionBinderFlipAnimCtrl Binder()
         {
-            var ipc = InteractionPlayerController.m_Instance;
-            return ipc != null ? ipc.m_CollectionBinderFlipAnimCtrl : null;
+            if (_ipc == null && Time.unscaledTime >= _nextIpcLookup)
+            {
+                _nextIpcLookup = Time.unscaledTime + 0.5f; // a scene scan, not a per-frame one
+                _ipc = InteractionPlayerController.m_Instance;
+                if (_ipc == null)
+                    _ipc = FindObjectOfType<InteractionPlayerController>();
+            }
+            return _ipc != null ? _ipc.m_CollectionBinderFlipAnimCtrl : null;
+        }
+
+        // fv-872: why the panel is (not) drawing, logged once per change of answer - never per
+        // frame. "album closed" <-> "drawing" is the normal pair while visiting; anything else
+        // names the gate that failed, which is what the silent no-panel bug lacked.
+        private string _why = "";
+
+        private void Why(string why)
+        {
+            if (why == _why)
+                return;
+            _why = why;
+            CoopPlugin.Log.LogInfo("BagOverlay: " + why);
         }
 
         private void Update()
@@ -68,13 +95,32 @@ namespace CardShopCoop.UI
             {
                 _show = false;
                 if (!Applies())
+                {
+                    Why(CoopCore.IsVisiting ? "not drawing - visiting, but the bag is not open" : "not drawing - not visiting");
                     return;
+                }
                 var gm = CSingleton<CGameManager>.Instance;
                 if (gm == null || !gm.m_IsGameLevel)
+                {
+                    Why("not drawing - not in the shop scene");
                     return;
+                }
                 var ctrl = Binder();
-                if (ctrl == null || FiBookOpen == null || !(bool)FiBookOpen.GetValue(ctrl))
+                if (ctrl == null)
+                {
+                    Why("not drawing - no player controller / binder in the scene");
                     return;
+                }
+                if (FiBookOpen == null)
+                {
+                    Why("not drawing - CollectionBinderFlipAnimCtrl.m_IsBookOpen not found (game update?)");
+                    return;
+                }
+                if (!(bool)FiBookOpen.GetValue(ctrl))
+                {
+                    Why("not drawing - album closed");
+                    return;
+                }
                 _albumExpansion = FiExpansion != null ? (ECardExpansionType)FiExpansion.GetValue(ctrl) : ECardExpansionType.None;
                 _albumGraded = FiGraded != null && (bool)FiGraded.GetValue(ctrl);
                 Rebuild();
@@ -82,7 +128,11 @@ namespace CardShopCoop.UI
                 // panel sits. Hide the panel while either is up; the page badges are static patches and
                 // do not depend on _show, so they are untouched.
                 if (SelectorOpen(ctrl))
+                {
+                    Why("hidden - sort / expansion selector is up");
                     return;
+                }
+                Why($"drawing - album {(_albumGraded ? "graded" : _albumExpansion.ToString())}, bag {_cardTotal} card(s) / {_itemTotal} item(s)");
                 _show = true;
             }
             catch (Exception e)
