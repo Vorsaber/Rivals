@@ -36,6 +36,13 @@ namespace CardShopCoop.Sync.Rivals
             public bool IsDestiny;
             public int Amount;
             public float Paid;
+            // --- fv-908 grading-overhaul-fake begin
+            /// <summary>Grading Overhaul's ENCODED grade (company + 1-10 grade + cert serial) of a
+            /// graded slab, or the vanilla 1-10; 0 = ungraded. Part of the line identity: every
+            /// slab has its own serial, so a graded line is one card. Absent on a release-2.1
+            /// peer's JSON = 0 = the old ungraded behaviour.</summary>
+            public int Grade;
+            // --- fv-908 grading-overhaul-fake end
         }
 
         [Serializable]
@@ -270,7 +277,7 @@ namespace CardShopCoop.Sync.Rivals
             foreach (var it in from.Items)
                 AddItemTo(into, it.ItemType, it.Count, it.Paid);
             foreach (var c in from.Cards)
-                AddCardTo(into, c.Expansion, c.Index, c.IsDestiny, c.Amount, c.Paid);
+                AddCardTo(into, c.Expansion, c.Index, c.IsDestiny, c.Amount, c.Paid, c.Grade);
             into.Log.AddRange(from.Log);
         }
 
@@ -329,7 +336,15 @@ namespace CardShopCoop.Sync.Rivals
 
         public static void AddCardTo(State s, int expansion, int index, bool destiny, int amount, float paid)
         {
-            var existing = s.Cards.Find(c => c.Expansion == expansion && c.Index == index && c.IsDestiny == destiny);
+            AddCardTo(s, expansion, index, destiny, amount, paid, 0);
+        }
+
+        // --- fv-908 grading-overhaul-fake begin
+        /// <summary>The bag line for (expansion, index, destiny, grade): a graded slab is its own
+        /// line, never folded into the ungraded stack of the same card.</summary>
+        public static void AddCardTo(State s, int expansion, int index, bool destiny, int amount, float paid, int grade)
+        {
+            var existing = s.Cards.Find(c => c.Expansion == expansion && c.Index == index && c.IsDestiny == destiny && c.Grade == grade);
             if (existing != null)
             {
                 existing.Amount += amount;
@@ -338,19 +353,31 @@ namespace CardShopCoop.Sync.Rivals
                     s.Cards.Remove(existing); // a trade gave it away
             }
             else if (amount > 0)
-                s.Cards.Add(new Card { Expansion = expansion, Index = index, IsDestiny = destiny, Amount = amount, Paid = paid });
+                s.Cards.Add(new Card { Expansion = expansion, Index = index, IsDestiny = destiny, Amount = amount, Paid = paid, Grade = grade });
         }
 
+        /// <summary>The grade a card carries into the bag: Grading Overhaul's ENCODED value when
+        /// it is installed (its registry, not the display's transient 1-10 - same rule as the
+        /// CardDelta forwarder in GamePatches.AddCardPostfix), else the vanilla grade.</summary>
+        public static int GradeOf(CardData cd)
+        {
+            if (cd == null || cd.cardGrade <= 0)
+                return 0;
+            try { return Util.GradingInterop.Encoded(cd); }
+            catch { return cd.cardGrade; }
+        }
+        // --- fv-908 grading-overhaul-fake end
+
         /// <summary>A card leaves the bag (traded away to the shop).</summary>
-        public static void RemoveCard(int expansion, int index, bool destiny, int amount)
+        public static void RemoveCard(int expansion, int index, bool destiny, int amount, int grade = 0)
         {
             if (!IsOpen || amount <= 0)
                 return;
-            AddCardTo(Current, expansion, index, destiny, -amount, 0f);
-            Current.Log.Add($"card {index}/{expansion} x{amount} traded away");
+            AddCardTo(Current, expansion, index, destiny, -amount, 0f, grade);
+            Current.Log.Add($"card {index}/{expansion}{(grade > 0 ? " (graded)" : "")} x{amount} traded away");
             Save();
             if (Current.Shared)
-                RivalsLobby.SendBagOp(new Net.Messages.RivalsBagMessage { Op = "card", Expansion = expansion, Index = index, IsDestiny = destiny, Count = -amount, Paid = 0f });
+                RivalsLobby.SendBagOp(new Net.Messages.RivalsBagMessage { Op = "card", Expansion = expansion, Index = index, IsDestiny = destiny, Count = -amount, Paid = 0f, Grade = grade });
         }
 
         public static void AddCard(CardData cd, int amount, float paid)
@@ -363,11 +390,12 @@ namespace CardShopCoop.Sync.Rivals
                 index = CPlayerData.GetCardSaveIndex(cd);
             }
             catch { return; }
-            AddCardTo(Current, (int)cd.expansionType, index, cd.isDestiny, amount, paid);
-            Current.Log.Add($"card {cd.monsterType} ({cd.expansionType}) x{amount}");
+            int grade = GradeOf(cd); // fv-908: a slab travels with its grade + serial
+            AddCardTo(Current, (int)cd.expansionType, index, cd.isDestiny, amount, paid, grade);
+            Current.Log.Add($"card {cd.monsterType} ({cd.expansionType}){(grade > 0 ? " graded " + Util.GradingInterop.Actual(grade) : "")} x{amount}");
             Save();
             if (Current.Shared)
-                RivalsLobby.SendBagOp(new Net.Messages.RivalsBagMessage { Op = "card", Expansion = (int)cd.expansionType, Index = index, IsDestiny = cd.isDestiny, Count = amount, Paid = paid });
+                RivalsLobby.SendBagOp(new Net.Messages.RivalsBagMessage { Op = "card", Expansion = (int)cd.expansionType, Index = index, IsDestiny = cd.isDestiny, Count = amount, Paid = paid, Grade = grade });
         }
 
         /// <summary>Home again, own save loaded: apply everything once and close the bag.
@@ -475,6 +503,25 @@ namespace CardShopCoop.Sync.Rivals
                 var cd = CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Expansion, c.IsDestiny);
                 if (cd == null || c.Amount <= 0)
                     continue;
+                // --- fv-908 grading-overhaul-fake begin
+                // A graded slab lands with its grade. Its certificate was issued by ANOTHER shop's
+                // Grading Overhaul, so before AddCard (whose GO prefix would stamp an unknown or
+                // colliding cert FAKE) the cert is registered here, or re-slabbed under this
+                // shop's own store when it collides. Each copy of a slab is its own cert, so a
+                // graded line is added one at a time.
+                if (c.Grade > 0)
+                {
+                    for (int n = 0; n < c.Amount; n++)
+                    {
+                        var slab = n == 0 ? cd : CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Expansion, c.IsDestiny);
+                        slab.cardGrade = c.Grade;
+                        Util.GradingInterop.AdoptForeign(slab, visited);
+                        CPlayerData.AddCard(slab, 1);
+                    }
+                    nCards += c.Amount;
+                    continue;
+                }
+                // --- fv-908 grading-overhaul-fake end
                 CPlayerData.AddCard(cd, c.Amount);
                 nCards += c.Amount;
             }
@@ -530,6 +577,7 @@ namespace CardShopCoop.Sync.Rivals
                 dep.CardIndices.Add(c.Index);
                 dep.CardDestiny.Add(c.IsDestiny);
                 dep.CardAmounts.Add(c.Amount);
+                dep.CardGrades.Add(c.Grade); // fv-908
             }
             CoopCore.Instance.SendBagDeposit(dep);
             s_depositSentAt = Time.unscaledTime;
@@ -640,6 +688,7 @@ namespace CardShopCoop.Sync.Rivals
                         Index = dep.CardIndices[i],
                         IsDestiny = i < dep.CardDestiny.Count && dep.CardDestiny[i],
                         Amount = i < dep.CardAmounts.Count ? dep.CardAmounts[i] : 0,
+                        Grade = i < dep.CardGrades.Count ? dep.CardGrades[i] : 0, // fv-908 (absent from a 2.1 guest = ungraded)
                     });
                 var items = new List<Item>();
                 for (int i = 0; i < dep.ItemTypes.Count; i++)

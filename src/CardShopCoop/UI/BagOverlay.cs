@@ -161,7 +161,7 @@ namespace CardShopCoop.UI
             sig.Append(bag.Cards.Count).Append('|').Append(bag.Items.Count).Append('|');
             sig.Append(VisitorBag.Balance.ToString("0.00")).Append('|');
             foreach (var c in bag.Cards)
-                sig.Append(c.Expansion).Append(':').Append(c.Index).Append(':').Append(c.IsDestiny ? 1 : 0).Append(':').Append(c.Amount).Append(',');
+                sig.Append(c.Expansion).Append(':').Append(c.Index).Append(':').Append(c.IsDestiny ? 1 : 0).Append(':').Append(c.Amount).Append(':').Append(c.Grade).Append(','); // fv-908: grade in the key
             foreach (var it in bag.Items)
                 sig.Append(it.ItemType).Append(':').Append(it.Count).Append(',');
             string s = sig.ToString();
@@ -200,6 +200,8 @@ namespace CardShopCoop.UI
             try
             {
                 var cd = CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Expansion, c.IsDestiny);
+                if (c.Grade > 0)
+                    cd.cardGrade = c.Grade; // fv-908: the label says "grade N" for a slab
                 return TradeSync.Label(cd);
             }
             catch { return $"card {c.Index}/{c.Expansion}"; }

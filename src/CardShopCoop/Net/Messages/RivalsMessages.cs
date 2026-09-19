@@ -205,6 +205,11 @@ namespace CardShopCoop.Net.Messages
         /// deposit is resent, and answers every copy with a <see cref="BagDepositAckMessage"/>.</summary>
         public string DepositId = "";
         // --- fv-682 b5-ledger-hardening end
+        // --- fv-908 grading-overhaul-fake begin
+        /// <summary>Parallel to CardIndices: Grading Overhaul's encoded grade of a slab (0 =
+        /// ungraded). Missing on a release-2.1 sender = every line ungraded, as before.</summary>
+        public List<int> CardGrades = new List<int>();
+        // --- fv-908 grading-overhaul-fake end
         public MsgType Type
         {
             get
@@ -237,6 +242,10 @@ namespace CardShopCoop.Net.Messages
         /// the sender's connection id has changed; "delivered": the captain applied this trip.</summary>
         public string TripId = "";
         // --- fv-682 b5-ledger-hardening end
+        // --- fv-908 grading-overhaul-fake begin
+        /// <summary>"card": Grading Overhaul's encoded grade of the slab (0 = ungraded).</summary>
+        public int Grade;
+        // --- fv-908 grading-overhaul-fake end
         public MsgType Type
         {
             get
@@ -297,6 +306,11 @@ namespace CardShopCoop.Net.Messages
         public int Index;
         public bool Destiny;
         public int Amount;
+        // --- fv-908 grading-overhaul-fake begin
+        /// <summary>Grading Overhaul's encoded grade of a slab on offer (0 = the ungraded stack).
+        /// A graded line is one card (its own serial); Amount stays 1.</summary>
+        public int Grade;
+        // --- fv-908 grading-overhaul-fake end
     }
 
     /// <summary>One side of the trade window.</summary>

@@ -266,7 +266,7 @@ namespace CardShopCoop.Sync.Rivals
                     s_claimedKeys.Remove(msg.RefusedKey);
                     try
                     {
-                        VisitorBag.RemoveCard((int)taken.expansionType, CPlayerData.GetCardSaveIndex(taken), taken.isDestiny, 1);
+                        VisitorBag.RemoveCard((int)taken.expansionType, CPlayerData.GetCardSaveIndex(taken), taken.isDestiny, 1, VisitorBag.GradeOf(taken)); // fv-908
                     }
                     catch (Exception e) { CoopPlugin.Log.LogWarning("PrizeClaim bounce: " + e.Message); }
                     HostOnlyFeatures.Notice("Tournament prize: the shop didn't release that card - it's back on the shelf");

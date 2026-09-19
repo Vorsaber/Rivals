@@ -424,8 +424,21 @@ namespace CardShopCoop.Sync.Rivals
             if (string.IsNullOrEmpty(name))
                 name = cd.monsterType.ToString();
             string border = cd.borderType == ECardBorderType.Base ? "" : " " + cd.borderType;
-            return $"{name}{border}{(cd.isFoil ? " foil" : "")}{(cd.isDestiny ? " destiny" : "")} [{cd.expansionType}]";
+            return $"{name}{border}{(cd.isFoil ? " foil" : "")}{(cd.isDestiny ? " destiny" : "")} [{cd.expansionType}]{GradeSuffix(cd.cardGrade)}";
         }
+
+        // --- fv-908 grading-overhaul-fake begin
+        /// <summary>" grade N #serial" for a slab (serial only when Grading Overhaul decodes
+        /// it), "" for an ungraded card.</summary>
+        public static string GradeSuffix(int grade)
+        {
+            if (grade <= 0)
+                return "";
+            int company, cert;
+            string serial = Util.GradingInterop.DecodeCert(grade, out company, out cert) ? " #" + cert.ToString("D7") : "";
+            return " grade " + Util.GradingInterop.Actual(grade) + serial;
+        }
+        // --- fv-908 grading-overhaul-fake end
 
         /// <summary>What I can offer, filtered by name: the collection (shop) or the bag (visitor).</summary>
         public static List<(TradeCard card, string label, int have)> Search(string filter, int max)
