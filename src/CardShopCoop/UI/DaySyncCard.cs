@@ -165,7 +165,9 @@ namespace CardShopCoop.UI
             GUILayout.Label(report ? $"READY-UP - ADVANCE TO DAY {day + 1}" : $"READY-UP - OPEN DAY {day}", CoopTheme.SectionHeader);
             GUILayout.Label(report
                 ? "<size=11>The day advances for every shop at once when every shop has pressed READY. Nothing else on the report advances it.</size>"
-                : "<size=11>The shops open together when every shop has pressed READY - the clocks start in step and closing time lands together.</size>", CoopTheme.LabelDim);
+                // --- fv-876 league-app-fit begin (wraps: ~650 px of text)
+                : "<size=11>The shops open together when every shop has pressed READY - the clocks start in step and closing time lands together.</size>", CoopTheme.LabelDimWrap);
+                // --- fv-876 league-app-fit end
 
             var shops = LeagueDaySync.Shops;
             var mine = LeagueDaySync.MyShopRow();
