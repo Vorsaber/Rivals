@@ -39,9 +39,11 @@ namespace CardShopCoop.UI
                 string price = s.PriceRank < 0 ? "no prices" : (s.PriceRank == 0 ? "CHEAPEST" : "price #" + (s.PriceRank + 1)) + $" x{s.AvgMarkup:0.00}";
                 string crowd = Mathf.Approximately(s.CrowdMultiplier, 1f) ? "" : $"  crowd x{s.CrowdMultiplier:0.00}";
                 // --- fv-683 leaderboard-v2 begin
-                GUILayout.Label($"{(mine ? "<b>" : "")}{i + 1}. {s.Name} - lvl {s.Level}, day {s.Day + 1}, {SeasonPanel.ValueText(s, RivalsLobby.Board.SeasonDays)}{(mine ? "</b>" : "")}", CoopTheme.Label);
+                // --- fv-876 league-app-fit begin (wrap styles: a board row runs ~560 px)
+                GUILayout.Label($"{(mine ? "<b>" : "")}{i + 1}. {s.Name} - lvl {s.Level}, day {s.Day + 1}, {SeasonPanel.ValueText(s, RivalsLobby.Board.SeasonDays)}{(mine ? "</b>" : "")}", CoopTheme.LabelWrap);
                 // --- fv-683 leaderboard-v2 end
-                GUILayout.Label($"<size=10>   sales {s.SalesToday}, customers {s.CustomersToday}  |  {price}{crowd}{(s.TournamentToday ? "  TOURNAMENT TODAY" : "")}</size>", CoopTheme.LabelDim);
+                GUILayout.Label($"<size=10>   sales {s.SalesToday}, customers {s.CustomersToday}  |  {price}{crowd}{(s.TournamentToday ? "  TOURNAMENT TODAY" : "")}</size>", CoopTheme.LabelDimWrap);
+                // --- fv-876 league-app-fit end
             }
             // --- fv-683 leaderboard-v2 begin
             SeasonPanel.DrawWeeks(RivalsLobby.Board, 3);
@@ -234,7 +236,9 @@ namespace CardShopCoop.UI
         {
             var settings = LeagueDay.HostSettings();
             GUILayout.BeginVertical(CoopTheme.SectionBox);
-            GUILayout.Label("<size=10>SCORING - a KPI's weight multiplies its placings; off = shown but not scored. Everyone in the league ranks by these.</size>", CoopTheme.LabelDim);
+            // --- fv-876 league-app-fit begin
+            GUILayout.Label("<size=10>SCORING - a KPI's weight multiplies its placings; off = shown but not scored. Everyone in the league ranks by these.</size>", CoopTheme.LabelDimWrap);
+            // --- fv-876 league-app-fit end
             foreach (var (key, label, _, _) in LeagueDay.Kpis)
             {
                 RivalsKpiSetting st = null;
