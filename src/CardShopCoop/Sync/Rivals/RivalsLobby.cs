@@ -311,6 +311,9 @@ namespace CardShopCoop.Sync.Rivals
             // --- fv-683 leaderboard-v2 begin
             SeasonReset();
             // --- fv-683 leaderboard-v2 end
+            // --- fv-871 league-day-sync begin
+            LeagueDaySync.Reset();
+            // --- fv-871 league-day-sync end
             Board = new RivalsBoardMessage();
             CrowdMultiplier = 1f;
             MyPriceRank = -1;
@@ -340,6 +343,9 @@ namespace CardShopCoop.Sync.Rivals
             TitleGate.Tick();     // in a lobby: no New/Continue/Load on the title screen
             TickDeparture();      // a visit that is leaving: save + title once the till is debited
             VisitorBag.Tick();    // fv-682: also without a lobby - the "home without the lobby" apply was unreachable
+            // --- fv-871 league-day-sync begin
+            LeagueDaySync.Tick(); // my day state to the lobby; act on a release; server: timeouts
+            // --- fv-871 league-day-sync end
             if (_net == null || Role == LobbyRole.None)
                 return;
             try
@@ -363,6 +369,9 @@ namespace CardShopCoop.Sync.Rivals
                         if (_members.Remove(d))
                             SendSetup();
                         BagMemberGone(d);
+                        // --- fv-871 league-day-sync begin
+                        LeagueDaySync.ServerForget(d); // the league no longer waits for a shop that left
+                        // --- fv-871 league-day-sync end
                     }
                     else
                     {
@@ -1085,6 +1094,9 @@ namespace CardShopCoop.Sync.Rivals
                 m.HasSave = false;
             }
             me._myReady = false;
+            // --- fv-871 league-day-sync begin
+            LeagueDaySync.ServerReset();
+            // --- fv-871 league-day-sync end
             me.SendSetup();
             PushChat("lobby", "new league " + LeagueId + " - everyone starts fresh");
             me._net.Broadcast(new RivalsChatMessage { From = "lobby", Text = "new league " + LeagueId + " - everyone starts fresh" });
@@ -1267,6 +1279,18 @@ namespace CardShopCoop.Sync.Rivals
                         return;
                     BeginLeague(m);
                     break;
+                // --- fv-871 league-day-sync begin
+                case "daystate":
+                    if (Role != LobbyRole.Server || !_members.ContainsKey(conn))
+                        return;
+                    LeagueDaySync.ServerApply(conn, m);
+                    break;
+                case "daysync":
+                    if (Role != LobbyRole.Client)
+                        return;
+                    LeagueDaySync.ApplySync(m);
+                    break;
+                // --- fv-871 league-day-sync end
             }
         }
 
@@ -2090,6 +2114,46 @@ namespace CardShopCoop.Sync.Rivals
             board.WinnerValue = _winnerValue;
         }
         // --- fv-683 leaderboard-v2 end
+
+        // --- fv-871 league-day-sync begin
+        /// <summary>Member -> the lobby server (LeagueDaySync's "daystate").</summary>
+        internal static void SendToLobby(INetMessage msg)
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Client || me._net == null || me._myId < 0)
+                return;
+            try { me._net.Send(1, msg); }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals send: " + e.Message); }
+        }
+
+        /// <summary>Server -> every member (LeagueDaySync's "daysync").</summary>
+        internal static void BroadcastLobby(INetMessage msg)
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server || me._net == null)
+                return;
+            try { me._net.Broadcast(msg); }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("Rivals broadcast: " + e.Message); }
+        }
+
+        /// <summary>Server: a "lobby" chat line for everyone, the server included.</summary>
+        internal static void LobbyChat(string text)
+        {
+            var me = Instance;
+            if (me == null || Role != LobbyRole.Server)
+                return;
+            PushChat("lobby", text);
+            BroadcastLobby(new RivalsChatMessage { From = "lobby", Text = text });
+        }
+
+        internal static string NameOfMember(int conn)
+        {
+            var me = Instance;
+            if (me != null && me._members.TryGetValue(conn, out var m) && !string.IsNullOrEmpty(m.Name))
+                return m.Name;
+            return conn == 0 ? MyShopName() : "member " + conn;
+        }
+        // --- fv-871 league-day-sync end
     }
 
     /// <summary>The shop's markup over everything it has actually priced - set item prices and

@@ -59,6 +59,9 @@ namespace CardShopCoop
         public static ConfigEntry<string> RivalsKpiDisabled;
         public static ConfigEntry<int> RivalsHistoryDays;
         // --- fv-686 standings-v2 end
+        // --- fv-871 league-day-sync begin
+        public static ConfigEntry<int> RivalsDayEndTimeoutSec;
+        // --- fv-871 league-day-sync end
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
         public static ConfigEntry<string> LastJoinIP;
@@ -155,6 +158,10 @@ namespace CardShopCoop
             RivalsHistoryDays = Config.Bind("Rivals", "HistoryDays", 7,
                 new ConfigDescription("Lobby host: how many recent days the LAST N DAYS standings view sums over. Season totals always cover every day kept.", new AcceptableValueRange<int>(1, 60)));
             // --- fv-686 standings-v2 end
+            // --- fv-871 league-day-sync begin
+            RivalsDayEndTimeoutSec = Config.Bind("Rivals", "DayEndTimeoutSec", 120,
+                new ConfigDescription("Lobby host: league shops end the day (Enter at closing time) and open the next one (the OPEN sign) together - a shop that is ready waits for the others. After this many seconds of waiting the lobby releases the shops that are ready; the rest catch up at their own pace. 0 = wait for everyone, however long. The LEAGUE box also has a Force button.", new AcceptableValueRange<int>(0, 3600)));
+            // --- fv-871 league-day-sync end
             MaxPlayers = Config.Bind("Network", "MaxPlayers", 4,
                 new ConfigDescription("Host: players in the shop including you (2-8). Sets the Steam lobby size and refuses LAN joins past it. Everything is relayed through the host, so above 4 expect the host's upload to be the limit.", new AcceptableValueRange<int>(2, 8)));
             LastJoinIP = Config.Bind("Network", "LastJoinIP", "192.168.1.100",

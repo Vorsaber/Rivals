@@ -167,6 +167,16 @@ namespace CardShopCoop.Net.Messages
         public List<RivalsKpiSetting> Kpis = new List<RivalsKpiSetting>(); // "setup": the host's KPI weights/toggles (empty = defaults)
         public int HistoryDays;        // "setup": the host's "last N days" window (0 = unknown)
         // --- fv-827 scoring-in-lobby end
+        // --- fv-871 league-day-sync begin
+        // "daystate" (member -> server, once a second when it changes): where my shop's day stands.
+        // "daysync" (server -> everyone): every playing shop's day state and who is released.
+        // "dayforce" (server, local): the lobby host releases every shop that is waiting now.
+        public int Day;                // "daystate": the day my shop is on (m_CurrentDay + 1)
+        public string Stage = "";      // "daystate": morning | trading | closed | report
+        public bool Playing;           // "daystate": I am running my own league shop (a captain in the league save)
+        public List<RivalsDayState> Shops = new List<RivalsDayState>(); // "daysync"
+        public long Deadline;          // "daysync": unix seconds when the host's timeout releases the waiters (0 = none)
+        // --- fv-871 league-day-sync end
         public MsgType Type
         {
             get
@@ -447,4 +457,20 @@ namespace CardShopCoop.Net.Messages
         }
     }
     // --- fv-682 b5-ledger-hardening end
+
+    // --- fv-871 league-day-sync begin
+    /// <summary>One league shop's place in the day, as the lobby server last heard it (rides
+    /// <see cref="RivalsLeagueMessage"/> op "daysync"). Ready = its captain pressed Enter at
+    /// closing time (Stage closed) or the open sign in the morning (Stage morning); Released =
+    /// every other playing shop has reached that point too (or the host forced it).</summary>
+    public sealed class RivalsDayState
+    {
+        public int Id;                 // lobby connection id (server = 0)
+        public string Name = "";
+        public int Day;
+        public string Stage = "";      // morning | trading | closed | report
+        public bool Ready;
+        public bool Released;
+    }
+    // --- fv-871 league-day-sync end
 }
