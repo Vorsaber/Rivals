@@ -76,6 +76,13 @@ namespace CardShopCoop.Patches
             // (BinderPageGrp.SetCard/SetSingleCard postfixes live in UI/BagOverlay.cs).
             UI.BagOverlay.ApplyPatches(h);
             // --- fv-688 r11-bag-overlay end
+            // --- fv-871 league-day-sync begin
+            // League day sync: the recap's "next day" waits for every shop's READY on the league
+            // card, and the OPEN sign's first flip of a day raises that card instead of opening
+            // (prefixes on EndOfDayReportScreen.OnPressGoNextButton/OnPressGoNextDay and
+            // InteractableOpenCloseSign.OnMouseButtonUp live in Sync/Rivals/LeagueDaySync.cs).
+            Sync.Rivals.LeagueDaySync.ApplyPatches(h);
+            // --- fv-871 league-day-sync end
 
             // The CMF camera reads Mouse X/Y directly from its own CameraMouseInput
             // component. InteractionPlayerController.EnterUIMode disables the game's

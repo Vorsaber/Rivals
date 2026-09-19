@@ -59,6 +59,9 @@ namespace CardShopCoop
         public static ConfigEntry<string> RivalsKpiDisabled;
         public static ConfigEntry<int> RivalsHistoryDays;
         // --- fv-686 standings-v2 end
+        // --- fv-871 league-day-sync begin
+        public static ConfigEntry<int> RivalsDayEndTimeoutSec;
+        // --- fv-871 league-day-sync end
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
         public static ConfigEntry<string> LastJoinIP;
@@ -155,6 +158,10 @@ namespace CardShopCoop
             RivalsHistoryDays = Config.Bind("Rivals", "HistoryDays", 7,
                 new ConfigDescription("Lobby host: how many recent days the LAST N DAYS standings view sums over. Season totals always cover every day kept.", new AcceptableValueRange<int>(1, 60)));
             // --- fv-686 standings-v2 end
+            // --- fv-871 league-day-sync begin
+            RivalsDayEndTimeoutSec = Config.Bind("Rivals", "DayEndTimeoutSec", 120,
+                new ConfigDescription("Lobby host: league shops advance the day and open the next one together - a shop that pressed READY on the league card waits for every other shop, always. After a shop has waited this many seconds the host's Force button on the card unlocks (an admin override that releases the shops that are ready; the rest catch up at their own pace). 0 = Force never unlocks: strict, everyone waits for everyone.", new AcceptableValueRange<int>(0, 3600)));
+            // --- fv-871 league-day-sync end
             MaxPlayers = Config.Bind("Network", "MaxPlayers", 4,
                 new ConfigDescription("Host: players in the shop including you (2-8). Sets the Steam lobby size and refuses LAN joins past it. Everything is relayed through the host, so above 4 expect the host's upload to be the limit.", new AcceptableValueRange<int>(2, 8)));
             LastJoinIP = Config.Bind("Network", "LastJoinIP", "192.168.1.100",
@@ -318,6 +325,9 @@ namespace CardShopCoop
             go.AddComponent<UI.PurchaseConfirm>();
             go.AddComponent<UI.PhoneApps>();
             go.AddComponent<Sync.Rivals.RivalsLobby>();
+            // --- fv-871 league-day-sync begin
+            go.AddComponent<UI.DaySyncCard>(); // the league card the OPEN sign raises
+            // --- fv-871 league-day-sync end
             // --- fv-688 r11-bag-overlay begin
             go.AddComponent<UI.BagOverlay>();
             // --- fv-688 r11-bag-overlay end

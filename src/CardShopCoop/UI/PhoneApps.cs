@@ -280,8 +280,11 @@ namespace CardShopCoop.UI
         {
             try
             {
-                if (Sync.Rivals.LeagueDay.Reports.Count == 0 || !EndOfDayReportScreen.IsActive())
+                // --- fv-871 league-day-sync begin
+                // in a league the card is up whenever the report is (its READY advances the day)
+                if ((Sync.Rivals.LeagueDay.Reports.Count == 0 && !Sync.Rivals.LeagueDaySync.InLeague) || !EndOfDayReportScreen.IsActive())
                     return;
+                // --- fv-871 league-day-sync end
             }
             catch { return; }
             CoopTheme.EnsureBuilt();
@@ -297,6 +300,10 @@ namespace CardShopCoop.UI
             s_dayScroll = GUILayout.BeginScrollView(s_dayScroll);
             try
             {
+                // --- fv-871 league-day-sync begin
+                DaySyncCard.DrawReadyBlock(true); // who is ready to advance; READY
+                GUILayout.Space(6f);
+                // --- fv-871 league-day-sync end
                 LeaguePanel.DrawDayTable(w - 24f, false);
             }
             catch (Exception e)

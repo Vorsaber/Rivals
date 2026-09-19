@@ -48,6 +48,9 @@ namespace CardShopCoop.UI
             // --- fv-683 leaderboard-v2 end
             GUILayout.EndVertical();
 
+            // --- fv-871 league-day-sync begin
+            DaySyncCard.DrawReadyBlock(true); // the day sync: where the shops stand, READY at a waiting point
+            // --- fv-871 league-day-sync end
             DrawDayTable(width, true);
 
             // chat
