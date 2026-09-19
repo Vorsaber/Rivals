@@ -1174,6 +1174,17 @@ namespace CardShopCoop.Sync.Rivals
         private void PumpLeagueState()
         {
             bool atTitle = AtTitle();
+            // --- fv-873 ready-after-title begin
+            // A hosting session can only start in a game level (CoopCore.StartHosting), so a
+            // Host at the title is a session whose world is gone - a non-league shop that was
+            // opened to visitors and then quit to the title (the league shop's own case is
+            // closed in LeagueSession.End). Ready up / START are gated on Role == None: close it.
+            if (atTitle && CoopCore.Role == CoopRole.Host && CoopCore.Instance != null)
+            {
+                CoopCore.Instance.Disconnect();
+                CoopPlugin.Log.LogInfo("Rivals: closed the shop's co-op session at the title screen (its world is gone) - the lobby can ready up");
+            }
+            // --- fv-873 ready-after-title end
             if (!atTitle && _myReady)
                 _myReady = false;
             bool hasSave = LeagueSession.HasSave(LeagueId);
