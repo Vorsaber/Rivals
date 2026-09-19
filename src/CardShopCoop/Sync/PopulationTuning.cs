@@ -89,7 +89,8 @@ namespace CardShopCoop.Sync
         // so walk-ups keep spawning, reach the door, get confused and leave - a queue that
         // never stops forming. Here "closed" is EITHER of those: the day has ended, or the
         // sign says CLOSED after the shop opened today (m_IsShopOnceOpen - reset each
-        // morning, so the pre-opening crowd that gathers at the door is untouched). Host and
+        // morning, so the pre-opening crowd that gathers at the door is untouched), or a league
+        // shop held at end-of-day by LeagueDaySync until every shop is READY. Host and
         // solo only: a guest never runs CustomerManager.Update (ClientBlockPrefix) and sees
         // the host's crowd through NpcSync, and the sign/clock it reads are the host's.
 
@@ -103,6 +104,15 @@ namespace CardShopCoop.Sync
         /// <summary>Why the shop counts as closed right now, or null when it is open.</summary>
         private static string ClosedReason()
         {
+            // A league shop parked at end-of-day waiting for the other shops to press READY
+            // (fv-871: 21:00 reached / the recap up, nothing advancing). Checked against
+            // LeagueDaySync's own stage, not just the vanilla flag, so the hold is explicit.
+            if (Rivals.LeagueDaySync.Playing)
+            {
+                string stage = Rivals.LeagueDaySync.MyStage();
+                if (stage == Rivals.LeagueDaySync.StageClosed || stage == Rivals.LeagueDaySync.StageReport)
+                    return "league day-end wait";
+            }
             if (LightManager.GetHasDayEnded())
                 return "day end";
             if (CPlayerData.m_IsShopOnceOpen && !CPlayerData.m_IsShopOpen)
