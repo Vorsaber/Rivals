@@ -92,6 +92,11 @@ namespace CardShopCoop.Patches
             // Vanilla PlayCardSetUI.Update/LateUpdate NRE twice a frame, all session long
             // (prefix lives in Patches/PlayCardSetUIGuard.cs).
             TryModule("PlayCardSetUIGuard", PlayCardSetUIGuard.ApplyPatches, h);
+            // Diagnostics.PerfDebug=true also turns on the per-frame cost census
+            // (Util/FrameProfiler.cs): one [profile] line every 5 s naming the scripts
+            // whose SetActive / canvas rebuilds and whose Update/OnGUI eat the frame.
+            if (CoopPlugin.PerfDebug != null && CoopPlugin.PerfDebug.Value)
+                TryModule("FrameProfiler", Util.FrameProfiler.Install, h);
             // --- fv-877 nre-guard end
 
             // The CMF camera reads Mouse X/Y directly from its own CameraMouseInput
