@@ -70,7 +70,7 @@ namespace CardShopCoop.UI
                 GUILayout.BeginHorizontal();
                 GUILayout.Label($"{c.Amount} x {Sync.Rivals.TradeSync.Label(c)}", CoopTheme.Label);
                 if (GUILayout.Button("-", CoopTheme.ButtonSecondary, GUILayout.Width(26f)))
-                    Sync.Rivals.TradeSync.RemoveCard(c.Exp, c.Index, c.Destiny, 1);
+                    Sync.Rivals.TradeSync.RemoveCard(c.Exp, c.Index, c.Destiny, 1, c.Grade); // fv-908
                 GUILayout.EndHorizontal();
             }
             if (GUILayout.Button(s_picker ? "close card list" : "+ add a card", CoopTheme.ButtonSecondary))
@@ -90,7 +90,7 @@ namespace CardShopCoop.UI
                     GUILayout.BeginHorizontal();
                     GUILayout.Label($"<size=11>{label}  (have {have})</size>", CoopTheme.LabelDim);
                     if (GUILayout.Button("+", CoopTheme.ButtonSecondary, GUILayout.Width(26f)))
-                        Sync.Rivals.TradeSync.AddCard(card.Exp, card.Index, card.Destiny, 1);
+                        Sync.Rivals.TradeSync.AddCard(card.Exp, card.Index, card.Destiny, 1, card.Grade); // fv-908
                     GUILayout.EndHorizontal();
                 }
             }
