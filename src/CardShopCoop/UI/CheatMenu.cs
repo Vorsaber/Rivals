@@ -340,15 +340,18 @@ namespace CardShopCoop.UI
             // ignored, and UI mode is left exactly as it is (SyncUIMode) - ExitUIMode under
             // timeScale 0 is the soft lock (see Paused()). Esc while we hold UI mode is ours
             // to handle, because the game's own pause toggle is gated by !m_IsInUIMode.
-            if (Paused())
+            // Nothing below runs while the window is closed and nothing is held: Paused() is
+            // only consulted when it matters (open, held, or the key just went down).
+            bool active = _visible || _uiModeHeld;
+            if (active && Paused())
             {
                 if (HoldingUIMode() && WantsPauseToggle())
-                    PauseScreen.OpenScreen();   // toggles: closes the pause menu, nested screens first
+                    TogglePauseScreen();   // closes the pause menu (nested screens first)
                 return;
             }
             if (_visible && HoldingUIMode() && InGame() && WantsPauseToggle())
             {
-                PauseScreen.OpenScreen();
+                TogglePauseScreen();
                 return;
             }
             // --- fv-909 pause interplay end
@@ -360,28 +363,49 @@ namespace CardShopCoop.UI
                 if (key != KeyCode.None && Input.GetKeyDown(key))
                     Sync.HostOnlyFeatures.Notice("Visit: no cheats in a rival's shop");
             }
-            else if (key != KeyCode.None && Input.GetKeyDown(key))
+            else if (key != KeyCode.None && Input.GetKeyDown(key) && !Paused())   // fv-909: the key is dead under pause
                 _visible = !_visible;
             SyncUIMode();
         }
 
         // --- fv-909 pause interplay begin
+        // The game's screens are found, never minted: CSingleton<X>.Instance creates a fake
+        // (DontDestroyOnLoad) when X is not in the scene - e.g. PauseScreen on the title screen -
+        // and the fake then shadows the real one for the rest of the run, so the game's own
+        // PauseScreen/SettingScreen reads NRE every frame and the player can touch nothing
+        // (06:31 build, "can no longer open my phone"). Cached; re-found at most every 0.5 s;
+        // "not found" means not paused / no settings screen.
+        private static PauseScreen s_pause;
+        private static SettingScreen s_settings;
+        private static float s_screensFoundAt = -100f;
+
+        private static void FindScreens()
+        {
+            if (s_pause != null && s_settings != null)
+                return;     // Unity null: a destroyed one re-finds
+            float now = Time.unscaledTime;
+            if (now - s_screensFoundAt < 0.5f)
+                return;
+            s_screensFoundAt = now;
+            if (s_pause == null)
+                s_pause = UnityEngine.Object.FindObjectOfType<PauseScreen>();
+            if (s_settings == null)
+                s_settings = UnityEngine.Object.FindObjectOfType<SettingScreen>();
+        }
+
         /// <summary>The pause menu is up, or something has frozen time. Either way no
         /// EnterUIMode/ExitUIMode may run: ExitUIMode hides + locks the cursor and clears
         /// m_IsInUIMode from a WaitForSeconds(0.05f) coroutine - scaled time, so at timeScale 0
         /// it never fires, the flag stays true, Esc is gated off and the cursor is locked: the
         /// 2026-09-19 soft lock. Guests keep timeScale 1 under pause (PauseNoFreezePostfix),
-        /// hence the screen flag as well as the clock.</summary>
+        /// hence the screen flag as well as the clock. No allocation; one field read.</summary>
         internal static bool Paused()
         {
-            try
-            {
-                var ps = CSingleton<PauseScreen>.Instance;
-                if (ps != null && ps.m_ScreenGrp != null && ps.m_ScreenGrp.activeSelf)
-                    return true;
-            }
-            catch { }
-            return Time.timeScale <= 0f;
+            if (Time.timeScale <= 0f)
+                return true;
+            FindScreens();
+            var ps = s_pause;
+            return ps != null && ps.m_ScreenGrp != null && ps.m_ScreenGrp.activeSelf;
         }
 
         /// <summary>We entered UI mode for this window and the game is still in it - the case
@@ -392,19 +416,30 @@ namespace CardShopCoop.UI
         }
 
         /// <summary>The game's own pause-key test (IPC.Update): the bound PauseGame action, not
-        /// while the settings screen is up or a keybind is being changed.</summary>
+        /// while the settings screen is up (which is also where keybinds are changed). Only
+        /// asked once a PauseScreen has been found - InputManager is the game's, and it is
+        /// consulted the same way the game does every frame.</summary>
         private static bool WantsPauseToggle()
         {
-            try
-            {
-                if (!InputManager.GetKeyDownAction(EGameAction.PauseGame))
-                    return false;
-                var ss = CSingleton<SettingScreen>.Instance;
-                if (ss != null && ss.m_ScreenGrp != null && ss.m_ScreenGrp.activeSelf)
-                    return false;
-                return !SettingScreen.IsChangingKeybind();
-            }
+            FindScreens();
+            if (s_pause == null)
+                return false;
+            var ss = s_settings;
+            if (ss != null && ss.m_ScreenGrp != null && ss.m_ScreenGrp.activeSelf)
+                return false;
+            try { return InputManager.GetKeyDownAction(EGameAction.PauseGame); }
             catch { return false; }
+        }
+
+        /// <summary>PauseScreen.OpenScreen is the game's toggle (open, or close with nested
+        /// screens first). Only with a found PauseScreen, so its own singleton read is the
+        /// real one.</summary>
+        private static void TogglePauseScreen()
+        {
+            if (s_pause == null)
+                return;
+            try { PauseScreen.OpenScreen(); }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("CheatMenu: pause toggle failed: " + e.Message); }
         }
         // --- fv-909 pause interplay end
 
@@ -427,9 +462,14 @@ namespace CardShopCoop.UI
 
         private void SyncUIMode()
         {
+            bool want = _visible && InGame();
+            if (!want && !_uiModeHeld)
+            {
+                _uiModeController = null;   // the common closed case: nothing to do, nothing asked
+                return;
+            }
             if (Paused())
                 return;     // fv-909: neither Enter nor Exit under a frozen clock - hold whatever we have
-            bool want = _visible && InGame();
             if (want)
             {
                 if (_uiModeHeld && _uiModeController != null)
