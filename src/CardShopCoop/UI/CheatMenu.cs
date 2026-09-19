@@ -335,6 +335,23 @@ namespace CardShopCoop.UI
             if (CoopPlugin.CheatsEnabled == null || !CoopPlugin.CheatsEnabled.Value)
                 return;
             var key = CoopPlugin.CheatMenuKey != null ? CoopPlugin.CheatMenuKey.Value : KeyCode.F4;
+            // --- fv-909 pause interplay begin
+            // The pause menu owns the screen: the window hides under it (OnGUI), the key is
+            // ignored, and UI mode is left exactly as it is (SyncUIMode) - ExitUIMode under
+            // timeScale 0 is the soft lock (see Paused()). Esc while we hold UI mode is ours
+            // to handle, because the game's own pause toggle is gated by !m_IsInUIMode.
+            if (Paused())
+            {
+                if (HoldingUIMode() && WantsPauseToggle())
+                    PauseScreen.OpenScreen();   // toggles: closes the pause menu, nested screens first
+                return;
+            }
+            if (_visible && HoldingUIMode() && InGame() && WantsPauseToggle())
+            {
+                PauseScreen.OpenScreen();
+                return;
+            }
+            // --- fv-909 pause interplay end
             if (CoopCore.IsVisiting)
             {
                 // a visitor's cheat requests are dropped by the host anyway; don't tease
@@ -347,6 +364,49 @@ namespace CardShopCoop.UI
                 _visible = !_visible;
             SyncUIMode();
         }
+
+        // --- fv-909 pause interplay begin
+        /// <summary>The pause menu is up, or something has frozen time. Either way no
+        /// EnterUIMode/ExitUIMode may run: ExitUIMode hides + locks the cursor and clears
+        /// m_IsInUIMode from a WaitForSeconds(0.05f) coroutine - scaled time, so at timeScale 0
+        /// it never fires, the flag stays true, Esc is gated off and the cursor is locked: the
+        /// 2026-09-19 soft lock. Guests keep timeScale 1 under pause (PauseNoFreezePostfix),
+        /// hence the screen flag as well as the clock.</summary>
+        internal static bool Paused()
+        {
+            try
+            {
+                var ps = CSingleton<PauseScreen>.Instance;
+                if (ps != null && ps.m_ScreenGrp != null && ps.m_ScreenGrp.activeSelf)
+                    return true;
+            }
+            catch { }
+            return Time.timeScale <= 0f;
+        }
+
+        /// <summary>We entered UI mode for this window and the game is still in it - the case
+        /// where the game's own pause toggle is gated off and the key falls to us.</summary>
+        private bool HoldingUIMode()
+        {
+            return _uiModeHeld && _uiModeController != null && _uiModeController.IsInUIMode();
+        }
+
+        /// <summary>The game's own pause-key test (IPC.Update): the bound PauseGame action, not
+        /// while the settings screen is up or a keybind is being changed.</summary>
+        private static bool WantsPauseToggle()
+        {
+            try
+            {
+                if (!InputManager.GetKeyDownAction(EGameAction.PauseGame))
+                    return false;
+                var ss = CSingleton<SettingScreen>.Instance;
+                if (ss != null && ss.m_ScreenGrp != null && ss.m_ScreenGrp.activeSelf)
+                    return false;
+                return !SettingScreen.IsChangingKeybind();
+            }
+            catch { return false; }
+        }
+        // --- fv-909 pause interplay end
 
         /// <summary>Same test the co-op window uses (CGameManager.m_IsGameLevel): the shop scene
         /// is up. InteractionPlayerController.m_Instance is NOT reliable here - it stayed null on a
@@ -367,6 +427,8 @@ namespace CardShopCoop.UI
 
         private void SyncUIMode()
         {
+            if (Paused())
+                return;     // fv-909: neither Enter nor Exit under a frozen clock - hold whatever we have
             bool want = _visible && InGame();
             if (want)
             {
@@ -392,7 +454,7 @@ namespace CardShopCoop.UI
 
         private void OnGUI()
         {
-            if (!_visible)
+            if (!_visible || Paused())  // fv-909: the pause menu owns the screen; we come back on resume
                 return;
             _rect = GUILayout.Window(0x5C4EA7, _rect, DrawWindow, "Co-op test cheats  (" + (CoopPlugin.CheatMenuKey != null ? CoopPlugin.CheatMenuKey.Value.ToString() : "F4") + " to close)");
         }
