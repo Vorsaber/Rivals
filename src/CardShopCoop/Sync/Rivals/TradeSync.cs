@@ -109,14 +109,21 @@ namespace CardShopCoop.Sync.Rivals
 
         public static void AddCard(int exp, int index, bool destiny, int amount)
         {
+            AddCard(exp, index, destiny, amount, 0);
+        }
+
+        // --- fv-908 grading-overhaul-fake begin
+        /// <summary>Offer a card; grade > 0 offers that exact slab (one per line).</summary>
+        public static void AddCard(int exp, int index, bool destiny, int amount, int grade)
+        {
             if (!Open || amount <= 0)
                 return;
-            int have = Owned(exp, index, destiny);
-            var line = Mine.Cards.Find(c => c.Exp == exp && c.Index == index && c.Destiny == destiny);
+            int have = Owned(exp, index, destiny, grade);
+            var line = Mine.Cards.Find(c => c.Exp == exp && c.Index == index && c.Destiny == destiny && c.Grade == grade);
             int already = line != null ? line.Amount : 0;
             if (already + amount > have)
             {
-                Status = "you don't have that many";
+                Status = grade > 0 ? "that slab is already on offer" : "you don't have that many";
                 amount = have - already;
                 if (amount <= 0)
                     return;
@@ -124,15 +131,16 @@ namespace CardShopCoop.Sync.Rivals
             if (line != null)
                 line.Amount += amount;
             else
-                Mine.Cards.Add(new TradeCard { Exp = exp, Index = index, Destiny = destiny, Amount = amount });
+                Mine.Cards.Add(new TradeCard { Exp = exp, Index = index, Destiny = destiny, Amount = amount, Grade = grade });
             Changed();
         }
+        // --- fv-908 grading-overhaul-fake end
 
-        public static void RemoveCard(int exp, int index, bool destiny, int amount)
+        public static void RemoveCard(int exp, int index, bool destiny, int amount, int grade = 0)
         {
             if (!Open)
                 return;
-            var line = Mine.Cards.Find(c => c.Exp == exp && c.Index == index && c.Destiny == destiny);
+            var line = Mine.Cards.Find(c => c.Exp == exp && c.Index == index && c.Destiny == destiny && c.Grade == grade);
             if (line == null)
                 return;
             line.Amount -= amount;
@@ -176,15 +184,36 @@ namespace CardShopCoop.Sync.Rivals
         /// <summary>How many of this card I can offer: the collection (shop) or the bag (visitor).</summary>
         public static int Owned(int exp, int index, bool destiny)
         {
+            return Owned(exp, index, destiny, 0);
+        }
+
+        // --- fv-908 grading-overhaul-fake begin
+        /// <summary>grade > 0: how many slabs with exactly that encoded grade (normally 1 - the
+        /// serial is unique) sit in the shop's graded album / the visitor's bag.</summary>
+        public static int Owned(int exp, int index, bool destiny, int grade)
+        {
             try
             {
                 if (IHost)
-                    return CPlayerData.GetCardAmountByIndex(index, (ECardExpansionType)exp, destiny);
-                var line = VisitorBag.Current.Cards.Find(c => c.Expansion == exp && c.Index == index && c.IsDestiny == destiny);
+                {
+                    if (grade <= 0)
+                        return CPlayerData.GetCardAmountByIndex(index, (ECardExpansionType)exp, destiny);
+                    int n = 0;
+                    var album = CPlayerData.m_GradedCardInventoryList;
+                    for (int i = 0; album != null && i < album.Count; i++)
+                    {
+                        var e = album[i];
+                        if (e != null && e.cardSaveIndex == index && (int)e.expansionType == exp && e.isDestiny == destiny && e.amount == grade)
+                            n++;
+                    }
+                    return n;
+                }
+                var line = VisitorBag.Current.Cards.Find(c => c.Expansion == exp && c.Index == index && c.IsDestiny == destiny && c.Grade == grade);
                 return line != null ? line.Amount : 0;
             }
             catch { return 0; }
         }
+        // --- fv-908 grading-overhaul-fake end
 
         private static bool ValidateMine(out string why)
         {
@@ -196,7 +225,7 @@ namespace CardShopCoop.Sync.Rivals
                 return false;
             }
             foreach (var c in Mine.Cards)
-                if (Owned(c.Exp, c.Index, c.Destiny) < c.Amount)
+                if (Owned(c.Exp, c.Index, c.Destiny, c.Grade) < c.Amount)
                 {
                     why = "you no longer have " + Label(c);
                     return false;
@@ -339,14 +368,38 @@ namespace CardShopCoop.Sync.Rivals
                 foreach (var c in Mine.Cards)
                 {
                     var cd = CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Exp, c.Destiny);
-                    if (cd != null && c.Amount > 0)
-                        CPlayerData.ReduceCard(cd, c.Amount);
+                    if (cd == null || c.Amount <= 0)
+                        continue;
+                    // fv-908: a slab lives in the graded album, keyed by its encoded grade -
+                    // ReduceCard would miss it and decrement the ungraded stack instead
+                    if (c.Grade > 0)
+                    {
+                        cd.cardGrade = c.Grade;
+                        for (int n = 0; n < c.Amount && CPlayerData.HasGradedCardInAlbum(cd); n++)
+                            CPlayerData.RemoveGradedCard(cd, ignoreGradedCardIndex: true);
+                        continue;
+                    }
+                    CPlayerData.ReduceCard(cd, c.Amount);
                 }
                 foreach (var c in Theirs.Cards)
                 {
                     var cd = CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Exp, c.Destiny);
-                    if (cd != null && c.Amount > 0)
-                        CPlayerData.AddCard(cd, c.Amount);
+                    if (cd == null || c.Amount <= 0)
+                        continue;
+                    // fv-908: a slab from the visitor's bag was certified in THEIR shop - register
+                    // or re-slab it here before AddCard, or GO's anti-cheat stamps it FAKE
+                    if (c.Grade > 0)
+                    {
+                        for (int n = 0; n < c.Amount; n++)
+                        {
+                            var slab = n == 0 ? cd : CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Exp, c.Destiny);
+                            slab.cardGrade = c.Grade;
+                            Util.GradingInterop.AdoptForeign(slab, PartnerName);
+                            CPlayerData.AddCard(slab, 1);
+                        }
+                        continue;
+                    }
+                    CPlayerData.AddCard(cd, c.Amount);
                 }
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("TradeSync execute: " + e.Message); }
@@ -369,13 +422,16 @@ namespace CardShopCoop.Sync.Rivals
                     VisitorBag.Earn(m.HostMoney, "trade with the shop");
                 if (m.GuestCards != null)
                     foreach (var c in m.GuestCards)
-                        VisitorBag.RemoveCard(c.Exp, c.Index, c.Destiny, c.Amount);
+                        VisitorBag.RemoveCard(c.Exp, c.Index, c.Destiny, c.Amount, c.Grade); // fv-908: the slab's line
                 if (m.HostCards != null)
                     foreach (var c in m.HostCards)
                     {
                         var cd = CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Exp, c.Destiny);
                         if (cd != null && c.Amount > 0)
+                        {
+                            cd.cardGrade = c.Grade; // fv-908: the shop's slab travels home with its grade + serial
                             VisitorBag.AddCard(cd, c.Amount, 0f);
+                        }
                     }
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("TradeSync apply: " + e.Message); }
@@ -405,6 +461,7 @@ namespace CardShopCoop.Sync.Rivals
             try
             {
                 var cd = CPlayerData.GetCardData(c.Index, (ECardExpansionType)c.Exp, c.Destiny);
+                cd.cardGrade = c.Grade; // fv-908
                 return Label(cd);
             }
             catch { return $"card {c.Index}/{c.Exp}"; }
@@ -424,8 +481,21 @@ namespace CardShopCoop.Sync.Rivals
             if (string.IsNullOrEmpty(name))
                 name = cd.monsterType.ToString();
             string border = cd.borderType == ECardBorderType.Base ? "" : " " + cd.borderType;
-            return $"{name}{border}{(cd.isFoil ? " foil" : "")}{(cd.isDestiny ? " destiny" : "")} [{cd.expansionType}]";
+            return $"{name}{border}{(cd.isFoil ? " foil" : "")}{(cd.isDestiny ? " destiny" : "")} [{cd.expansionType}]{GradeSuffix(cd.cardGrade)}";
         }
+
+        // --- fv-908 grading-overhaul-fake begin
+        /// <summary>" grade N #serial" for a slab (serial only when Grading Overhaul decodes
+        /// it), "" for an ungraded card.</summary>
+        public static string GradeSuffix(int grade)
+        {
+            if (grade <= 0)
+                return "";
+            int company, cert;
+            string serial = Util.GradingInterop.DecodeCert(grade, out company, out cert) ? " #" + cert.ToString("D7") : "";
+            return " grade " + Util.GradingInterop.Actual(grade) + serial;
+        }
+        // --- fv-908 grading-overhaul-fake end
 
         /// <summary>What I can offer, filtered by name: the collection (shop) or the bag (visitor).</summary>
         public static List<(TradeCard card, string label, int have)> Search(string filter, int max)
@@ -457,6 +527,20 @@ namespace CardShopCoop.Sync.Rivals
                                 result.Add((new TradeCard { Exp = (int)exp, Index = i, Destiny = destiny, Amount = 1 }, label, have));
                         }
                     }
+                    // --- fv-908 grading-overhaul-fake begin
+                    // the graded album: every slab is its own line (its serial is unique)
+                    var album = CPlayerData.m_GradedCardInventoryList;
+                    for (int i = 0; album != null && i < album.Count && result.Count < max; i++)
+                    {
+                        var e = album[i];
+                        if (e == null || e.amount <= 0)
+                            continue;
+                        var tc = new TradeCard { Exp = (int)e.expansionType, Index = e.cardSaveIndex, Destiny = e.isDestiny, Amount = 1, Grade = e.amount };
+                        string label = Label(tc);
+                        if (label.ToLowerInvariant().Contains(filter))
+                            result.Add((tc, label, Owned(tc.Exp, tc.Index, tc.Destiny, tc.Grade)));
+                    }
+                    // --- fv-908 grading-overhaul-fake end
                 }
                 else
                 {
@@ -464,7 +548,7 @@ namespace CardShopCoop.Sync.Rivals
                     {
                         if (c.Amount <= 0)
                             continue;
-                        var tc = new TradeCard { Exp = c.Expansion, Index = c.Index, Destiny = c.IsDestiny, Amount = 1 };
+                        var tc = new TradeCard { Exp = c.Expansion, Index = c.Index, Destiny = c.IsDestiny, Amount = 1, Grade = c.Grade }; // fv-908
                         string label = Label(tc);
                         if (filter.Length == 0 || label.ToLowerInvariant().Contains(filter))
                             result.Add((tc, label, c.Amount));

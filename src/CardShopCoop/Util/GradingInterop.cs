@@ -500,6 +500,144 @@ namespace CardShopCoop.Util
         private static readonly MethodInfo MiIsBoundTo = (TSaveMgr == null || TCompany == null) ? null
             : ReflectionSurface.OptionalMethod(TSaveMgr, "IsCertBoundToCard", new[] { TCompany, typeof(int), typeof(CardData) });
 
+        // --- fv-908 grading-overhaul-fake begin
+        // RE-SLABBING a card that arrived from ANOTHER SHOP (rivals: visit purchase, prize,
+        // team bag, trade). GO numbers certs from 1 per company on EVERY PC, so a serial minted
+        // in a rival's shop routinely already belongs to a different card in the receiving
+        // shop's own store - and RememberForExternalMod would silently steal that binding (see
+        // CertFreeForCard). GO's own answer to a colliding cert on load is to reallocate it
+        // (CompanyStamp_SaveLoad_LoadPatch.ResolveCertCollisions: GetNextCert + AuthorizeNextEncode
+        // + EncodeGrade, then BindCert); AdoptForeign does exactly that, through the same three
+        // members, so the card keeps its company and grade and gets a serial this store issued.
+        //  - int GetNextCert(GradingCompany)                 - GradingOverhaulSaveManager (internal)
+        //  - void AuthorizeNextEncode()                      - Helper (internal); EncodeGrade FAKE-
+        //    stamps any cert>0 encode that was not authorised the call before (Helper.cs :315-350)
+        //  - int EncodeGrade(int grade, GradingCompany, int) - Helper (internal)
+        private static readonly MethodInfo MiNextCert = (TSaveMgr == null || TCompany == null) ? null
+            : ReflectionSurface.OptionalMethod(TSaveMgr, "GetNextCert", new[] { TCompany });
+        private static readonly MethodInfo MiAuthorize = THelper == null ? null
+            : ReflectionSurface.OptionalMethod(THelper, "AuthorizeNextEncode", Type.EmptyTypes);
+        private static readonly MethodInfo MiEncodeGrade = (THelper == null || TCompany == null) ? null
+            : ReflectionSurface.OptionalMethod(THelper, "EncodeGrade", new[] { typeof(int), TCompany, typeof(int) });
+
+        /// <summary>True when this PC can mint a replacement cert (GO present and all three
+        /// re-slab members resolved).</summary>
+        public static bool CanReslab => MiNextCert != null && MiAuthorize != null && MiEncodeGrade != null;
+
+        /// <summary>A graded card is about to be ADDED to this PC's collection after crossing
+        /// from ANOTHER SHOP (never the plain co-op mirror - that path keeps the host's serial
+        /// verbatim and is Remember()). Makes card.cardGrade something GO's AddCard prefix will
+        /// accept here, and registers it. Returns the encoded grade the card now carries (0 when
+        /// nothing had to be done). Rules, in order:
+        ///  - bare 1-10 or ungraded: nothing to do (GO's prefix ignores grades <= 10);
+        ///  - GO absent here: the encoded value cannot be honoured - fold it to its plain 1-10
+        ///    grade (DecodeLocal) rather than file an impossible >10 grade;
+        ///  - already FAKE-flagged on the sender: carried as is (GO never re-judges a flagged card);
+        ///  - cert free here (unbound, or bound to this same card identity) and not already in
+        ///    this album: Remember (burn + bind), serial kept;
+        ///  - otherwise (bound here to a different card, or that exact slab already sits in this
+        ///    album so AddCard would flag both as duplicates): re-slab under THIS shop's store.
+        /// Every caller runs on a host PC (the captain applies the bag, the shop host executes
+        /// the trade), so minting here keeps GradingSync's "host is the sole minter" rule; the
+        /// team's guests receive the result by CardDelta with Remember, as always.</summary>
+        public static int AdoptForeign(CardData card, string from)
+        {
+            if (card == null || card.cardGrade <= 10)
+                return 0;
+            int encoded = card.cardGrade;
+            string src = string.IsNullOrEmpty(from) ? "another shop" : from;
+            if (!Present)
+            {
+                int plain = DecodeLocal(encoded, out _, out _);
+                CoopPlugin.Log.LogWarning("graded card from " + src + ": Grading Overhaul is not installed here, so "
+                    + CardIdent(card) + " keeps its grade " + plain + " but loses the company slab and serial (encoded " + encoded + ")");
+                card.cardGrade = plain;
+                return plain;
+            }
+            if (CheatFlagged(encoded))
+                return encoded; // already judged where it came from; GO leaves a flagged card alone
+            int companyId, cert;
+            if (!DecodeCert(encoded, out companyId, out cert))
+            {
+                Remember(card);
+                return encoded;
+            }
+            bool collides = false;
+            try
+            {
+                object company = Enum.ToObject(TCompany, companyId);
+                if (MiHasBinding != null && MiIsBoundTo != null
+                    && (bool)MiHasBinding.Invoke(null, new object[] { company, cert })
+                    && !(bool)MiIsBoundTo.Invoke(null, new object[] { company, cert, card }))
+                    collides = true;
+                // the same slab already here: AddCard's duplicate sweep would flag BOTH copies
+                if (!collides && CPlayerData.HasGradedCardInAlbum(card))
+                    collides = true;
+            }
+            catch (Exception e) { Swallow.Log(e); }
+            if (!collides)
+            {
+                Remember(card);
+                return encoded;
+            }
+            if (!CanReslab)
+            {
+                CoopPlugin.Log.LogWarning("graded card from " + src + ": certificate " + cert.ToString("D7")
+                    + " (company " + companyId + ") on " + CardIdent(card) + " already belongs to a different card here and this"
+                    + " Grading Overhaul build exposes no re-slab members - the card will arrive flagged");
+                return encoded;
+            }
+            try
+            {
+                object company = Enum.ToObject(TCompany, companyId);
+                int grade = Actual(encoded);
+                int fresh = Convert.ToInt32(MiNextCert.Invoke(null, new object[] { company }));
+                MiAuthorize.Invoke(null, null);
+                int reissued = Convert.ToInt32(MiEncodeGrade.Invoke(null, new object[] { grade, company, fresh }));
+                if (reissued <= 10 || CheatFlagged(reissued))
+                {
+                    CoopPlugin.Log.LogWarning("graded card from " + src + ": re-slab of " + CardIdent(card)
+                        + " came back " + reissued + " - keeping the original serial " + cert.ToString("D7"));
+                    Remember(card);
+                    return encoded;
+                }
+                card.cardGrade = reissued;
+                Remember(card); // burns nothing new (GetNextCert already burned it) - binds + registers
+                CoopPlugin.Log.LogInfo("graded card from " + src + ": certificate " + cert.ToString("D7")
+                    + " (company " + companyId + ") on " + CardIdent(card) + " already belongs to a different card in this shop's"
+                    + " Grading Overhaul store - re-slabbed here as " + fresh.ToString("D7") + " (grade " + grade + ", same company)");
+                return reissued;
+            }
+            catch (Exception e)
+            {
+                CoopPlugin.Log.LogWarning("GradingInterop.AdoptForeign: " + e.Message);
+                return encoded;
+            }
+        }
+
+        /// <summary>GO's grade encoding, decoded WITHOUT GO (Helper.DecodeGradeFull, Helper.cs
+        /// :431-470): [1e9 cheat flag] + company base (Cardinals 0, PSA 2e8, Beckett 3e8) +
+        /// (grade-1) * 1e7 + cert. Returns the plain 1-10 grade; identity for a bare 1-10.
+        /// Only for a receiver WITHOUT Grading Overhaul - with it, ask GO (Actual/DecodeCert).</summary>
+        public static int DecodeLocal(int encoded, out int companyId, out int cert)
+        {
+            companyId = 0;
+            cert = 0;
+            if (encoded <= 0)
+                return 0;
+            int n = encoded >= 1000000000 ? encoded - 1000000000 : encoded;
+            if (n <= 10)
+                return n;
+            if (n >= 300000000) { companyId = 3; n -= 300000000; }
+            else if (n >= 200000000) { companyId = 2; n -= 200000000; }
+            cert = n % 10000000;
+            int slot = n / 10000000;
+            if (slot < 0) slot = 0;
+            if (slot > 9) slot = 9;
+            return slot + 1;
+        }
+        // --- fv-908 grading-overhaul-fake end
+
         /// <summary>THE CERT AUTHORITY REFUSAL, and the reason <see cref="Remember"/> can decline
         /// to register a card that arrived over the wire.
         ///

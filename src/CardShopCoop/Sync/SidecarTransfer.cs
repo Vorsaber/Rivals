@@ -124,12 +124,31 @@ namespace CardShopCoop.Sync
             ApplyBundle(bundle, hostSlot, clientSlot, Application.persistentDataPath);
         }
 
+        // --- fv-908 grading-overhaul-fake begin
+        /// <summary>Full paths the LAST ApplyBundle wrote (after the slot rename). Lets a caller
+        /// tell "the host's bundle had no such file" from "it was written unchanged" - the two
+        /// look identical on disk.</summary>
+        public static readonly HashSet<string> LastApplied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public static bool WroteFile(string fullPath)
+        {
+            try
+            {
+                lock (LastApplied)
+                    return LastApplied.Contains(Path.GetFullPath(fullPath));
+            }
+            catch { return false; }
+        }
+        // --- fv-908 grading-overhaul-fake end
+
         private static void ApplyBundle(byte[] bundle, int hostSlot, int clientSlot, string root)
         {
             if (bundle == null || bundle.Length < 4)
                 return;
             var renameRx = new Regex($@"(?<=_|Release){hostSlot}(?=_|\.|$)");
             int applied = 0, skipped = 0;
+            lock (LastApplied)
+                LastApplied.Clear(); // fv-908
 
             using (var br = new NetReader(new MemoryStream(bundle, writable: false)))
             {
@@ -186,6 +205,8 @@ namespace CardShopCoop.Sync
                         File.Copy(path, path + ".coopbak"); // one-time backup of whatever was there
                     AtomicWrite(path, data);
                     applied++;
+                    lock (LastApplied)
+                        LastApplied.Add(Path.GetFullPath(path)); // fv-908
                 }
             }
             CoopPlugin.Log.LogInfo($"Sidecar bundle applied: {applied} files (slot {hostSlot} -> {clientSlot}), {skipped} skipped");

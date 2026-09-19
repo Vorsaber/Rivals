@@ -1744,7 +1744,7 @@ namespace CardShopCoop.Sync.Rivals
                 case "card":
                     if (bag == null)
                         return;
-                    VisitorBag.AddCardTo(bag, m.Expansion, m.Index, m.IsDestiny, m.Count, m.Paid);
+                    VisitorBag.AddCardTo(bag, m.Expansion, m.Index, m.IsDestiny, m.Count, m.Paid, m.Grade); // fv-908: the slab's grade rides the line
                     BroadcastBag(key, bag);
                     break;
                 case "back":
