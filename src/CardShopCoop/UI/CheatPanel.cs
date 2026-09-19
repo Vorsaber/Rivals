@@ -82,8 +82,41 @@ namespace CardShopCoop.UI
                 LblDim = GUI.skin.label;
                 Field = GUI.skin.textField;
             }
+            // --- fv-875 guest-cheats-toggle begin
+            // Host / solo: the switch that used to live only in the F1 config. Guest: the host's
+            // answer, and the buttons grey out while it is off (the host refuses them anyway).
+            bool guestLocked = false;
             if (CoopCore.Role == CoopRole.Client)
-                GUILayout.Label("Guest: every button here is a REQUEST to the host, who runs it on the real shop. The host can turn these off (Cheats > AllowGuestRequests).", LblDim);
+            {
+                bool? allowed = CheatMenu.GuestCheatsAllowed;
+                GUILayout.Label("Guest: every button here is a REQUEST to the host, who runs it on the real shop.", LblDim);
+                if (allowed == null)
+                    GUILayout.Label("Cheats for guests: asking the host...", LblDim);
+                else if (allowed.Value)
+                    GUILayout.Label("Cheats for guests: ON", themed ? CoopTheme.LabelBold : GUI.skin.label);
+                else
+                {
+                    GUILayout.Label("Cheats for guests: OFF - the host has turned guest requests off.", themed ? CoopTheme.LabelBold : GUI.skin.label);
+                    guestLocked = true;
+                }
+            }
+            else
+            {
+                bool? on = CheatMenu.HostGuestCheats;
+                if (on != null)
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label("Cheats for guests: " + (on.Value ? "ON" : "OFF"), themed ? CoopTheme.LabelBold : GUI.skin.label, GUILayout.Width(170));
+                    if (GUILayout.Button(on.Value ? "Turn OFF" : "Turn ON", themed ? CoopTheme.ButtonPrimary : GUI.skin.button, GUILayout.Width(90)))
+                        CheatMenu.SetGuestCheats(!on.Value);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
+                    GUILayout.Label(on.Value
+                        ? "Guests' cheat buttons are live: their requests run here, on the real shop."
+                        : "Guests' cheat buttons are greyed out and their requests are refused.", LblDim);
+                }
+            }
+            // --- fv-875 guest-cheats-toggle end
             int tab = s_tab;
             if (themed)
             {
@@ -102,6 +135,9 @@ namespace CardShopCoop.UI
                 s_scroll = Vector2.zero;
             }
             GUILayout.Space(6);
+            bool wasEnabled = GUI.enabled;   // fv-875: guest with the switch off -> everything below is greyed out
+            if (guestLocked)
+                GUI.enabled = false;
             try
             {
                 switch (s_tab)
@@ -127,6 +163,10 @@ namespace CardShopCoop.UI
                     CheatMenu.Note("error: " + e.Message);
                     CoopPlugin.Log.LogWarning("CheatMenu: " + e);
                 }
+            }
+            finally
+            {
+                GUI.enabled = wasEnabled;   // fv-875
             }
             string status = CheatMenu.Status;
             if (!string.IsNullOrEmpty(status))
