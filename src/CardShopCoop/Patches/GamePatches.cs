@@ -88,6 +88,11 @@ namespace CardShopCoop.Patches
             // its private scan, plus identity-gated ReduceCard/GetCardAmount prefixes - Util/CardSellerInterop.cs).
             Util.CardSellerInterop.ApplyPatches(h);
             // --- fv-914 cardseller-graded end
+            // --- fv-877 nre-guard begin
+            // Vanilla PlayCardSetUI.Update/LateUpdate NRE twice a frame, all session long
+            // (prefix lives in Patches/PlayCardSetUIGuard.cs).
+            TryModule("PlayCardSetUIGuard", PlayCardSetUIGuard.ApplyPatches, h);
+            // --- fv-877 nre-guard end
 
             // The CMF camera reads Mouse X/Y directly from its own CameraMouseInput
             // component. InteractionPlayerController.EnterUIMode disables the game's
