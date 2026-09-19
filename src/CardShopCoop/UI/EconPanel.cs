@@ -150,12 +150,17 @@ namespace CardShopCoop.UI
                     GUILayout.Label("A league override is in force: the league host's profile and growth apply while it runs. Edits below take effect once it ends.", CoopTheme.LabelWarn);
                 Companions.Difficulty.LocalSettings(out int profile, out _, out _);
                 int picked = ProfileRow(Companions.Difficulty.Profiles, profile);
-                if (picked >= 0 && picked != profile)
+                // --- fv-874 difficulty-log-line begin
+                // every click goes through SetProfile, even on the profile already selected:
+                // it is idempotent and it is what writes the 'Difficulty: ...' log line
+                if (picked >= 0)
                 {
                     Companions.Difficulty.SetProfile(picked);
-                    EconSync.MarkDirty();
+                    if (picked != profile)
+                        EconSync.MarkDirty();
                     Say("difficulty: " + Companions.Difficulty.Describe());
                 }
+                // --- fv-874 difficulty-log-line end
                 bool changed = false;
                 for (int i = 0; i < DiffKnobs.Length; i++)
                     changed |= KnobRow(Companions.Difficulty.Guid, "Difficulty", DiffKnobs[i], width);
