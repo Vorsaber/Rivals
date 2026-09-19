@@ -358,6 +358,12 @@ namespace CardShopCoop.UI
         {
             CoopTheme.EnsureBuilt();
             float w = Mathf.Min(560f, Screen.width - 32f);
+            // --- fv-876 league-app-fit begin
+            // LEAGUE carries a ten-column standings table: it gets a wider window (Phone
+            // Overhaul has no app window of its own - this IMGUI panel is the whole app)
+            if (Current == App.League)
+                w = Mathf.Min(900f, Mathf.Max(w, Screen.width * 0.6f));
+            // --- fv-876 league-app-fit end
             float h = Mathf.Min(s_onPhone ? Screen.height * 0.8f : 760f, Screen.height - 40f);
             var rect = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
             CoopTheme.DrawWindowShadow(rect);
