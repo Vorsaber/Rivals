@@ -189,22 +189,22 @@ namespace CardShopCoop.UI
             GUILayout.Space(6f);
 
             // --- fv-914 cardseller-graded begin
-            // ---------------- CardSeller (third-party): sell graded cards too
+            // ---------------- CardSeller (third-party): graded cards ONLY (a mode, not an addition)
             GUILayout.BeginVertical(CoopTheme.SectionBox);
             GUILayout.Label("CARD SELLER", CoopTheme.SectionHeader);
             if (!CardSellerInterop.Installed)
                 GUILayout.Label("CardSeller.dll is not installed on this PC.", CoopTheme.LabelDimWrap);
             else
             {
-                bool on = CoopPlugin.CardSellerIncludeGraded != null && CoopPlugin.CardSellerIncludeGraded.Value;
-                bool want = GUILayout.Toggle(on, " sell graded cards too", CoopTheme.Toggle);
-                if (want != on && CoopPlugin.CardSellerIncludeGraded != null)
+                bool on = CoopPlugin.CardSellerGradedOnly != null && CoopPlugin.CardSellerGradedOnly.Value;
+                bool want = GUILayout.Toggle(on, " CardSeller: graded cards only", CoopTheme.Toggle);
+                if (want != on && CoopPlugin.CardSellerGradedOnly != null)
                 {
-                    CoopPlugin.CardSellerIncludeGraded.Value = want; // BepInEx saves the config file
+                    CoopPlugin.CardSellerGradedOnly.Value = want; // BepInEx saves the config file
                     Say("CardSeller: " + CardSellerInterop.Describe());
                 }
                 GUILayout.Label(CardSellerInterop.Describe(), CoopTheme.LabelDimWrap);
-                GUILayout.Label("<size=10>Read on CardSeller's next run (its key, day start or customer pickup). Each slab goes out once at its graded market price; CardSeller's own price band and set filters still apply.</size>", CoopTheme.LabelDimWrap);
+                GUILayout.Label("<size=10>Read on CardSeller's next run (its key, day start or customer pickup). ON: only graded slabs go out, each once at its graded market price, no ungraded cards; CardSeller's own price band and set filters still apply. OFF: vanilla CardSeller (ungraded only).</size>", CoopTheme.LabelDimWrap);
             }
             GUILayout.EndVertical();
             // --- fv-914 cardseller-graded end

@@ -7,8 +7,12 @@ namespace CardShopCoop.Util
 {
     /// <summary>
     /// fv-914: lets the third-party <b>CardSeller</b> mod (io.helwig.tcgcss.CardSeller, decompiled
-    /// 1.0.6 under audit/mods/CardSeller/) put GRADED cards out on the shelves too, behind
-    /// <see cref="CoopPlugin.CardSellerIncludeGraded"/> (default off = CardSeller untouched).
+    /// 1.0.6 under audit/mods/CardSeller/) put GRADED cards out on the shelves INSTEAD of
+    /// ungraded ones, behind <see cref="CoopPlugin.CardSellerGradedOnly"/> (default off =
+    /// CardSeller untouched, ungraded only). It is a mode, not an addition - Dan's pass-2 ruling
+    /// on the ticket: "i wanted graded cards selling only". Pass 1 shipped this as
+    /// CardSeller.IncludeGraded (slabs on top of the ungraded list); a saved IncludeGraded=true
+    /// migrates to GradedOnly=true once (<see cref="MigrateLegacyConfig"/>).
     ///
     /// What CardSeller does today: <c>PatchIt.GetCompatibleCards(expansion, ghostDimension)</c>
     /// walks <c>CPlayerData.GetCardCollectedList</c> - the UNGRADED per-expansion count arrays -
@@ -28,8 +32,9 @@ namespace CardShopCoop.Util
     ///     worker CardSeller scans on, so GO's non-thread-safe dictionaries are only touched from
     ///     the main thread.
     ///  2. postfix <c>PatchIt.GetCompatibleCards(ECardExpansionType, bool)</c> (worker thread):
-    ///     append the candidates of that expansion / ghost dimension to CardSeller's list, so its
-    ///     per-expansion Filters toggles and its price-descending sort apply to slabs unchanged.
+    ///     empty the ungraded candidates CardSeller just scanned and put the slabs of that
+    ///     expansion / ghost dimension in their place, so its per-expansion Filters toggles and
+    ///     its price-descending sort apply to slabs unchanged and no ungraded card goes out.
     ///  3. prefix  <c>CPlayerData.ReduceCard</c>: for a minted card ONLY, the album exit is
     ///     <c>CPlayerData.RemoveGradedCard</c> (the graded album is a separate list ReduceCard
     ///     never touches - it would decrement the ungraded stack instead), and the original is
@@ -62,8 +67,8 @@ namespace CardShopCoop.Util
         /// <summary>True once the CardSeller members resolved and our patches went in.</summary>
         public static bool Present => s_patched;
 
-        public static bool IncludeGraded =>
-            CoopPlugin.CardSellerIncludeGraded != null && CoopPlugin.CardSellerIncludeGraded.Value;
+        public static bool GradedOnly =>
+            CoopPlugin.CardSellerGradedOnly != null && CoopPlugin.CardSellerGradedOnly.Value;
 
         /// <summary>CardSeller is loaded (its plugin type resolved), whether or not our patches
         /// went in - for the TUNING app's line.</summary>
@@ -108,7 +113,7 @@ namespace CardShopCoop.Util
         {
             if (!Installed)
             {
-                CoopPlugin.Log.LogInfo("CardSeller not installed - CardSeller.IncludeGraded has nothing to do");
+                CoopPlugin.Log.LogInfo("CardSeller not installed - CardSeller.GradedOnly has nothing to do");
                 return;
             }
             try
@@ -117,7 +122,7 @@ namespace CardShopCoop.Util
                 s_plugin = ModParity.ResolveType("CardSeller.Plugin", AssemblyName);
                 if (s_patchIt == null || s_plugin == null)
                 {
-                    CoopPlugin.Log.LogWarning("CardSeller is installed but CardSeller.PatchIt / CardSeller.Plugin did not resolve - IncludeGraded inert");
+                    CoopPlugin.Log.LogWarning("CardSeller is installed but CardSeller.PatchIt / CardSeller.Plugin did not resolve - GradedOnly inert");
                     return;
                 }
                 const BindingFlags F = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
@@ -130,7 +135,7 @@ namespace CardShopCoop.Util
                 MethodInfo scanOne = s_patchIt.GetMethod("GetCompatibleCards", F, null, new[] { typeof(ECardExpansionType), typeof(bool) }, null);
                 if (scanAll == null || scanOne == null || s_keepQty == null)
                 {
-                    CoopPlugin.Log.LogWarning("CardSeller.PatchIt.GetCompatibleCards / Plugin.m_ConfigKeepCardQty not found (CardSeller version changed?) - IncludeGraded inert");
+                    CoopPlugin.Log.LogWarning("CardSeller.PatchIt.GetCompatibleCards / Plugin.m_ConfigKeepCardQty not found (CardSeller version changed?) - GradedOnly inert");
                     return;
                 }
                 h.Patch(scanAll, prefix: new HarmonyMethod(typeof(CardSellerInterop), nameof(ScanAllPrefix)));
@@ -140,12 +145,59 @@ namespace CardShopCoop.Util
                 h.Patch(AccessTools.Method(typeof(CPlayerData), "GetCardAmount", new[] { typeof(CardData) }),
                     prefix: new HarmonyMethod(typeof(CardSellerInterop), nameof(GetCardAmountPrefix)));
                 s_patched = true;
-                CoopPlugin.Log.LogInfo("CardSeller detected - graded cards " + (IncludeGraded ? "INCLUDED" : "excluded") + " (config CardSeller.IncludeGraded)");
+                CoopPlugin.Log.LogInfo("CardSeller detected - " + (GradedOnly ? "graded cards ONLY" : "vanilla (ungraded cards only)") + " (config CardSeller.GradedOnly)");
             }
             catch (Exception e)
             {
-                CoopPlugin.Log.LogWarning("CardSellerInterop.ApplyPatches: " + e.Message + " - IncludeGraded inert");
+                CoopPlugin.Log.LogWarning("CardSellerInterop.ApplyPatches: " + e.Message + " - GradedOnly inert");
             }
+        }
+
+        /// <summary>Pass-1 configs saved <c>CardSeller.IncludeGraded</c>. Called by CoopPlugin
+        /// right after binding GradedOnly: if the cfg still carries IncludeGraded=true (BepInEx
+        /// parks unbound keys in its private OrphanedEntries until the next Save rewrites them)
+        /// and GradedOnly had no saved value of its own, GradedOnly becomes true once; the
+        /// orphan is dropped either way so the stale key leaves the file on the next save.</summary>
+        public static void MigrateLegacyConfig(BepInEx.Configuration.ConfigFile cfg, BepInEx.Configuration.ConfigEntry<bool> gradedOnly, bool gradedOnlyWasSaved)
+        {
+            try
+            {
+                var orphans = Orphans(cfg);
+                if (orphans == null)
+                    return;
+                var legacy = new BepInEx.Configuration.ConfigDefinition("CardSeller", "IncludeGraded");
+                string raw;
+                if (!orphans.TryGetValue(legacy, out raw))
+                    return;
+                orphans.Remove(legacy);
+                bool value;
+                if (!bool.TryParse((raw ?? "").Trim(), out value))
+                    return;
+                if (value && !gradedOnlyWasSaved && gradedOnly != null && !gradedOnly.Value)
+                {
+                    gradedOnly.Value = true;
+                    CoopPlugin.Log.LogInfo("CardSeller.IncludeGraded=true (pass 1) migrated to CardSeller.GradedOnly=true - CardSeller now sells graded cards ONLY");
+                }
+                else
+                    CoopPlugin.Log.LogInfo("CardSeller.IncludeGraded (pass 1 key) dropped from the config; CardSeller.GradedOnly=" + (gradedOnly != null && gradedOnly.Value));
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("CardSellerInterop.MigrateLegacyConfig: " + e.Message); }
+        }
+
+        /// <summary>BepInEx 5's ConfigFile.OrphanedEntries (private getter): every key the cfg
+        /// file holds that no Bind has claimed yet.</summary>
+        private static Dictionary<BepInEx.Configuration.ConfigDefinition, string> Orphans(BepInEx.Configuration.ConfigFile cfg)
+        {
+            try { return Traverse.Create(cfg).Property("OrphanedEntries").GetValue<Dictionary<BepInEx.Configuration.ConfigDefinition, string>>(); }
+            catch (Exception e) { Swallow.Log(e); return null; }
+        }
+
+        /// <summary>True when the cfg file carries a saved value for section/key that nothing has
+        /// bound yet - ask BEFORE Config.Bind claims it.</summary>
+        public static bool HasOrphan(BepInEx.Configuration.ConfigFile cfg, string section, string key)
+        {
+            var orphans = Orphans(cfg);
+            return orphans != null && orphans.ContainsKey(new BepInEx.Configuration.ConfigDefinition(section, key));
         }
 
         private static int KeepQty
@@ -185,7 +237,7 @@ namespace CardShopCoop.Util
                 s_runCandidates = 0;
                 s_runPlaced = 0;
             }
-            if (!IncludeGraded)
+            if (!GradedOnly)
                 return;
             try
             {
@@ -238,14 +290,18 @@ namespace CardShopCoop.Util
         // ------------------------------------------------------------------ 2. splice (worker thread)
 
         /// <summary>Postfix on GetCompatibleCards(ECardExpansionType expansionType, bool
-        /// findGhostDimensionCards): append this expansion's slabs to CardSeller's list. Only
-        /// reads what step 1 minted; no game or GO call happens on this thread.</summary>
+        /// findGhostDimensionCards): graded ONLY - empty the ungraded candidates CardSeller just
+        /// scanned for this expansion (the list is fresh per call; the caller AddRanges it), then
+        /// put this expansion's slabs in their place. Only reads what step 1 minted; no game or GO
+        /// call happens on this thread.</summary>
         public static void ScanOnePostfix(ECardExpansionType __0, bool __1, List<CardData> __result)
         {
-            if (__result == null || !IncludeGraded)
+            if (__result == null || !GradedOnly)
                 return;
             try
             {
+                int dropped = __result.Count;
+                __result.Clear();
                 int added = 0;
                 lock (Gate)
                 {
@@ -262,8 +318,8 @@ namespace CardShopCoop.Util
                         added++;
                     }
                 }
-                if (added > 0)
-                    CoopPlugin.Log.LogInfo($"CardSeller graded: +{added} slab(s) for {__0}{(__1 ? " (dimension)" : "")}");
+                if (added > 0 || dropped > 0)
+                    CoopPlugin.Log.LogInfo($"CardSeller graded only: {added} slab(s) for {__0}{(__1 ? " (dimension)" : "")}, {dropped} ungraded candidate(s) dropped");
             }
             catch (Exception e) { CoopPlugin.Log.LogWarning("CardSellerInterop.ScanOnePostfix: " + e.Message); }
         }
@@ -389,9 +445,9 @@ namespace CardShopCoop.Util
                 placed = s_runPlaced;
             }
             string state = Running ? "placing now" : "idle";
-            return IncludeGraded
-                ? $"graded cards included - last run: {placed} of {cand} eligible slab(s) placed ({state})"
-                : "graded cards excluded - CardSeller sells ungraded cards only (vanilla CardSeller)";
+            return GradedOnly
+                ? $"graded cards only - last run: {placed} of {cand} eligible slab(s) placed, no ungraded cards ({state})"
+                : "vanilla - CardSeller sells ungraded cards only";
         }
 
         private static string Ident(CardData cd)

@@ -73,7 +73,7 @@ namespace CardShopCoop
         public static ConfigEntry<bool> StopAtClose;
         // --- fv-912 traffic-zero-at-close end
         // --- fv-914 cardseller-graded begin
-        public static ConfigEntry<bool> CardSellerIncludeGraded;
+        public static ConfigEntry<bool> CardSellerGradedOnly;
         // --- fv-914 cardseller-graded end
         public static ConfigEntry<string> LastJoinIP;
         public static ConfigEntry<string> PlayerName;
@@ -188,8 +188,12 @@ namespace CardShopCoop
                 "Host only. No new customers arrive once the shop is closed - the OPEN/CLOSED sign flipped to CLOSED after opening for the day, or the 21:00 day end. Customers already inside finish normally; arrivals resume when the sign is opened again or the next day starts. Guests follow the host. false = vanilla (walk-ups keep coming and turn away at the door).");
             // --- fv-912 traffic-zero-at-close end
             // --- fv-914 cardseller-graded begin
-            CardSellerIncludeGraded = Config.Bind("CardSeller", "IncludeGraded", false,
-                "Needs the CardSeller mod. true = CardSeller also puts your GRADED cards out on the shelves (each slab once, at its graded market price - Grading Overhaul's company pricing included - and CardSeller's own SellOnlyGreaterThan/LessThan band and per-set Filters apply; KeepCardQty does not hold slabs back). A placed slab leaves the graded album the same way as lifting it out of the binder. false = CardSeller unchanged (ungraded cards only). Read on every run; also a switch on the TUNING phone app.");
+            // a saved value of the new key shows up as an orphan until Bind claims it
+            bool gradedOnlyWasSaved = Config.ContainsKey(new ConfigDefinition("CardSeller", "GradedOnly"))
+                || Util.CardSellerInterop.HasOrphan(Config, "CardSeller", "GradedOnly");
+            CardSellerGradedOnly = Config.Bind("CardSeller", "GradedOnly", false,
+                "Needs the CardSeller mod. true = CardSeller puts ONLY your GRADED cards out on the shelves, no ungraded cards (each slab once, at its graded market price - Grading Overhaul's company pricing included - and CardSeller's own SellOnlyGreaterThan/LessThan band and per-set Filters apply; KeepCardQty does not hold slabs back). A placed slab leaves the graded album the same way as lifting it out of the binder. false = CardSeller unchanged (ungraded cards only). Read on every run; also a switch on the TUNING phone app. Replaces the pass-1 key IncludeGraded, which migrates here once.");
+            Util.CardSellerInterop.MigrateLegacyConfig(Config, CardSellerGradedOnly, gradedOnlyWasSaved);
             // --- fv-914 cardseller-graded end
             SendRateHz = Config.Bind("Network", "SendRateHz", 15f,
                 "How many position updates per second to send (8-20 is sensible).");
