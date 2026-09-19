@@ -34,3 +34,12 @@ What fv-877 read with them (05:49 session, 20 fps): ~55% of every frame was a uG
 `SendReapplyDrivenProperties`, 100% under `MonoBehaviour::CallUpdateMethod`. The managed script was not
 named before the game closed; `objscan.py` during a laggy session is the next step, or the in-game
 `[profile]` lines (`Diagnostics.PerfDebug = true`, Util/FrameProfiler.cs).
+
+What fv-877 pass 2 read with them (06:55 session, build 07BCDA05, 20 fps, `objscan` fixed): the
+managed classes on the stack under that GetComponents storm were `Card3dUISpawner` (92-100% of hot
+samples), `CardUI`, `Card3dUIGroup`, `CardData` + the card's Image/TextMeshProUGUI tree. Culprit:
+Grading Overhaul 3.4.2's prefix on `Card3dUIGroup.SetSimplifyCardDistanceCull` un-culls every far
+graded card (`ResetFarDistanceCull`) that vanilla's next line re-culls (`SetFarDistanceCull`) - an
+on/off flip of the card's detail UI on every visit. Guarded in `Patches/FarCullThrashGuard.cs`.
+`objscan` tip: the game's own scripts are in the global namespace, so they print without a dot;
+64 KB of span reaches the calling script's frame, 16 KB usually does not.

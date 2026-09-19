@@ -92,6 +92,10 @@ namespace CardShopCoop.Patches
             // Vanilla PlayCardSetUI.Update/LateUpdate NRE twice a frame, all session long
             // (prefix lives in Patches/PlayCardSetUIGuard.cs).
             TryModule("PlayCardSetUIGuard", PlayCardSetUIGuard.ApplyPatches, h);
+            // Solo-play lag: Grading Overhaul's SetSimplifyCardDistanceCull prefix un-culls
+            // every far graded card that vanilla re-culls on the next line, flipping its UI
+            // subtree on/off each visit (Patches/FarCullThrashGuard.cs keeps it un-culled).
+            TryModule("FarCullThrashGuard", FarCullThrashGuard.ApplyPatches, h);
             // Diagnostics.PerfDebug=true also turns on the per-frame cost census
             // (Util/FrameProfiler.cs): one [profile] line every 5 s naming the scripts
             // whose SetActive / canvas rebuilds and whose Update/OnGUI eat the frame.
