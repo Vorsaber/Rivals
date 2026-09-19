@@ -49,9 +49,20 @@ namespace TcgDifficulty
         }
 
         private float _timer;
-        private int _appliedPlayers = -1;
-        private int _appliedDay = -1;
-        private DifficultyProfile _appliedProfile = (DifficultyProfile)(-1);
+        private static int s_appliedPlayers = -1;
+        private static int s_appliedDay = -1;
+        private static DifficultyProfile s_appliedProfile = (DifficultyProfile)(-1);
+
+        // --- fv-874 difficulty-log-line begin
+        /// <summary>A switch (SetProfile / SetOverride / ClearOverride) already applied and
+        /// logged the current tuple: the tick must not log it a second time.</summary>
+        internal static void MarkApplied()
+        {
+            s_appliedPlayers = Difficulty.Players;
+            s_appliedDay = Difficulty.Day;
+            s_appliedProfile = Difficulty.Profile;
+        }
+        // --- fv-874 difficulty-log-line end
 
         private void Awake()
         {
@@ -115,11 +126,11 @@ namespace TcgDifficulty
             int players = Difficulty.Players;
             int day = Difficulty.Day;
             var p = Difficulty.Profile;
-            if (players == _appliedPlayers && p == _appliedProfile && day == _appliedDay)
+            if (players == s_appliedPlayers && p == s_appliedProfile && day == s_appliedDay)
                 return;
-            _appliedPlayers = players;
-            _appliedProfile = p;
-            _appliedDay = day;
+            s_appliedPlayers = players;
+            s_appliedProfile = p;
+            s_appliedDay = day;
             Difficulty.Reapply();
             if (p != DifficultyProfile.Off)
                 Log.LogInfo("Difficulty: " + Difficulty.Describe());
