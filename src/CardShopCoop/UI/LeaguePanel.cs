@@ -97,14 +97,28 @@ namespace CardShopCoop.UI
             if (s_view != View.Today && kept == 0)
                 s_view = View.Today;
 
+            // --- fv-876 league-app-fit begin
+            // the header + the three tabs + Scoring run ~600 px: on a narrow panel the tabs
+            // take their own row rather than pushing Scoring off the right edge
+            bool oneRow = width >= 700f;
             GUILayout.BeginHorizontal();
             GUILayout.Label("END OF DAY - LEAGUE STANDINGS", CoopTheme.SectionHeader);
             GUILayout.FlexibleSpace();
+            if (!oneRow)
+            {
+                GUILayout.EndHorizontal();
+                GUILayout.BeginHorizontal();
+            }
+            // --- fv-876 league-app-fit end
             ViewButton(View.Today, "Today");
             ViewButton(View.Window, $"Last {LeagueDay.HistoryDays} days");
             ViewButton(View.Season, kept > 1 ? $"Season ({kept} days)" : "Season");
             if (host && GUILayout.Button(s_scoring ? "Scoring \u25B4" : "Scoring \u25BE", CoopTheme.ButtonSecondary, GUILayout.Width(84f)))
                 s_scoring = !s_scoring;
+            // --- fv-876 league-app-fit begin
+            if (!oneRow)
+                GUILayout.FlexibleSpace();
+            // --- fv-876 league-app-fit end
             GUILayout.EndHorizontal();
 
             if (host && s_scoring)
@@ -134,18 +148,25 @@ namespace CardShopCoop.UI
             int n = ranked.Count;
             bool window = s_view != View.Today;
             // header
-            float nameW = Mathf.Clamp(width * 0.22f, 90f, 180f);
-            float colW = Mathf.Max(54f, (width - nameW - 40f) / LeagueDay.Kpis.Length);
+            // --- fv-876 league-app-fit begin
+            // the columns share the width the box really has (its padding and the scroll bar
+            // come off first) instead of a hard 54 px minimum that ran the table ~190 px past
+            // the phone window; below 56 px per column the numbers drop a point in size
+            float avail = width - 36f;
+            float nameW = Mathf.Clamp(avail * 0.24f, 120f, 210f);
+            float colW = Mathf.Max(40f, (avail - nameW) / LeagueDay.Kpis.Length);
+            int valSize = colW >= 56f ? 11 : 10;
             GUILayout.BeginHorizontal();
-            GUILayout.Label("<size=10>#  shop / day</size>", CoopTheme.LabelDim, GUILayout.Width(nameW + 40f));
+            GUILayout.Label("<size=10>#  shop / day</size>", CoopTheme.LabelDim, GUILayout.Width(nameW));
             foreach (var (key, label, _, _) in LeagueDay.Kpis)
             {
                 bool on = LeagueDay.IsEnabled(key);
                 float w = LeagueDay.WeightOf(key);
                 string tag = !on ? " (off)" : Mathf.Approximately(w, 1f) ? "" : $" x{w:0.##}";
-                GUILayout.Label($"<size=10>{(on ? "" : "<color=#777777>")}{label}{tag}{(on ? "" : "</color>")}</size>", CoopTheme.LabelDim, GUILayout.Width(colW));
+                GUILayout.Label($"<size=10>{(on ? "" : "<color=#777777>")}{label}{tag}{(on ? "" : "</color>")}</size>", CoopTheme.LabelDimWrap, GUILayout.Width(colW));
             }
             GUILayout.EndHorizontal();
+            // --- fv-876 league-app-fit end
             for (int i = 0; i < ranked.Count; i++)
             {
                 var row = ranked[i];
@@ -153,21 +174,25 @@ namespace CardShopCoop.UI
                 bool mine = r.Name == me;
                 string sub = window ? $"d{r.Day} \u00B7 {row.Days} day{(row.Days == 1 ? "" : "s")} \u00B7 {row.Points:0.#} pts" : $"d{r.Day} \u00B7 {row.Points:0.#} pts";
                 GUILayout.BeginHorizontal(i % 2 == 0 ? CoopTheme.RowEven : CoopTheme.RowOdd);
-                GUILayout.Label($"{(mine ? "<b>" : "")}{Medal(row.Overall)} {r.Name}{(mine ? "</b>" : "")} <size=10>{sub}</size>", CoopTheme.Label, GUILayout.Width(nameW + 40f));
+                // --- fv-876 league-app-fit begin
+                GUILayout.Label($"{(mine ? "<b>" : "")}{Medal(row.Overall)} {r.Name}{(mine ? "</b>" : "")} <size=10>{sub}</size>", CoopTheme.LabelWrap, GUILayout.Width(nameW));
                 foreach (var (key, _, get, money) in LeagueDay.Kpis)
                 {
                     double v = get(r);
                     string text = money ? GameInstance.GetPriceString(v) : key == "satisfaction" ? $"{v:0}%" : $"{v:0}";
                     int rank = row.Rank.TryGetValue(key, out int rk) ? rk : n;
                     string col = !LeagueDay.IsEnabled(key) ? "#777777" : rank == 0 ? "#7CFC00" : rank == n - 1 && n > 1 ? "#ff8a80" : "#ffffff";
-                    GUILayout.Label($"<size=11><color={col}>{text}</color></size>", CoopTheme.Label, GUILayout.Width(colW));
+                    GUILayout.Label($"<size={valSize}><color={col}>{text}</color></size>", CoopTheme.Label, GUILayout.Width(colW));
                 }
+                // --- fv-876 league-app-fit end
                 GUILayout.EndHorizontal();
             }
             string note = window
                 ? "green = best of the window on that measure, red = last; points = each day's placings summed (weighted, (off) columns do not score); money and level are the latest; costs include rent, bills, wages, stock and upgrades"
                 : "green = best of the league on that measure, red = last; points = sum of placings, weighted by the host's scoring ((off) columns do not score); costs include rent, bills, wages, stock and upgrades";
-            GUILayout.Label("<size=10>" + note + "</size>", CoopTheme.LabelDim);
+            // --- fv-876 league-app-fit begin
+            GUILayout.Label("<size=10>" + note + "</size>", CoopTheme.LabelDimWrap); // wraps: ~1000 px of text on one line
+            // --- fv-876 league-app-fit end
             // --- fv-826 weeks-under-season begin
             if (s_view == View.Season)
                 DrawSeasonWeeks();
