@@ -64,6 +64,9 @@ namespace CardShopCoop
         // --- fv-871 league-day-sync end
         public static ConfigEntry<int> MaxCustomers;
         public static ConfigEntry<float> SpawnRateMultiplier;
+        // --- fv-912 traffic-zero-at-close begin
+        public static ConfigEntry<bool> StopAtClose;
+        // --- fv-912 traffic-zero-at-close end
         public static ConfigEntry<string> LastJoinIP;
         public static ConfigEntry<string> PlayerName;
         public static ConfigEntry<float> SendRateHz;
@@ -172,6 +175,10 @@ namespace CardShopCoop
                 "Host only. Cap on customers in the shop at once. 0 = the game's own cap (3-30 by shop level and rooms). Applied through the game's normal spawn pacing; guests see the same crowd.");
             SpawnRateMultiplier = Config.Bind("Population", "SpawnRateMultiplier", 1f,
                 "Host only. Multiplies how often a new customer arrives (2 = twice as often, 0.5 = half). 1 = vanilla. Overrides the TcgDifficulty profile when that plugin is installed.");
+            // --- fv-912 traffic-zero-at-close begin
+            StopAtClose = Config.Bind("Population", "StopAtClose", true,
+                "Host only. No new customers arrive once the shop is closed - the OPEN/CLOSED sign flipped to CLOSED after opening for the day, or the 21:00 day end. Customers already inside finish normally; arrivals resume when the sign is opened again or the next day starts. Guests follow the host. false = vanilla (walk-ups keep coming and turn away at the door).");
+            // --- fv-912 traffic-zero-at-close end
             SendRateHz = Config.Bind("Network", "SendRateHz", 15f,
                 "How many position updates per second to send (8-20 is sensible).");
             if (Mathf.Approximately(SendRateHz.Value, 12f))
