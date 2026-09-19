@@ -5495,6 +5495,30 @@ namespace CardShopCoop
                                         + goStore + " - your own SOLO save slots are untouched, but graded cards in THIS co-op slot are now judged "
                                         + "against the host's burned serials and cert bindings, and any this PC issued itself can be flagged FAKE on the next load. "
                                         + "The previous file was kept once as .coopbak beside it.");
+                                // --- fv-908 grading-overhaul-fake begin
+                                // THE STALE-STORE HOLE. The sidecar only overwrites files the host HAS.
+                                // A host that has never saved its slot with Grading Overhaul ships no
+                                // store, so this slot keeps the store of whatever world this PC joined
+                                // LAST (a rig hops between shops, all into this one co-op slot). Its
+                                // bindings then collide with the new host's certs (every shop numbers
+                                // from 1) and GO's AddCard prefix stamps the host's genuine cards FAKE
+                                // here. A host with no store has an EMPTY store, so match it: retire
+                                // ours (kept beside it as .coopstale) and let GO start this slot fresh.
+                                else if (File.Exists(goStore) && !Sync.SidecarTransfer.WroteFile(goStore))
+                                {
+                                    try
+                                    {
+                                        string stale = goStore + ".coopstale";
+                                        if (File.Exists(stale))
+                                            File.Delete(stale);
+                                        File.Move(goStore, stale);
+                                        CoopPlugin.Log.LogWarning("Grading Overhaul cert store for the co-op slot retired (kept as .coopstale): the host sent none "
+                                            + "for its slot, so the copy left here by an earlier world would have judged the host's graded cards against a "
+                                            + "stranger's serials and flagged them FAKE. This slot's store now starts empty, exactly as the host's is.");
+                                    }
+                                    catch (Exception e) { CoopPlugin.Log.LogWarning("coop: could not retire the stale Grading Overhaul store: " + e.Message); }
+                                }
+                                // --- fv-908 grading-overhaul-fake end
                                 SaveTransfer.ApplyAndLoadAsync(saveBytes, transferGen,
                                     () => { },
                                     e =>
