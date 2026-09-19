@@ -214,6 +214,24 @@ namespace CardShopCoop.Sync.Rivals
             catch { }
             Status = $"league {Id} save kept in slot {Slot} - it loads again when the lobby host starts the league";
             CoopPlugin.Log.LogInfo("League: session ended (title screen)");
+            // --- fv-873 ready-after-title begin
+            // The captain's shop was HOSTED (Tick opened it to the team and visitors). Quitting
+            // to the title only ends a CLIENT session (CoopCore.OnSceneLoaded); a host reaching
+            // the title kept Role = Host with the world gone behind it, and everything that
+            // wants the title screen - Ready up, Return home, the next START - is gated on
+            // Role == None, so the lobby was dead until a game restart. The shop closed with
+            // the scene: close the session it was hosting too.
+            try
+            {
+                var core = CoopCore.Instance;
+                if (core != null && CoopCore.Role == CoopRole.Host)
+                {
+                    core.Disconnect();
+                    CoopPlugin.Log.LogInfo("League: the shop's co-op session closed with it (title screen) - the lobby can ready up again");
+                }
+            }
+            catch (Exception e) { CoopPlugin.Log.LogWarning("League: closing the shop's session at the title: " + e.Message); }
+            // --- fv-873 ready-after-title end
         }
 
         /// <summary>Ticked from RivalsLobby.Update (before its own early-outs): finish the
