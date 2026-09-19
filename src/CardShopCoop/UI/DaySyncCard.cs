@@ -200,11 +200,9 @@ namespace CardShopCoop.UI
                     line += " - waiting for " + waiting;
                 else if (mine != null && !mine.Ready)
                     line += " - waiting for you";
-                if (LeagueDaySync.Deadline > 0 && !(mine != null && mine.Released))
-                {
-                    long left = LeagueDaySync.Deadline - DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                    line += left > 0 ? $"  (host timeout releases in {left} s)" : "  (timeout - releasing)";
-                }
+                string fc = LeagueDaySync.ForceCountdown();
+                if (fc.Length > 0 && !(mine != null && mine.Released))
+                    line += "  (host override: " + fc + ")";
                 GUILayout.Label(line, CoopTheme.LabelWarn);
             }
 
@@ -220,12 +218,11 @@ namespace CardShopCoop.UI
             if (RivalsLobby.Role == RivalsLobby.LobbyRole.Server)
             {
                 GUILayout.FlexibleSpace();
-                bool anyWaiting = false;
-                foreach (var s in shops)
-                    if (s.Ready && !s.Released)
-                        anyWaiting = true;
-                GUI.enabled = anyWaiting;
-                if (GUILayout.Button("Force - release the ready shops", CoopTheme.ButtonDanger, GUILayout.Width(220f)))
+                // the admin override: locked until a shop has waited the timeout out (0 = never)
+                bool unlocked = LeagueDaySync.ForceUnlocked();
+                string fc = LeagueDaySync.ForceCountdown();
+                GUI.enabled = unlocked;
+                if (GUILayout.Button(unlocked ? "Force - release the ready shops" : (fc.Length > 0 ? fc : "Force (no timeout set)"), CoopTheme.ButtonDanger, GUILayout.Width(220f)))
                     LeagueDaySync.HostForce();
                 GUI.enabled = true;
             }

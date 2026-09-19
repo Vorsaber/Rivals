@@ -160,7 +160,7 @@ namespace CardShopCoop
             // --- fv-686 standings-v2 end
             // --- fv-871 league-day-sync begin
             RivalsDayEndTimeoutSec = Config.Bind("Rivals", "DayEndTimeoutSec", 120,
-                new ConfigDescription("Lobby host: league shops end the day (Enter at closing time) and open the next one (the OPEN sign) together - a shop that is ready waits for the others. After this many seconds of waiting the lobby releases the shops that are ready; the rest catch up at their own pace. 0 = wait for everyone, however long. The LEAGUE box also has a Force button.", new AcceptableValueRange<int>(0, 3600)));
+                new ConfigDescription("Lobby host: league shops advance the day and open the next one together - a shop that pressed READY on the league card waits for every other shop, always. After a shop has waited this many seconds the host's Force button on the card unlocks (an admin override that releases the shops that are ready; the rest catch up at their own pace). 0 = Force never unlocks: strict, everyone waits for everyone.", new AcceptableValueRange<int>(0, 3600)));
             // --- fv-871 league-day-sync end
             MaxPlayers = Config.Bind("Network", "MaxPlayers", 4,
                 new ConfigDescription("Host: players in the shop including you (2-8). Sets the Steam lobby size and refuses LAN joins past it. Everything is relayed through the host, so above 4 expect the host's upload to be the limit.", new AcceptableValueRange<int>(2, 8)));

@@ -25,8 +25,10 @@ namespace CardShopCoop.Sync.Rivals
     /// playing shop stands at or past the same point of the same day. That is what makes forces,
     /// late joiners and shops on different day numbers come out right: a shop released early
     /// (host forced) simply runs ahead, and the laggard is released the moment it asks, because
-    /// everyone else is already past it. The host's timeout (Rivals.DayEndTimeoutSec, default
-    /// 120 s, 0 = never) and the Force button release whoever is waiting right now.
+    /// everyone else is already past it. Nothing releases a waiter automatically: once a shop
+    /// has waited Rivals.DayEndTimeoutSec (default 120 s) the lobby host's Force button UNLOCKS
+    /// (an admin override, Dan: "keep the 120s timeout, but make it a 120s admin override
+    /// option"); 0 = it never unlocks. Force releases whoever is waiting right now.
     /// </summary>
     public static class LeagueDaySync
     {
@@ -450,10 +452,11 @@ namespace CardShopCoop.Sync.Rivals
             ServerSync(before != after);
         }
 
-        /// <summary>The lobby host's Force button: release every shop waiting right now.</summary>
+        /// <summary>The lobby host's Force button (admin override, unlocked by the timeout):
+        /// release every shop waiting right now.</summary>
         public static void HostForce()
         {
-            if (RivalsLobby.Role != RivalsLobby.LobbyRole.Server)
+            if (!ForceUnlocked())
                 return;
             int n = 0;
             foreach (var s in s_server.Values)
@@ -464,34 +467,35 @@ namespace CardShopCoop.Sync.Rivals
                 }
             if (n > 0)
             {
-                RivalsLobby.LobbyChat("the host released the shops that are ready - the rest catch up");
+                RivalsLobby.LobbyChat("the host used the override - the shops that are ready go on; the rest catch up");
                 ServerSync(true);
             }
         }
 
         private static void ServerTick()
         {
-            // the timeout: a shop that has waited long enough goes on without the others
-            int timeout = TimeoutSec;
-            bool forced = false;
-            if (timeout > 0)
-                foreach (var s in s_server.Values)
-                {
-                    if (!s.Playing || !s.State.Ready || !IsWaitingStage(s.State.Stage) || s.WaitingSince < 0f)
-                        continue;
-                    string key = Key(s.State.Day, s.State.Stage);
-                    if (s.ForcedKey != key && Time.unscaledTime - s.WaitingSince >= timeout)
-                    {
-                        s.ForcedKey = key;
-                        forced = true;
-                        RivalsLobby.LobbyChat($"{s.State.Name} waited {timeout} s - released; the other shops catch up");
-                    }
-                }
+            // nothing releases on its own; the timeout only unlocks the host's Force (below)
             s_resendTimer += 1f;
             bool resend = s_resendTimer >= 5f;
             if (resend)
                 s_resendTimer = 0f;
-            ServerSync(forced || resend);
+            ServerSync(resend);
+        }
+
+        /// <summary>Server: the admin override is available - some shop has waited the timeout
+        /// out and is still not released (0 = never).</summary>
+        public static bool ForceUnlocked()
+        {
+            if (RivalsLobby.Role != RivalsLobby.LobbyRole.Server)
+                return false;
+            int timeout = TimeoutSec;
+            if (timeout <= 0)
+                return false;
+            foreach (var s in s_server.Values)
+                if (s.Playing && s.State.Ready && IsWaitingStage(s.State.Stage) && !s.State.Released
+                    && s.WaitingSince >= 0f && Time.unscaledTime - s.WaitingSince >= timeout)
+                    return true;
+            return false;
         }
 
         /// <summary>Compute every shop's Released and send the picture to everyone when it changed
@@ -584,10 +588,20 @@ namespace CardShopCoop.Sync.Rivals
 
         private static string Countdown()
         {
+            string c = ForceCountdown();
+            return c.Length > 0 ? " (" + c + ")" : "";
+        }
+
+        /// <summary>"Force available in 1:37" while the host's override is locked, "Force
+        /// available" once the timeout has run out, "" when there is no timeout (strict).</summary>
+        public static string ForceCountdown()
+        {
             if (Deadline <= 0)
                 return "";
             long left = Deadline - Now();
-            return left > 0 ? $" (released in {left} s)" : " (releasing)";
+            if (left <= 0)
+                return "Force available";
+            return $"Force available in {left / 60}:{left % 60:00}";
         }
 
         public static string StageText(RivalsDayState s)
