@@ -7,7 +7,7 @@ usage: objscan.py <pid> <tid> [samples] [interval] [bytes-of-stack] [only-when-l
 import ctypes, ctypes.wintypes as w, sys, time, collections, os, re, struct
 sys.path.insert(0, os.path.dirname(__file__))
 from ipsample import k32, modules, CONTEXT, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ, THREAD_GET_CONTEXT, THREAD_SUSPEND_RESUME
-from ipsample2 import dbghelp, SYMBOL_INFOW, MAX_SYM_NAME, SYMOPT_UNDNAME, SYMOPT_DEFERRED_LOADS
+from ipsample2 import Symbolizer
 
 CONTEXT_ALL = 0x10001F
 NAME_OFFSETS = [(0x40, 0x48), (0x48, 0x50), (0x38, 0x40), (0x50, 0x58)]
@@ -35,16 +35,29 @@ def main():
             return b.raw
         return None
 
+    def rdstack(addr, n):
+        # page by page up to the first unreadable page (the stack's guard page), so a wide span never yields nothing
+        out = []
+        while n > 0:
+            step = min(n, 4096 - (addr & 4095))
+            b = rd(addr, step)
+            if not b:
+                break
+            out.append(b); addr += step; n -= step
+        return b"".join(out)
+
     def rdq(addr):
         b = rd(addr, 8)
         return struct.unpack("<Q", b)[0] if b else None
 
-    def rdstr(addr, n=64):
+    def rdstr(addr, n=64, allow_empty=False):
         b = rd(addr, n)
         if not b:
             return None
         s = b.split(b"\0")[0]
-        if not s or len(s) > 60:
+        if not s:
+            return "" if allow_empty else None
+        if len(s) > 60:
             return None
         try:
             t = s.decode("ascii")
@@ -60,30 +73,14 @@ def main():
                 return True
         return False
 
-    dbghelp.SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS)
-    dbghelp.SymInitializeW.argtypes = [w.HANDLE, ctypes.c_wchar_p, w.BOOL]
-    dbghelp.SymInitializeW(hp, symdir, False)
-    dbghelp.SymLoadModuleExW.argtypes = [w.HANDLE, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulonglong, w.DWORD, ctypes.c_void_p, w.DWORD]
-    dbghelp.SymLoadModuleExW.restype = ctypes.c_ulonglong
-    dbghelp.SymFromAddrW.argtypes = [w.HANDLE, ctypes.c_ulonglong, ctypes.POINTER(ctypes.c_ulonglong), ctypes.POINTER(SYMBOL_INFOW)]
-    psapi = ctypes.WinDLL("psapi")
-    psapi.GetModuleFileNameExW.argtypes = [w.HANDLE, ctypes.c_void_p, ctypes.c_wchar_p, w.DWORD]
-    psapi.EnumProcessModulesEx.argtypes = [w.HANDLE, ctypes.POINTER(ctypes.c_void_p), w.DWORD, ctypes.POINTER(w.DWORD), w.DWORD]
-    arr = (ctypes.c_void_p * 2048)(); n = w.DWORD(); pbuf = ctypes.create_unicode_buffer(1024)
-    psapi.EnumProcessModulesEx(hp, arr, ctypes.sizeof(arr), ctypes.byref(n), 3)
-    for i in range(n.value // 8):
-        psapi.GetModuleFileNameExW(hp, arr[i], pbuf, 1024)
-        if os.path.basename(pbuf.value) == "UnityPlayer.dll":
-            for lo, hi, nm in mods:
-                if nm == "UnityPlayer.dll":
-                    dbghelp.SymLoadModuleExW(hp, None, pbuf.value, None, lo, hi - lo, None, 0)
-    si = SYMBOL_INFOW()
+    # symbols: reuse ipsample2's Symbolizer. objscan's own dbghelp session resolved every UnityPlayer
+    # address to the wrong name (2026-09-19; cause not chased), so the leaf filter never matched.
+    symb = Symbolizer(symdir, mods, hp)
 
     def leafname(a):
-        si.SizeOfStruct = 88; si.MaxNameLen = MAX_SYM_NAME
-        disp = ctypes.c_ulonglong()
-        if dbghelp.SymFromAddrW(hp, a, ctypes.byref(disp), ctypes.byref(si)):
-            return si.Name
+        nm = symb.name(a)
+        if nm:
+            return nm.rsplit('+0x', 1)[0]
         return "<jit>" if not in_module(a) else "?"
 
     klass_cache = {}
@@ -96,7 +93,8 @@ def main():
             np_, nsp = rdq(kp + on), rdq(kp + ons)
             if not np_ or not nsp:
                 continue
-            nm, ns = rdstr(np_), rdstr(nsp, 64)
+            # the game's own scripts live in the GLOBAL namespace (PlayCardSetUI, CSingleton...): ns == "" is valid
+            nm, ns = rdstr(np_), rdstr(nsp, 64, allow_empty=True)
             if nm and ns is not None and nm[0].isalpha() or (nm and nm[0] in "<_"):
                 out = (ns + "." if ns else "") + nm
                 break
@@ -105,6 +103,7 @@ def main():
 
     ctx = CONTEXT()
     per_class = collections.Counter()
+    leaves = collections.Counter()
     per_class_samples = collections.Counter()
     used = 0
     for _ in range(n_samples):
@@ -114,34 +113,45 @@ def main():
         try:
             k32.GetThreadContext(ht, ctypes.byref(ctx))
             rsp = ctx.Rsp & ~7
-            data = rd(rsp, span) or b""
+            data = rdstack(rsp, span)
             regs = [ctx.Rbx, ctx.Rsi, ctx.Rdi, ctx.R12, ctx.R13, ctx.R14, ctx.R15, ctx.Rcx, ctx.Rdx, ctx.Rbp]
             lf = leafname(ctx.Rip)
+            leaves[lf] += 1
             if only and not only.search(lf):
-                continue
-            used += 1
-            words = list(regs) + list(struct.unpack_from(f"<{len(data)//8}Q", data))
-            seen = set()
-            for wd in words:
-                if wd < 0x10000 or wd > 0x7FFFFFFFFFFF or (wd & 7) or in_module(wd):
-                    continue
-                vt = rdq(wd)
-                if not vt or vt < 0x10000 or vt > 0x7FFFFFFFFFFF or (vt & 7):
-                    continue
-                kp = rdq(vt)
-                if not kp or kp < 0x10000 or kp > 0x7FFFFFFFFFFF or (kp & 7):
-                    continue
-                # MonoVTable: klass at +0, then gc_descr, domain, type ... sanity: vtable->domain-ish pointers
-                nm = klass_name(kp)
-                if not nm:
-                    continue
-                per_class[nm] += 1
-                seen.add(nm)
-            for nm in seen:
-                per_class_samples[nm] += 1
+                # `continue` used to skip the sleep below: a tight suspend loop that pinned the thread on one Rip
+                skip = True
+            else:
+                skip = False
         finally:
             k32.ResumeThread(ht)
+        if skip:
+            time.sleep(interval)
+            continue
+        used += 1
+        # the class scan runs with the thread RESUMED (live heap words; a stale one is possible, consistent ones are real)
+        words = list(regs) + list(struct.unpack_from(f"<{len(data)//8}Q", data))
+        seen = set()
+        for wd in words:
+            if wd < 0x10000 or wd > 0x7FFFFFFFFFFF or (wd & 7) or in_module(wd):
+                continue
+            vt = rdq(wd)
+            if not vt or vt < 0x10000 or vt > 0x7FFFFFFFFFFF or (vt & 7):
+                continue
+            kp = rdq(vt)
+            if not kp or kp < 0x10000 or kp > 0x7FFFFFFFFFFF or (kp & 7):
+                continue
+            # MonoVTable: klass at +0, then gc_descr, domain, type ... sanity: vtable->domain-ish pointers
+            nm = klass_name(kp)
+            if not nm:
+                continue
+            per_class[nm] += 1
+            seen.add(nm)
+        for nm in seen:
+            per_class_samples[nm] += 1
         time.sleep(interval)
+    print("leaf functions seen:")
+    for nm, c in leaves.most_common(8):
+        print(f"{100.0*c/n_samples:6.1f}%  {nm}")
     print(f"{used} samples used (of {n_samples}); classes referenced from the stack (samples containing / total refs):")
     for nm, c in per_class_samples.most_common(70):
         print(f"{100.0*c/max(used,1):6.1f}%  {per_class[nm]:6d}  {nm}")
