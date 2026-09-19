@@ -204,33 +204,68 @@ namespace CardShopCoop.UI
             GUILayout.EndHorizontal();
         }
 
+        // --- fv-910 slider-crash begin
+        // keys whose row threw once: logged, then skipped for the rest of the session so one
+        // bad key never takes the app down (the row is absent on every pass, so the layout stays
+        // consistent)
+        private static readonly HashSet<string> s_broken = new HashSet<string>();
+
         /// <summary>A slider over one config float of a companion plugin. The drag is held in
         /// s_pending and written once when the mouse is let go (a config write saves the
-        /// plugin's file; per frame would thrash it). Returns true on the write.</summary>
+        /// plugin's file; per frame would thrash it). Returns true on the write.
+        /// The write happens on the LAYOUT event, never on Repaint: IMGUI counts the frame's
+        /// controls on Layout, and a commit on Repaint used to raise the status label a pass
+        /// too late ("control 7 in a group with only 7 controls") - the app closed on every
+        /// slider release.</summary>
         private static bool KnobRow(string guid, string section, Knob k, float width)
         {
             string id = guid + "/" + k.Key;
-            float stored;
-            if (!Companions.TryGetFloat(guid, section, k.Key, out stored))
+            if (s_broken.Contains(id))
                 return false;
-            float shown = s_pending.TryGetValue(id, out float pend) ? pend : stored;
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(k.Label, CoopTheme.LabelDim, GUILayout.Width(200f));
-            float v = GUILayout.HorizontalSlider(shown, k.Min, k.Max);
-            GUILayout.Label($"x{v:0.00}", CoopTheme.Label, GUILayout.Width(56f));
-            GUILayout.EndHorizontal();
-            if (!Mathf.Approximately(v, shown))
-                s_pending[id] = v;
-            bool wrote = false;
-            if (s_pending.ContainsKey(id) && !Input.GetMouseButton(0) && Event.current.type == EventType.Repaint)
+            bool open = false;
+            try
             {
-                float commit = s_pending[id];
-                s_pending.Remove(id);
-                if (!Mathf.Approximately(commit, stored))
-                    wrote = Companions.SetFloat(guid, section, k.Key, commit);
+                float stored;
+                if (!Companions.TryGetFloat(guid, section, k.Key, out stored))
+                    return false;
+                bool wrote = false;
+                if (Event.current.type == EventType.Layout
+                    && s_pending.TryGetValue(id, out float commit) && !Input.GetMouseButton(0))
+                {
+                    s_pending.Remove(id);
+                    if (!Mathf.Approximately(commit, stored))
+                    {
+                        wrote = Companions.SetFloat(guid, section, k.Key, commit);
+                        if (wrote)
+                            stored = commit;
+                    }
+                }
+                float shown = s_pending.TryGetValue(id, out float pend) ? pend : stored;
+                GUILayout.BeginHorizontal();
+                open = true;
+                GUILayout.Label(k.Label, CoopTheme.LabelDim, GUILayout.Width(200f));
+                float v = GUILayout.HorizontalSlider(Mathf.Clamp(shown, k.Min, k.Max), k.Min, k.Max);
+                GUILayout.Label($"x{v:0.00}", CoopTheme.Label, GUILayout.Width(56f));
+                GUILayout.EndHorizontal();
+                open = false;
+                if (!Mathf.Approximately(v, shown))
+                    s_pending[id] = v;
+                return wrote;
             }
-            return wrote;
+            catch (ExitGUIException) { throw; }
+            catch (Exception e)
+            {
+                if (open)
+                {
+                    try { GUILayout.EndHorizontal(); } catch { }
+                }
+                s_broken.Add(id);
+                s_pending.Remove(id);
+                CoopPlugin.Log.LogWarning("EconPanel: slider " + section + "." + k.Key + " threw - hidden until restart: " + e);
+                return false;
+            }
         }
+        // --- fv-910 slider-crash end
 
         // ================================================================ guest
 
