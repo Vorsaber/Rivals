@@ -83,6 +83,11 @@ namespace CardShopCoop.Patches
             // InteractableOpenCloseSign.OnMouseButtonUp live in Sync/Rivals/LeagueDaySync.cs).
             Sync.Rivals.LeagueDaySync.ApplyPatches(h);
             // --- fv-871 league-day-sync end
+            // --- fv-914 cardseller-graded begin
+            // CardSeller sells graded cards too, behind CardSeller.IncludeGraded (prefix/postfix on
+            // its private scan, plus identity-gated ReduceCard/GetCardAmount prefixes - Util/CardSellerInterop.cs).
+            Util.CardSellerInterop.ApplyPatches(h);
+            // --- fv-914 cardseller-graded end
 
             // The CMF camera reads Mouse X/Y directly from its own CameraMouseInput
             // component. InteractionPlayerController.EnterUIMode disables the game's
@@ -1158,6 +1163,13 @@ namespace CardShopCoop.Patches
 
         public static void ReduceCardPostfix(CardData cardData, int reduceAmount)
         {
+            // --- fv-914 cardseller-graded begin
+            // a slab CardSeller placed left through RemoveGradedCard (its own mirror below);
+            // the ReduceCard it called was skipped, so there is no ungraded -1 to ship.
+            // Consumed before the role gate so the token never outlives its call in solo.
+            if (Util.CardSellerInterop.ConsumeReduceSkip(cardData))
+                return;
+            // --- fv-914 cardseller-graded end
             if (ApplyingRemoteCards || CoopCore.Role == CoopRole.None)
                 return;
             try
