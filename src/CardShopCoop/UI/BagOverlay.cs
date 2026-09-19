@@ -56,10 +56,24 @@ namespace CardShopCoop.UI
             return CoopCore.IsVisiting && VisitorBag.IsOpen;
         }
 
+        // fv-872: InteractionPlayerController.m_Instance is a dead static - the game declares it
+        // and never assigns it (CoopCore.ResolvePlayer / CheatMenu.InGame say the same). Reading
+        // it here left Binder() null on every frame, so the panel never drew. Find the controller
+        // in the scene instead and cache it; a scene change destroys it (Unity == null) and the
+        // next look-up re-finds it. Not CSingleton<>.Instance - that spawns one when none exists.
+        private static InteractionPlayerController _ipc;
+        private static float _nextIpcLookup;
+
         private static CollectionBinderFlipAnimCtrl Binder()
         {
-            var ipc = InteractionPlayerController.m_Instance;
-            return ipc != null ? ipc.m_CollectionBinderFlipAnimCtrl : null;
+            if (_ipc == null && Time.unscaledTime >= _nextIpcLookup)
+            {
+                _nextIpcLookup = Time.unscaledTime + 0.5f; // a scene scan, not a per-frame one
+                _ipc = InteractionPlayerController.m_Instance;
+                if (_ipc == null)
+                    _ipc = FindObjectOfType<InteractionPlayerController>();
+            }
+            return _ipc != null ? _ipc.m_CollectionBinderFlipAnimCtrl : null;
         }
 
         private void Update()
