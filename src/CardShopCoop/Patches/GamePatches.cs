@@ -88,6 +88,16 @@ namespace CardShopCoop.Patches
             // its private scan, plus identity-gated ReduceCard/GetCardAmount prefixes - Util/CardSellerInterop.cs).
             Util.CardSellerInterop.ApplyPatches(h);
             // --- fv-914 cardseller-graded end
+            // --- fv-877 nre-guard begin
+            // Vanilla PlayCardSetUI.Update/LateUpdate NRE twice a frame, all session long
+            // (prefix lives in Patches/PlayCardSetUIGuard.cs).
+            TryModule("PlayCardSetUIGuard", PlayCardSetUIGuard.ApplyPatches, h);
+            // Diagnostics.PerfDebug=true also turns on the per-frame cost census
+            // (Util/FrameProfiler.cs): one [profile] line every 5 s naming the scripts
+            // whose SetActive / canvas rebuilds and whose Update/OnGUI eat the frame.
+            if (CoopPlugin.PerfDebug != null && CoopPlugin.PerfDebug.Value)
+                TryModule("FrameProfiler", Util.FrameProfiler.Install, h);
+            // --- fv-877 nre-guard end
 
             // The CMF camera reads Mouse X/Y directly from its own CameraMouseInput
             // component. InteractionPlayerController.EnterUIMode disables the game's
