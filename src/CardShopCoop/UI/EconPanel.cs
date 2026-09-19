@@ -186,6 +186,28 @@ namespace CardShopCoop.UI
                 }
             }
             GUILayout.EndVertical();
+            GUILayout.Space(6f);
+
+            // --- fv-914 cardseller-graded begin
+            // ---------------- CardSeller (third-party): sell graded cards too
+            GUILayout.BeginVertical(CoopTheme.SectionBox);
+            GUILayout.Label("CARD SELLER", CoopTheme.SectionHeader);
+            if (!CardSellerInterop.Installed)
+                GUILayout.Label("CardSeller.dll is not installed on this PC.", CoopTheme.LabelDimWrap);
+            else
+            {
+                bool on = CoopPlugin.CardSellerIncludeGraded != null && CoopPlugin.CardSellerIncludeGraded.Value;
+                bool want = GUILayout.Toggle(on, " sell graded cards too", CoopTheme.Toggle);
+                if (want != on && CoopPlugin.CardSellerIncludeGraded != null)
+                {
+                    CoopPlugin.CardSellerIncludeGraded.Value = want; // BepInEx saves the config file
+                    Say("CardSeller: " + CardSellerInterop.Describe());
+                }
+                GUILayout.Label(CardSellerInterop.Describe(), CoopTheme.LabelDimWrap);
+                GUILayout.Label("<size=10>Read on CardSeller's next run (its key, day start or customer pickup). Each slab goes out once at its graded market price; CardSeller's own price band and set filters still apply.</size>", CoopTheme.LabelDimWrap);
+            }
+            GUILayout.EndVertical();
+            // --- fv-914 cardseller-graded end
             GUILayout.Space(4f);
             GUILayout.Label("<size=10>Changes apply live: prices where they are read, the crowd on its next evaluation, staff costs at once. Both plugins write their own config file.</size>", CoopTheme.LabelDimWrap);
         }
