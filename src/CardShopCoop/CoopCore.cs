@@ -710,6 +710,9 @@ namespace CardShopCoop
                 bool ok = _avatars.TryGetPose(conn, out var p, out var f);
                 return (ok, p, f);
             };
+            // --- fv-875 guest-cheats-toggle begin
+            UI.CheatMenu.Broadcast = Broadcast;
+            // --- fv-875 guest-cheats-toggle end
             _guestBattle.SendToHost = Send(1);
             _guestBattle.SendToClient = Send;
             _tables.RegisterIntents(_intents);

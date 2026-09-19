@@ -158,6 +158,9 @@ namespace CardShopCoop.Net.Messages
     {
         public string Text = "";
         public int SelectDeck = -1;     // a deck the host just made FOR this guest: select it once mirrored
+        // --- fv-875 guest-cheats-toggle begin
+        public int GuestCheats = -1;    // the host's Cheats > AllowGuestRequests: 1 on, 0 off, -1 not carried (older host)
+        // --- fv-875 guest-cheats-toggle end
         public MsgType Type
         {
             get
