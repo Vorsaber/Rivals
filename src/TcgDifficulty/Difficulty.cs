@@ -69,6 +69,7 @@ namespace TcgDifficulty
             s_oStaff = staffPerPlayer;
             Reapply();
             ApplyStaffCosts();
+            Announce("league override");
         }
 
         public static void ClearOverride()
@@ -78,7 +79,23 @@ namespace TcgDifficulty
             s_override = false;
             Reapply();
             ApplyStaffCosts();
+            Announce("league override cleared");
         }
+
+        // --- fv-874 difficulty-log-line begin
+        /// <summary>Log the multipliers in force right now, from the switch itself (the 3 s
+        /// tick in <see cref="Plugin"/> only notices a change after the fact, and never a
+        /// switch to Off). Also marks the tuple applied so the tick does not log it again.</summary>
+        private static void Announce(string why)
+        {
+            try
+            {
+                Plugin.Log.LogInfo($"Difficulty: {Describe()} ({why})");
+                Plugin.MarkApplied();
+            }
+            catch (Exception e) { Plugin.Log.LogWarning("Difficulty.Announce: " + e.Message); }
+        }
+        // --- fv-874 difficulty-log-line end
 
         public static bool HasOverride => s_override;
 
@@ -131,10 +148,13 @@ namespace TcgDifficulty
 
         public static void SetProfile(int profile)
         {
-            if (Plugin.ProfileEntry != null && Enum.IsDefined(typeof(DifficultyProfile), profile))
+            bool known = Plugin.ProfileEntry != null && Enum.IsDefined(typeof(DifficultyProfile), profile);
+            bool changed = known && Plugin.ProfileEntry.Value != (DifficultyProfile)profile;
+            if (known)
                 Plugin.ProfileEntry.Value = (DifficultyProfile)profile;
             Reapply();
             ApplyStaffCosts();
+            Announce(!known ? "unknown profile " + profile + ", kept" : changed ? "profile set" : "profile re-set, unchanged");
         }
 
         /// <summary>Base multipliers at ONE player, day 1.</summary>
